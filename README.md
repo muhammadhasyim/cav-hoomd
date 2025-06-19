@@ -1,74 +1,213 @@
-# HOOMD-blue component template
+# HOOMD-blue Bussi Reservoir Energy Plugin
 
-`hoomd-component-template` provides a framework to develop components that extend
-[**HOOMD-blue**](https://glotzerlab.engin.umich.edu/hoomd-blue/). It includes template C++ and
-Python modules, an example unit test, CMake scripts to build the component, and GitHub Actions
-workflows.
+This plugin extends the Bussi stochastic velocity rescaling thermostat in HOOMD-blue to track the energy dumped into or taken from the thermal reservoir during molecular dynamics simulations.
 
-## Building the component
+## Features
 
-To build this component:
+- **Reservoir Energy Tracking**: Monitor cumulative and instantaneous energy exchange with the thermal bath
+- **Separate Tracking**: Track translational and rotational contributions separately
+- **HOOMD Logging Integration**: All quantities are available for logging and analysis
+- **Reset Functionality**: Reset counters to measure energy over specific time periods
+- **Drop-in Replacement**: Uses the same interface as the standard Bussi thermostat
 
-1. Build and install **HOOMD-blue** from source.
-2. Obtain the component's source.
-    ```
-    $ git clone https://github.com/glotzerlab/hoomd-component-template
-    ```
-3. Configure.
-    ```
-    $ cmake -B build/hoomd-component-template -S hoomd-component-template
-    ```
-4. Build the component.
-    ```
-    $ cmake --build build/hoomd-component-template
-    ```
-5. Install the component.
-    ```
-    $ cmake --install build/hoomd-component-template
-    ```
+## Installation
 
-Once installed, the template is available for import via:
+### Prerequisites
+
+- HOOMD-blue 4.x installed from source
+- CMake 3.16 or newer
+- C++17 compatible compiler
+
+### Building the Plugin
+
+1. Clone this repository:
+   ```bash
+   git clone <this-repository>
+   cd hoomd-bussi-reservoir
+   ```
+
+2. Configure the build:
+   ```bash
+   cmake -B build -S .
+   ```
+
+3. Build and install:
+   ```bash
+   cmake --build build
+   cmake --install build
+   ```
+
+## Usage
+
+### Basic Usage
+
+```python
+import hoomd
+import hoomd.bussi_reservoir as bussi_res
+
+# Create simulation
+simulation = hoomd.Simulation(device=hoomd.device.CPU(), seed=42)
+
+# Set up your system (particles, box, etc.)
+# ... simulation setup code ...
+
+# Create the Bussi reservoir thermostat
+bussi = bussi_res.thermostats.BussiReservoir(
+    kT=1.5,  # Temperature
+    tau=simulation.operations.integrator.dt * 20  # Time constant
+)
+
+# Use with ConstantVolume method
+nve = hoomd.md.methods.ConstantVolume(
+    filter=hoomd.filter.All(),
+    thermostat=bussi
+)
+
+simulation.operations.integrator = hoomd.md.Integrator(
+    dt=0.001,
+    methods=[nve]
+)
+
+# Run simulation
+simulation.run(10000)
+
+# Check reservoir energies
+print(f"Total reservoir energy: {bussi.total_reservoir_energy}")
+print(f"Translational component: {bussi.reservoir_energy_translational}")
+print(f"Rotational component: {bussi.reservoir_energy_rotational}")
 ```
-import hoomd.template
+
+### Logging Reservoir Energies
+
+```python
+import hoomd.write
+
+# Create logger
+logger = hoomd.logging.Logger()
+
+# Add reservoir energy quantities
+logger.add(bussi, quantities=[
+    'total_reservoir_energy',
+    'reservoir_energy_translational',
+    'reservoir_energy_rotational',
+    'instantaneous_reservoir_total',
+    'instantaneous_reservoir_translational',
+    'instantaneous_reservoir_rotational'
+])
+
+# Write to file
+gsd_writer = hoomd.write.GSD(
+    filename='trajectory.gsd',
+    trigger=hoomd.trigger.Periodic(1000),
+    logger=logger
+)
+simulation.operations.writers.append(gsd_writer)
+
+# Or write to table
+table_writer = hoomd.write.Table(
+    output=open('reservoir_energy.log', 'w'),
+    trigger=hoomd.trigger.Periodic(100),
+    logger=logger
+)
+simulation.operations.writers.append(table_writer)
 ```
-(replace `template` with the `COMPONENT_NAME` you set in `src/CMakeLists.txt`).
 
-## Creating a new component
+### Measuring Energy Over Specific Periods
 
-To create a new component:
+```python
+# Reset counters before measurement period
+bussi.reset_reservoir_energy()
 
-1. Fork [hoomd-component-template](https://github.com/glotzerlab/hoomd-component-template/).
-2. Address all **TODO** comments (including those in `.github/`)
-3. Add C++ and Python files to `src/`.
-4. Add unit tests in `src/pytest`.
-5. Format and check code style with [pre-commit](https://pre-commit.com/).
+# Run equilibration
+simulation.run(5000)
 
-## Using the provided GitHub Actions configuration
+# Reset again before production
+bussi.reset_reservoir_energy()
 
-When you push your changes to GitHub, the [unit test workflow](.github/workflows/unit-test.yaml)
-compile your code on the CPU (with and without MPI) and on the GPU (with and without MPI). The
-workflow also executes the unit tests on the CPU. You should run GPU unit tests locally, as GitHub
-does not provide free GPU runners for GitHub Actions. As a one time step, you need to navigate to
-the "Actions" tab of your repository and confirm that GitHub should execute actions for your fork.
+# Run production
+simulation.run(50000)
 
-When you push a new tag, the [release workflow](.github/workflows/release.yaml) will create a
-new GitHub release with automatically generated release notes.
+# Measure reservoir energy for production period only
+production_reservoir_energy = bussi.total_reservoir_energy
+print(f"Reservoir energy during production: {production_reservoir_energy}")
+```
 
-## Maintaining your component
+## Theory
 
-The HOOMD-blue developers will periodically update
-[hoomd-component-template](https://github.com/glotzerlab/hoomd-component-template/), including
-updates to the GitHub Actions workflow, pre-commit configuration, and CMake scripts. Merge these
-changes into your fork to support the latest version of HOOMD-blue.
+The reservoir energy represents the energy exchange between the simulated system and the thermal bath during stochastic velocity rescaling. At each timestep, the kinetic energy is rescaled by a factor α:
 
-## Documenting and releasing your component
+```
+KE_new = α² × KE_old
+```
 
-TODO: Document your component in `README.md` (this file) and remove documentation relevant to the
-template.
+The energy dumped to the reservoir is:
 
-When appropriate:
+```
+ΔE_reservoir = KE_old - KE_new = KE_old × (1 - α²)
+```
 
-* Add [Sphinx](https://www.sphinx-doc.org) documentation and publish it on
-[readthedocs](https://www.readthedocs.org).
-* Add a [conda-forge](https://conda-forge.org/) package.
-* Announce your component on the [HOOMD-blue discussion board](https://github.com/glotzerlab/hoomd-blue/discussions).
+- **Positive values**: Energy dumped to reservoir (system cooling)
+- **Negative values**: Energy taken from reservoir (system heating)
+- **Cumulative tracking**: Total energy exchange over simulation time
+- **Instantaneous tracking**: Energy exchange in the last timestep
+
+## API Reference
+
+### BussiReservoir Class
+
+#### Constructor
+```python
+BussiReservoir(kT, tau=0.0)
+```
+
+**Parameters:**
+- `kT`: Temperature set point (energy units)
+- `tau`: Thermostat time constant (time units), default 0.0 for instant thermalization
+
+#### Properties (Read-only)
+- `reservoir_energy_translational`: Cumulative energy from translational DOF
+- `reservoir_energy_rotational`: Cumulative energy from rotational DOF  
+- `total_reservoir_energy`: Total cumulative energy
+- `instantaneous_reservoir_translational`: Last timestep translational energy
+- `instantaneous_reservoir_rotational`: Last timestep rotational energy
+- `instantaneous_reservoir_total`: Last timestep total energy
+
+#### Methods
+- `reset_reservoir_energy()`: Reset all energy counters to zero
+
+## Testing
+
+Run the test suite:
+
+```bash
+cd build
+python -m pytest ../src/pytest/
+```
+
+## Physical Interpretation
+
+The reservoir energy provides insights into:
+
+1. **Thermalization efficiency**: How much energy is exchanged to maintain temperature
+2. **System behavior**: Whether the system tends to heat up or cool down naturally
+3. **Thermostat performance**: Monitoring for proper statistical mechanics
+4. **Energy conservation**: Tracking total energy flow in the system
+
+## Comparison with Standard Bussi Thermostat
+
+This plugin provides the exact same thermodynamic behavior as the standard Bussi thermostat, with the additional capability to track reservoir energies. The computational overhead is minimal (just a few floating-point operations per timestep).
+
+## Citation
+
+If you use this plugin in your research, please cite:
+
+- The original Bussi et al. paper: [Canonical sampling through velocity rescaling](https://doi.org/10.1063/1.2408420)
+- HOOMD-blue: [HOOMD-blue: A Python package for high-performance molecular dynamics and hard particle Monte Carlo simulations](https://doi.org/10.1016/j.cpc.2022.108363)
+
+## License
+
+This plugin is released under the same BSD 3-Clause License as HOOMD-blue.
+
+## Contributing
+
+Contributions are welcome! Please submit issues and pull requests on the GitHub repository.

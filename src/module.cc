@@ -1,8 +1,7 @@
 // Copyright (c) 2009-2025 The Regents of the University of Michigan.
 // Part of HOOMD-blue, released under the BSD 3-Clause License.
 
-// TODO: Include the header files of classes that will be exported to Python.
-
+#include "BussiReservoirThermostat.h"
 #include <pybind11/pybind11.h>
 
 namespace hoomd
@@ -10,15 +9,15 @@ namespace hoomd
 namespace md
     {
 
-// TODO: Set the name of the python module to match ${COMPONENT_NAME} (set in
-// CMakeLists.txt), prefixed with an underscore.
-PYBIND11_MODULE(_template, m)
+void export_BussiReservoirThermostat(pybind11::module& m);
+
+// Set the name of the python module to bussi_reservoir
+PYBIND11_MODULE(_bussi_reservoir, m)
     {
-        // TODO: Call export_Class(m) for each C++ class to be exported to Python.
+        export_BussiReservoirThermostat(m);
 
 #ifdef ENABLE_HIP
-        // TODO: Call export_ClassGPU(m) for each GPU enabled C++ class to be exported
-        // to Python.
+        // TODO: Add GPU support if needed
 #endif
     }
 

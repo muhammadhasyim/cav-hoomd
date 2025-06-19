@@ -1,19 +1,21 @@
-# TODO: Set COMPONENT_NAME to the name of your Python package.
-set(COMPONENT_NAME template)
+# Set COMPONENT_NAME to the name of your Python package.
+set(COMPONENT_NAME bussi_reservoir)
 
-# TODO: List all host C++ source code files in _${COMPONENT_NAME}_sources.
+# List all host C++ source code files in _${COMPONENT_NAME}_sources.
 set(_${COMPONENT_NAME}_sources
     module.cc
+    BussiReservoirThermostat.cc
     )
 
-# TODO: List all GPU C++ source code files in _${COMPONENT_NAME}_cu_sources.
+# List all GPU C++ source code files in _${COMPONENT_NAME}_cu_sources.
 set(_${COMPONENT_NAME}_cu_sources
     )
 
-# TODO: List all Python modules in python_files.
+# List all Python modules in python_files.
 set(python_files
     __init__.py
     version.py
+    thermostats.py
     )
 
 if (ENABLE_HIP)
