@@ -166,7 +166,7 @@ protected:
     Scalar m_instantaneous_reservoir_translational = 0.0;
     Scalar m_instantaneous_reservoir_rotational = 0.0;
 
-    /** Compute the rescaling factor (same as original Bussi implementation)
+    /** Compute the rescaling factor (now with correct sign determination)
 
         @param K kinetic energy
         @param degrees_of_freedom Number of degrees of freedom with this energy.
@@ -203,7 +203,25 @@ protected:
         double term1 = v * (1.0 - time_decay_factor) * (r_gamma + r_normal_one * r_normal_one);
         double term2 = 2.0 * r_normal_one * sqrt(v * (1.0 - time_decay_factor) * time_decay_factor);
 
-        return Scalar(sqrt(time_decay_factor + term1 + term2));
+        // Calculate α² (always positive)
+        double alpha_squared = time_decay_factor + term1 + term2;
+        double alpha_magnitude = sqrt(alpha_squared);
+        
+        // Determine sign according to equation (A8) from Bussi et al. 2009
+        // sign[α(t)] = sign[R(t) + √(cNf*K*(t)/((1-c)K̄*))]
+        double c = time_decay_factor;  // c = exp(-Δt/τ)
+        double K_bar = set_T * degrees_of_freedom / 2.0;  // average kinetic energy
+        double sign_term = r_normal_one + sqrt(c * degrees_of_freedom * K / ((1.0 - c) * K_bar));
+        
+        // Apply the correct sign
+        if (sign_term >= 0.0)
+        {
+            return Scalar(alpha_magnitude);
+        }
+        else
+        {
+            return Scalar(-alpha_magnitude);
+        }
     }
 };
 
