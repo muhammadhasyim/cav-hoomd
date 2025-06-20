@@ -8,7 +8,10 @@ namespace hoomd::md
 
 void export_BussiReservoirThermostat(pybind11::module& m)
 {
-    pybind11::class_<BussiReservoirThermostat, Thermostat, std::shared_ptr<BussiReservoirThermostat>>(
+    // For external modules built against pre-packaged HOOMD, we can't use direct inheritance
+    // in pybind11 because the base class isn't available. We export without inheritance
+    // and handle the polymorphism at the Python level.
+    pybind11::class_<BussiReservoirThermostat, std::shared_ptr<BussiReservoirThermostat>>(
         m, "BussiReservoirThermostat")
         .def(pybind11::init<std::shared_ptr<Variant>,
                             std::shared_ptr<ParticleGroup>,
@@ -16,6 +19,11 @@ void export_BussiReservoirThermostat(pybind11::module& m)
                             std::shared_ptr<SystemDefinition>,
                             Scalar>())
         .def_property("tau", &BussiReservoirThermostat::getTau, &BussiReservoirThermostat::setTau)
+        // Base class methods that need to be exposed
+        .def_property("kT", &BussiReservoirThermostat::getT, &BussiReservoirThermostat::setT)
+        .def("computeTemperature", &BussiReservoirThermostat::computeTemperature)
+        .def("advanceTimeStep", &BussiReservoirThermostat::advanceTimeStep)
+        // Derived class specific methods
         .def("getReservoirEnergyTranslational", &BussiReservoirThermostat::getReservoirEnergyTranslational)
         .def("getReservoirEnergyRotational", &BussiReservoirThermostat::getReservoirEnergyRotational)
         .def("getTotalReservoirEnergy", &BussiReservoirThermostat::getTotalReservoirEnergy)
