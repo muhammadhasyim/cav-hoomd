@@ -21,8 +21,6 @@ void export_BussiReservoirThermostat(pybind11::module& m)
         .def_property("tau", &BussiReservoirThermostat::getTau, &BussiReservoirThermostat::setTau)
         // Base class methods that need to be exposed
         .def_property("kT", &BussiReservoirThermostat::getT, &BussiReservoirThermostat::setT)
-        .def("computeTemperature", &BussiReservoirThermostat::computeTemperature)
-        .def("advanceTimeStep", &BussiReservoirThermostat::advanceTimeStep)
         // Derived class specific methods
         .def("getReservoirEnergyTranslational", &BussiReservoirThermostat::getReservoirEnergyTranslational)
         .def("getReservoirEnergyRotational", &BussiReservoirThermostat::getReservoirEnergyRotational)
