@@ -63,10 +63,6 @@ struct cavity_force_params
     The cavity particle must have type name 'L'.
     Only x,y components of the cavity mode and dipole are used.
     
-    Virial contributions:
-    - Molecular particles: contribute to system virial via virial = r_i · F_i
-    - Cavity particle: contributes to system virial via virial = q · F_cavity
-    
     \ingroup computes
 */
 class PYBIND11_EXPORT CavityForceCompute : public ForceCompute
@@ -95,9 +91,6 @@ public:
     
     //! Get dipole self-energy component
     Scalar getDipoleSelfEnergy();
-    
-    //! Get virial values for all particles
-    std::vector<std::vector<Scalar>> getVirialValues();
 
 protected:
     //! Actually compute the forces

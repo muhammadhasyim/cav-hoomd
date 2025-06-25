@@ -70,24 +70,6 @@ Scalar CavityForceCompute::getDipoleSelfEnergy()
     return m_dipole_self_energy;
 }
 
-std::vector<std::vector<Scalar>> CavityForceCompute::getVirialValues()
-{
-    ArrayHandle<Scalar> h_virial(m_virial, access_location::host, access_mode::read);
-    unsigned int N = m_pdata->getN();
-    
-    std::vector<std::vector<Scalar>> virial_values(N, std::vector<Scalar>(6, 0.0));
-    
-    for (unsigned int i = 0; i < N; i++)
-    {
-        for (unsigned int j = 0; j < 6; j++)
-        {
-            virial_values[i][j] = h_virial.data[j * m_virial_pitch + i];
-        }
-    }
-    
-    return virial_values;
-}
-
 int CavityForceCompute::findPhotonParticle(const Scalar4* pos_data, unsigned int N)
 {
     // Find photon particle with type name 'L'
@@ -156,13 +138,11 @@ void CavityForceCompute::computeForces(uint64_t timestep)
     ArrayHandle<Scalar4> h_force(m_force, access_location::host, access_mode::overwrite);
     ArrayHandle<Scalar> h_charge(m_pdata->getCharges(), access_location::host, access_mode::read);
     ArrayHandle<int3> h_image(m_pdata->getImages(), access_location::host, access_mode::read);
-    ArrayHandle<Scalar> h_virial(m_virial, access_location::host, access_mode::overwrite);
     
     unsigned int N = m_pdata->getN();
     
-    // Zero force and virial arrays
+    // Zero force arrays
     memset(h_force.data, 0, sizeof(Scalar4) * N);
-    m_virial.zeroFill();
     
     // Find photon particle
     int photon_idx = findPhotonParticle(h_pos.data, N);
@@ -200,7 +180,7 @@ void CavityForceCompute::computeForces(uint64_t timestep)
     // Assign potential energy to photon particle
     h_force.data[photon_idx].w = total_cavity_energy;
     
-    // Compute forces on molecular particles and their virial contributions
+    // Compute forces on molecular particles
     vec3<Scalar> Dq = q_photon_xy + (m_params.couplstr / m_params.K) * dipole_xy;
     
     // Get the typeid for 'L' type
@@ -217,25 +197,6 @@ void CavityForceCompute::computeForces(uint64_t timestep)
             h_force.data[i].x = force.x;
             h_force.data[i].y = force.y;
             h_force.data[i].z = Scalar(0.0); // Zero z-component
-            
-            // Compute virial contribution for molecular particle
-            // Virial = r_i · F_i (where r_i is position of particle i)
-            // Note: For intermolecular forces, we don't use relative positions
-            vec3<Scalar> pos_i = unwrapped_pos[i];
-            
-            Scalar virial[6];
-            virial[0] = pos_i.x * force.x; // xx
-            virial[1] = pos_i.x * force.y; // xy  
-            virial[2] = pos_i.x * force.z; // xz
-            virial[3] = pos_i.y * force.y; // yy
-            virial[4] = pos_i.y * force.z; // yz
-            virial[5] = pos_i.z * force.z; // zz
-            
-            // Add virial contribution to particle
-            for (unsigned int j = 0; j < 6; j++)
-            {
-                h_virial.data[j * m_virial_pitch + i] += virial[j];
-            }
         }
     }
     
@@ -244,26 +205,6 @@ void CavityForceCompute::computeForces(uint64_t timestep)
     h_force.data[photon_idx].x = photon_force.x;
     h_force.data[photon_idx].y = photon_force.y;
     h_force.data[photon_idx].z = photon_force.z;
-    
-    // Compute virial contribution for cavity particle using standard formula: virial = position × force
-    vec3<Scalar> cavity_pos = unwrapped_pos[photon_idx];
-    Scalar cavity_virial[6];
-    cavity_virial[0] = cavity_pos.x * photon_force.x; // xx
-    cavity_virial[1] = cavity_pos.x * photon_force.y; // xy  
-    cavity_virial[2] = cavity_pos.x * photon_force.z; // xz
-    cavity_virial[3] = cavity_pos.y * photon_force.y; // yy
-    cavity_virial[4] = cavity_pos.y * photon_force.z; // yz
-    cavity_virial[5] = cavity_pos.z * photon_force.z; // zz
-    
-    // Add virial contribution to cavity particle
-    for (unsigned int j = 0; j < 6; j++)
-    {
-        h_virial.data[j * m_virial_pitch + photon_idx] += cavity_virial[j];
-    }
-    
-    // Note: Both molecular and cavity particles contribute to system virial
-    // Molecular particles: virial = r_i × F_i
-    // Cavity particle: virial = q × F_cavity
 }
 
 namespace detail
@@ -279,8 +220,7 @@ void export_CavityForceCompute(pybind11::module& m)
         .def("getParams", &CavityForceCompute::getParams)
         .def("getHarmonicEnergy", &CavityForceCompute::getHarmonicEnergy)
         .def("getCouplingEnergy", &CavityForceCompute::getCouplingEnergy)
-        .def("getDipoleSelfEnergy", &CavityForceCompute::getDipoleSelfEnergy)
-        .def("getVirialValues", &CavityForceCompute::getVirialValues);
+        .def("getDipoleSelfEnergy", &CavityForceCompute::getDipoleSelfEnergy);
 }
 } // end namespace detail
 

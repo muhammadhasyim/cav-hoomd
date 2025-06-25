@@ -180,7 +180,7 @@ class CavityForce(hoomd.md.force.Force):
     @log(requires_run=True)
     def harmonic_energy(self):
         """Harmonic oscillator energy component: (1/2) * K * q²"""
-        if self._implementation == "cpp":
+        if self._implementation in ["cpp", "cuda"]:
             return self._force_impl.getHarmonicEnergy() if self._force_impl else 0.0
         else:
             return getattr(self._force_impl, 'harmonic_energy', 0.0)
@@ -188,7 +188,7 @@ class CavityForce(hoomd.md.force.Force):
     @log(requires_run=True)
     def coupling_energy(self):
         """Coupling interaction energy component: g * (q · d)"""
-        if self._implementation == "cpp":
+        if self._implementation in ["cpp", "cuda"]:
             return self._force_impl.getCouplingEnergy() if self._force_impl else 0.0
         else:
             return getattr(self._force_impl, 'coupling_energy', 0.0)
@@ -196,7 +196,7 @@ class CavityForce(hoomd.md.force.Force):
     @log(requires_run=True)
     def dipole_self_energy(self):
         """Dipole self-energy component: (g²/2K) * d²"""
-        if self._implementation == "cpp":
+        if self._implementation in ["cpp", "cuda"]:
             return self._force_impl.getDipoleSelfEnergy() if self._force_impl else 0.0
         else:
             return getattr(self._force_impl, 'dipole_self_energy', 0.0)
