@@ -1,24 +1,37 @@
 #!/usr/bin/env python3
 """
-Simple Cavity MD Experiment Runner for SLURM Array Jobs
+Simple Cavity MD Experiment Runner for SLURM Array Jobs or Local Loops
 
 Usage:
+    # SLURM mode (original):
     python run_cavity_experiments.py --coupling COUPLSTR [--runtime PS] [--experiment EXPERIMENT] [--molecular-tau TAU] [--cavity-tau TAU] [--log-to-file] [--log-to-console] [--enable-fkt] [--fkt-kmag K]
+    
+    # Local loop mode (new):
+    python run_cavity_experiments.py --coupling COUPLSTR --replicas START-END [other options...]
+    python run_cavity_experiments.py --coupling COUPLSTR --replicas 1,3,5,7 [other options...]
 
 Examples:
+    # SLURM mode (single replica from SLURM_ARRAY_TASK_ID):
     python run_cavity_experiments.py --coupling 1e-3
     python run_cavity_experiments.py --coupling 5e-4 --experiment bussi_langevin_finiteq
     python run_cavity_experiments.py --coupling 1e-2 --molecular-tau 10.0 --cavity-tau 1.0
     python run_cavity_experiments.py --coupling 2e-3 --runtime 200 --molecular-tau 2.0 --cavity-tau 0.5
     
+    # Local loop mode (multiple replicas):
+    python run_cavity_experiments.py --coupling 1e-3 --replicas 1-10  # Run replicas 1 through 10
+    python run_cavity_experiments.py --coupling 1e-3 --replicas 1,3,5  # Run specific replicas
+    python run_cavity_experiments.py --coupling 1e-3 --start-replica 1 --end-replica 5  # Alternative range syntax
+    python run_cavity_experiments.py --coupling 1e-2 --replicas 1-3 --molecular-tau 10.0 --cavity-tau 1.0
+    python run_cavity_experiments.py --coupling 2e-3 --replicas 1,2,5,10 --runtime 200 --molecular-tau 2.0 --cavity-tau 0.5
+    
     # Logging examples:
-    python run_cavity_experiments.py --coupling 1e-3 --log-to-console  # Log to console only
-    python run_cavity_experiments.py --coupling 1e-3 --log-to-file  # Log to file only
-    python run_cavity_experiments.py --coupling 1e-3 --log-to-file --log-to-console  # Log to both
+    python run_cavity_experiments.py --coupling 1e-3 --replicas 1-3 --log-to-console  # Log to console only
+    python run_cavity_experiments.py --coupling 1e-3 --replicas 1-3 --log-to-file  # Log to file only
+    python run_cavity_experiments.py --coupling 1e-3 --replicas 1-3 --log-to-file --log-to-console  # Log to both
     
     # F(k,t) calculation examples:
-    python run_cavity_experiments.py --coupling 1e-3 --enable-fkt  # Enable F(k,t) calculation
-    python run_cavity_experiments.py --coupling 1e-3 --enable-fkt --fkt-kmag 2.0 --fkt-wavevectors 100  # Custom F(k,t) settings
+    python run_cavity_experiments.py --coupling 1e-3 --replicas 1-5 --enable-fkt  # Enable F(k,t) calculation
+    python run_cavity_experiments.py --coupling 1e-3 --replicas 1-5 --enable-fkt --fkt-kmag 2.0 --fkt-wavevectors 100  # Custom F(k,t) settings
 
 SLURM Usage:
     # Submit array job with different coupling values
@@ -34,6 +47,10 @@ Note on tau values:
     - For overdamped dynamics (tau → 0), use molecular_thermostat='brownian' or cavity_thermostat='brownian' instead
     - Brownian dynamics is automatically used when use_brownian_overdamped=True and cavity_damping_factor > 5.0
     - Brownian dynamics explicitly models the overdamped limit where inertia is neglected
+
+Note on replica/frame behavior:
+    - In SLURM mode: replica and frame are both set to $SLURM_ARRAY_TASK_ID
+    - In local loop mode: frame number always equals replica number
 """
 
 import sys
@@ -48,23 +65,45 @@ BUSSI_LANGEVIN_EXPERIMENTS = [
     ("bussi_langevin_no_finiteq", "bussi", "langevin", False),
 ]
 
+def parse_replicas(replicas_str):
+    """Parse replica specification string into list of integers.
+    
+    Args:
+        replicas_str: String like "1-10", "1,3,5,7", etc.
+        
+    Returns:
+        List of replica numbers (integers)
+    """
+    replicas = []
+    
+    # Handle comma-separated values
+    parts = replicas_str.split(',')
+    for part in parts:
+        part = part.strip()
+        if '-' in part:
+            # Handle range like "1-10"
+            start, end = part.split('-', 1)
+            start, end = int(start.strip()), int(end.strip())
+            replicas.extend(range(start, end + 1))
+        else:
+            # Handle single number
+            replicas.append(int(part))
+    
+    return sorted(list(set(replicas)))  # Remove duplicates and sort
+
 def get_slurm_info():
     """Get SLURM job information from environment variables."""
     task_id = os.environ.get('SLURM_ARRAY_TASK_ID')
     job_id = os.environ.get('SLURM_JOB_ID', 'unknown')
     
     if task_id is None:
-        print("Warning: SLURM_ARRAY_TASK_ID not found. Using default replica=0, frame=1")
-        print("This script is designed for SLURM array jobs.")
-        replica = 0
-        frame = -1
+        return None, None, job_id
     else:
         replica = int(task_id)
         frame = int(task_id)
         print(f"SLURM Array Job ID: {job_id}")
         print(f"SLURM Array Task ID: {task_id} (using as replica and frame number)")
-    
-    return replica, frame
+        return replica, frame, job_id
 
 def run_single_experiment(exp_name, molecular_thermo, cavity_thermo, finite_q, coupling, replica, frame, runtime_ps, molecular_tau, cavity_tau, log_to_file, log_to_console, enable_fkt, fkt_kmag, fkt_wavevectors, fkt_ref_interval, fkt_max_refs, max_energy_output_time=None, device='CPU', gpu_id=0):
     """Run a single experiment."""
@@ -129,7 +168,7 @@ def run_single_experiment(exp_name, molecular_thermo, cavity_thermo, finite_q, c
         return False
 
 def main():
-    parser = argparse.ArgumentParser(description="Run cavity MD experiments with SLURM")
+    parser = argparse.ArgumentParser(description="Run cavity MD experiments with SLURM or local loops")
     parser.add_argument('--coupling', type=float, required=True, help='Coupling strength (required)')
     parser.add_argument('--runtime', type=float, default=500.0, help='Runtime in ps (default: 500)')
     parser.add_argument('--experiment', type=str, default='bussi_langevin_finiteq', 
@@ -138,6 +177,12 @@ def main():
     parser.add_argument('--molecular-tau', type=float, default=5.0, help='Molecular thermostat time constant in ps (default: 5.0)')
     parser.add_argument('--cavity-tau', type=float, default=5.0, help='Cavity thermostat time constant in ps (default: 5.0)')
      
+    # Replica specification options (for local loop mode)
+    replica_group = parser.add_mutually_exclusive_group()
+    replica_group.add_argument('--replicas', type=str, help='Replicas to run (e.g., "1-10" or "1,3,5,7")')
+    replica_group.add_argument('--start-replica', type=int, help='Starting replica number (use with --end-replica)')
+    parser.add_argument('--end-replica', type=int, help='Ending replica number (use with --start-replica)')
+    
     # Logging options
     parser.add_argument('--log-to-file', action='store_true', help='Log output to files (default: False)')
     parser.add_argument('--log-to-console', action='store_true', help='Log output to console (default: False)')
@@ -156,8 +201,38 @@ def main():
     
     args = parser.parse_args()
     
-    # Get SLURM task information
-    replica, frame = get_slurm_info()
+    # Validate replica arguments
+    if args.start_replica is not None and args.end_replica is None:
+        print("Error: --end-replica is required when using --start-replica")
+        return 1
+    if args.end_replica is not None and args.start_replica is None:
+        print("Error: --start-replica is required when using --end-replica")
+        return 1
+    
+    # Determine replicas to run
+    replica_list = []
+    mode = "SLURM"
+    
+    if args.replicas is not None:
+        # Local loop mode with replicas string
+        replica_list = parse_replicas(args.replicas)
+        mode = "LOCAL_LOOP"
+    elif args.start_replica is not None and args.end_replica is not None:
+        # Local loop mode with start/end range
+        replica_list = list(range(args.start_replica, args.end_replica + 1))
+        mode = "LOCAL_LOOP"
+    else:
+        # SLURM mode - get single replica from environment
+        replica, frame, job_id = get_slurm_info()
+        if replica is None:
+            print("Warning: SLURM_ARRAY_TASK_ID not found and no replica range specified.")
+            print("Using default replica=0, frame=0")
+            print("Use --replicas or --start-replica/--end-replica for local loop mode.")
+            replica_list = [0]
+            mode = "FALLBACK"
+        else:
+            replica_list = [replica]
+            mode = "SLURM"
     
     # Find the selected experiment
     exp_dict = {name: (name, mol, cav, fq) for name, mol, cav, fq in BUSSI_LANGEVIN_EXPERIMENTS}
@@ -169,12 +244,11 @@ def main():
     exp_name, molecular_thermo, cavity_thermo, finite_q = exp_dict[args.experiment]
     
     print("="*60)
-    print("CAVITY MD EXPERIMENT (SLURM MODE)")
+    print(f"CAVITY MD EXPERIMENT ({mode} MODE)")
     print("="*60)
     print(f"Experiment: {exp_name}")
     print(f"Coupling strength: {args.coupling}")
-    print(f"Replica: {replica}")
-    print(f"Frame: {frame}")
+    print(f"Replicas to run: {replica_list}")
     print(f"Device: {args.device}" + (f" (GPU {args.gpu_id})" if args.device == 'GPU' else ""))
     print(f"Runtime: {args.runtime} ps")
     print(f"Molecular thermostat: {molecular_thermo} (tau={args.molecular_tau} ps)")
@@ -189,20 +263,43 @@ def main():
         print(f"  Max references: {args.fkt_max_refs}")
     print("="*60)
     
-    # Run the experiment
-    success = run_single_experiment(
-        exp_name, molecular_thermo, cavity_thermo, finite_q, 
-        args.coupling, replica, frame, args.runtime, args.molecular_tau, args.cavity_tau, 
-        args.log_to_file, args.log_to_console, args.enable_fkt, 
-        args.fkt_kmag, args.fkt_wavevectors, args.fkt_ref_interval, args.fkt_max_refs,
-        args.max_energy_output_time, args.device, args.gpu_id
-    )
+    # Run experiments for all replicas
+    total_experiments = len(replica_list)
+    successful_experiments = 0
+    failed_experiments = 0
     
-    if success:
-        print("\n🎉 Experiment completed successfully!")
+    for i, replica in enumerate(replica_list, 1):
+        frame = replica  # Frame number equals replica number as requested
+        
+        print(f"\n[{i}/{total_experiments}] Running replica {replica} (frame {frame})...")
+        
+        success = run_single_experiment(
+            exp_name, molecular_thermo, cavity_thermo, finite_q, 
+            args.coupling, replica, frame, args.runtime, args.molecular_tau, args.cavity_tau, 
+            args.log_to_file, args.log_to_console, args.enable_fkt, 
+            args.fkt_kmag, args.fkt_wavevectors, args.fkt_ref_interval, args.fkt_max_refs,
+            args.max_energy_output_time, args.device, args.gpu_id
+        )
+        
+        if success:
+            successful_experiments += 1
+        else:
+            failed_experiments += 1
+    
+    # Final summary
+    print("\n" + "="*60)
+    print("EXPERIMENT SUMMARY")
+    print("="*60)
+    print(f"Total experiments: {total_experiments}")
+    print(f"Successful: {successful_experiments}")
+    print(f"Failed: {failed_experiments}")
+    print(f"Success rate: {100.0 * successful_experiments / total_experiments:.1f}%")
+    
+    if failed_experiments == 0:
+        print("\n🎉 All experiments completed successfully!")
         return 0
     else:
-        print("\n💥 Experiment failed!")
+        print(f"\n⚠️  {failed_experiments} experiment(s) failed!")
         return 1
 
 if __name__ == '__main__':
