@@ -1,11 +1,29 @@
 CMAKE_MINIMUM_REQUIRED(VERSION 3.8 FATAL_ERROR)
 
+# User configurable option to disable GPU/CUDA support
+# Default to ON, but allow override via command line -DENABLE_GPU=OFF
+option(ENABLE_GPU "Enable GPU/CUDA support" ON)
+
+# Determine project languages based on GPU support
+if(ENABLE_GPU)
+    set(PROJECT_LANGUAGES CXX CUDA)
+    message(STATUS "GPU/CUDA support: ENABLED")
+else()
+    set(PROJECT_LANGUAGES CXX)
+    message(STATUS "GPU/CUDA support: DISABLED")
+endif()
+
 # Name the plugin project.
 # TODO: Set the project title to the name of your Python package.
-project(hoomd-bussi-thermostat LANGUAGES CXX CUDA)
+project(hoomd-bussi-thermostat LANGUAGES ${PROJECT_LANGUAGES})
+
+# Set standards after project declaration
+if(ENABLE_GPU)
+    set(CMAKE_CUDA_STANDARD 17)
+endif()
+
 set(CMAKE_CXX_STANDARD 17)  # Match HOOMD's C++17 standard
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CUDA_STANDARD 17)
 
 # Find the installed HOOMD.
 find_package(HOOMD REQUIRED)
@@ -54,7 +72,7 @@ set(_cavitymd_sources
     )
 
 # GPU support enabled for CUDA compilation
-if (ENABLE_HIP)
+if (ENABLE_GPU AND ENABLE_HIP)
 list(APPEND _cavitymd_sources 
     src/CavityForceComputeGPU.cc
     src/CavityForceComputeGPU.cu

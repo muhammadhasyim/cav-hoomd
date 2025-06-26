@@ -22,6 +22,8 @@ This repository contains HOOMD-blue plugins that provide:
 
 ## Installation
 
+### Standard Installation (with GPU support)
+
 From the repository root:
 
 ```bash
@@ -29,6 +31,42 @@ cmake -B build -S .
 cmake --build build
 cmake --install build
 ```
+
+### Installation Options
+
+#### Using the build script (recommended):
+
+```bash
+# Build with GPU support (default)
+./build.sh
+
+# Build without GPU/CUDA support
+./build.sh --no-gpu
+
+# Show help
+./build.sh --help
+```
+
+#### Using CMake directly:
+
+```bash
+# Build with GPU support (default)
+cmake -B build -S . -DENABLE_GPU=ON
+cmake --build build
+cmake --install build
+
+# Build without GPU support
+cmake -B build -S . -DENABLE_GPU=OFF
+cmake --build build
+cmake --install build
+```
+
+#### GPU Support Notes
+
+- **GPU support enabled** (default): Builds both CPU and GPU implementations
+- **GPU support disabled** (`-DENABLE_GPU=OFF`): Builds only CPU and Python implementations
+- GPU support requires CUDA and a compatible HOOMD-blue installation with GPU support
+- When GPU support is disabled, CUDA is not required and the build will work on CPU-only systems
 
 This installs both plugins into your HOOMD installation:
 - `hoomd.bussi_reservoir` - Bussi thermostat
