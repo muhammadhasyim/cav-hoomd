@@ -4,34 +4,47 @@ Simple Cavity MD Experiment Runner for SLURM Array Jobs or Local Loops
 
 Usage:
     # SLURM mode (original):
-    python run_cavity_experiments.py --coupling COUPLSTR [--runtime PS] [--experiment EXPERIMENT] [--molecular-tau TAU] [--cavity-tau TAU] [--log-to-file] [--log-to-console] [--enable-fkt] [--fkt-kmag K]
+    python run_cavity_experiments.py --coupling COUPLSTR [--runtime PS] [--experiment EXPERIMENT] [--molecular-tau TAU] [--cavity-tau TAU] [--log-to-file] [--log-to-console] [--enable-fkt] [--fkt-kmag K] [--no-cavity] [--fixed-timestep] [--timestep FS] [--no-energy-tracking]
     
     # Local loop mode (new):
-    python run_cavity_experiments.py --coupling COUPLSTR --replicas START-END [other options...]
-    python run_cavity_experiments.py --coupling COUPLSTR --replicas 1,3,5,7 [other options...]
+    python run_cavity_experiments.py --coupling COUPLSTR --replicas START-END [other options...] [--fixed-timestep] [--timestep FS] [--no-energy-tracking]
+    python run_cavity_experiments.py --coupling COUPLSTR --replicas 1,3,5,7 [other options...] [--fixed-timestep] [--timestep FS] [--no-energy-tracking]
 
 Examples:
     # SLURM mode (single replica from SLURM_ARRAY_TASK_ID):
-    python run_cavity_experiments.py --coupling 1e-3
+    python run_cavity_experiments.py --coupling 1e-3                                    # Cavity simulation (default)
     python run_cavity_experiments.py --coupling 5e-4 --experiment bussi_langevin_finiteq
     python run_cavity_experiments.py --coupling 1e-2 --molecular-tau 10.0 --cavity-tau 1.0
     python run_cavity_experiments.py --coupling 2e-3 --runtime 200 --molecular-tau 2.0 --cavity-tau 0.5
     
     # Local loop mode (multiple replicas):
-    python run_cavity_experiments.py --coupling 1e-3 --replicas 1-10  # Run replicas 1 through 10
-    python run_cavity_experiments.py --coupling 1e-3 --replicas 1,3,5  # Run specific replicas
-    python run_cavity_experiments.py --coupling 1e-3 --start-replica 1 --end-replica 5  # Alternative range syntax
+    python run_cavity_experiments.py --coupling 1e-3 --replicas 1-10                   # Run replicas 1 through 10 (cavity)
+    python run_cavity_experiments.py --coupling 1e-3 --replicas 1,3,5                  # Run specific replicas (cavity)
+    python run_cavity_experiments.py --coupling 1e-3 --start-replica 1 --end-replica 5 # Alternative range syntax (cavity)
     python run_cavity_experiments.py --coupling 1e-2 --replicas 1-3 --molecular-tau 10.0 --cavity-tau 1.0
     python run_cavity_experiments.py --coupling 2e-3 --replicas 1,2,5,10 --runtime 200 --molecular-tau 2.0 --cavity-tau 0.5
     
+    # Non-cavity (standard MD) examples:
+    python run_cavity_experiments.py --coupling 0.0 --no-cavity --replicas 1-5         # Standard MD simulation (no cavity)
+    python run_cavity_experiments.py --coupling 1e-3 --no-cavity --replicas 1-10       # Standard MD (coupling ignored when no cavity)
+    
     # Logging examples:
-    python run_cavity_experiments.py --coupling 1e-3 --replicas 1-3 --log-to-console  # Log to console only
-    python run_cavity_experiments.py --coupling 1e-3 --replicas 1-3 --log-to-file  # Log to file only
+    python run_cavity_experiments.py --coupling 1e-3 --replicas 1-3 --log-to-console   # Log to console only
+    python run_cavity_experiments.py --coupling 1e-3 --replicas 1-3 --log-to-file      # Log to file only
     python run_cavity_experiments.py --coupling 1e-3 --replicas 1-3 --log-to-file --log-to-console  # Log to both
     
     # F(k,t) calculation examples:
-    python run_cavity_experiments.py --coupling 1e-3 --replicas 1-5 --enable-fkt  # Enable F(k,t) calculation
+    python run_cavity_experiments.py --coupling 1e-3 --replicas 1-5 --enable-fkt       # Enable F(k,t) calculation
     python run_cavity_experiments.py --coupling 1e-3 --replicas 1-5 --enable-fkt --fkt-kmag 2.0 --fkt-wavevectors 100  # Custom F(k,t) settings
+    
+    # Timestepping examples:
+    python run_cavity_experiments.py --coupling 1e-3 --replicas 1-5 --fixed-timestep   # Use fixed 1 fs timestep (default)
+    python run_cavity_experiments.py --coupling 1e-3 --replicas 1-5 --fixed-timestep --timestep 0.5  # Use fixed 0.5 fs timestep
+    python run_cavity_experiments.py --coupling 0.0 --replicas 1-3 --no-cavity --fixed-timestep --timestep 2.0  # Standard MD with 2 fs timestep
+    
+    # Energy tracking examples:
+    python run_cavity_experiments.py --coupling 1e-3 --replicas 1-5 --no-energy-tracking  # Disable energy tracking for performance
+    python run_cavity_experiments.py --coupling 0.0 --replicas 1-10 --no-cavity --no-energy-tracking --fixed-timestep --timestep 2.0  # Fast standard MD with 2 fs timestep
 
 SLURM Usage:
     # Submit array job with different coupling values
@@ -56,6 +69,8 @@ Note on replica/frame behavior:
 import sys
 import os
 import argparse
+import subprocess
+import tempfile
 from pathlib import Path
 from cavitymd import CavityMDSimulation
 
@@ -105,66 +120,155 @@ def get_slurm_info():
         print(f"SLURM Array Task ID: {task_id} (using as replica and frame number)")
         return replica, frame, job_id
 
-def run_single_experiment(exp_name, molecular_thermo, cavity_thermo, finite_q, coupling, replica, frame, runtime_ps, molecular_tau, cavity_tau, log_to_file, log_to_console, enable_fkt, fkt_kmag, fkt_wavevectors, fkt_ref_interval, fkt_max_refs, max_energy_output_time=None, device='CPU', gpu_id=0):
-    """Run a single experiment."""
+def create_single_simulation_script(exp_name, molecular_thermo, cavity_thermo, finite_q, coupling, replica, frame, runtime_ps, molecular_tau, cavity_tau, log_to_file, log_to_console, enable_fkt, fkt_kmag, fkt_wavevectors, fkt_ref_interval, fkt_max_refs, max_energy_output_time, device, gpu_id, incavity, fixed_timestep, timestep_fs, enable_energy_tracking):
+    """Create a temporary Python script for running a single simulation."""
     
+    script_content = f'''#!/usr/bin/env python3
+import sys
+import os
+from pathlib import Path
+from cavitymd import CavityMDSimulation
+
+def run_simulation():
+    """Run a single simulation."""
     try:
-        # Create experiment directory with coupling info
-        coupling_str = f"{coupling:.0e}".replace("-", "neg").replace("+", "pos")
-        exp_dir = Path(f"{exp_name}_coupling_{coupling_str}")
+        # Create experiment directory with appropriate naming
+        if {incavity}:
+            # For cavity simulations, include coupling strength in directory name
+            coupling_str = f"{coupling:.0e}".replace("-", "neg").replace("+", "pos")
+            exp_dir = Path(f"{exp_name}_coupling_{{coupling_str}}")
+        else:
+            # For non-cavity simulations, coupling doesn't matter - use simple naming
+            exp_dir = Path(f"{exp_name}_no_cavity")
         exp_dir.mkdir(exist_ok=True)
         
         print(f"Running experiment: {exp_name}")
-        print(f"Coupling strength: {coupling}")
+        print(f"Cavity coupling: {'Enabled' if {incavity} else 'Disabled'}")
+        if {incavity}:
+            print(f"Coupling strength: {coupling}")
         print(f"Replica: {replica}")
         print(f"Frame: {frame}")
-        print(f"Output directory: {exp_dir}")
+        print(f"Output directory: {{exp_dir}}")
+        
+        # Set error tolerance based on timestepping mode
+        error_tolerance = 0.0 if {fixed_timestep} else 1.0
+        
+        # Set timestep based on user preference (only used if fixed_timestep is True)
+        dt_fs = {timestep_fs} if {fixed_timestep} else None
+        
+        # Set energy tracking based on user preference
+        enable_energy_tracking = {enable_energy_tracking}
         
         # Run simulation
         sim = CavityMDSimulation(
             job_dir=str(exp_dir),
-            replica=replica,  # Use SLURM task ID as replica
+            replica={replica},
             freq=1560.0,
-            couplstr=coupling,  # Use user-specified coupling
-            incavity=True,
-            runtime_ps=runtime_ps,
+            couplstr={coupling},
+            incavity={incavity},
+            runtime_ps={runtime_ps},
             input_gsd='../init-0.gsd',
-            frame=frame,  # Use SLURM task ID as frame
+            frame={frame},
             name='prod',
-            error_tolerance=1.0,
+            error_tolerance=error_tolerance,
             temperature=100.0,
-            molecular_thermostat=molecular_thermo,
-            cavity_thermostat=cavity_thermo,
+            molecular_thermostat='{molecular_thermo}',
+            cavity_thermostat='{cavity_thermo}',
             cavity_damping_factor=1.0,
             use_brownian_overdamped=False,
             add_cavity_particle=True,
-            finite_q=finite_q,
-            molecular_thermostat_tau=molecular_tau,
-            cavity_thermostat_tau=cavity_tau,
-            log_to_file=log_to_file,
-            log_to_console=log_to_console,
+            finite_q={finite_q},
+            molecular_thermostat_tau={molecular_tau},
+            cavity_thermostat_tau={cavity_tau},
+            log_to_file={log_to_file},
+            log_to_console={log_to_console},
             log_level='INFO',
-            enable_fkt=enable_fkt,
-            fkt_kmag=fkt_kmag,
-            fkt_num_wavevectors=fkt_wavevectors,
-            fkt_reference_interval_ps=fkt_ref_interval,
-            fkt_max_references=fkt_max_refs,
-            max_energy_output_time_ps=max_energy_output_time,
-            device=device,
-            gpu_id=gpu_id
+            enable_fkt={enable_fkt},
+            fkt_kmag={fkt_kmag},
+            fkt_num_wavevectors={fkt_wavevectors},
+            fkt_reference_interval_ps={fkt_ref_interval},
+            fkt_max_references={fkt_max_refs},
+            max_energy_output_time_ps={max_energy_output_time},
+            enable_energy_tracking=enable_energy_tracking,
+            dt_fs=dt_fs,
+            device='{device}',
+            gpu_id={gpu_id}
         )
         
+        print(f"🔄 Starting simulation for replica {replica}...")
         exit_code = sim.run()
+        print(f"🏁 Simulation completed for replica {replica} with exit code {{exit_code}}")
         
         if exit_code == 0:
             print(f"✅ {exp_name} completed successfully (replica {replica}, frame {frame})")
-            return True
+            return 0
         else:
-            print(f"❌ {exp_name} failed with exit code {exit_code} (replica {replica}, frame {frame})")
-            return False
+            print(f"❌ {exp_name} failed with exit code {{exit_code}} (replica {replica}, frame {frame})")
+            return 1
             
     except Exception as e:
-        print(f"❌ {exp_name} - error: {e}")
+        print(f"❌ {exp_name} - error: {{e}}")
+        import traceback
+        traceback.print_exc()
+        return 1
+
+if __name__ == "__main__":
+    sys.exit(run_simulation())
+'''
+    
+    return script_content
+
+def run_single_experiment(exp_name, molecular_thermo, cavity_thermo, finite_q, coupling, replica, frame, runtime_ps, molecular_tau, cavity_tau, log_to_file, log_to_console, enable_fkt, fkt_kmag, fkt_wavevectors, fkt_ref_interval, fkt_max_refs, max_energy_output_time=None, device='CPU', gpu_id=0, incavity=True, fixed_timestep=False, timestep_fs=1.0, enable_energy_tracking=True):
+    """Run a single experiment in a subprocess."""
+    
+    try:
+        # Create temporary script
+        script_content = create_single_simulation_script(
+            exp_name, molecular_thermo, cavity_thermo, finite_q, coupling, replica, frame, 
+            runtime_ps, molecular_tau, cavity_tau, log_to_file, log_to_console, 
+            enable_fkt, fkt_kmag, fkt_wavevectors, fkt_ref_interval, fkt_max_refs, 
+            max_energy_output_time, device, gpu_id, incavity, fixed_timestep, timestep_fs, enable_energy_tracking
+        )
+        
+        # Write to temporary file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+            f.write(script_content)
+            temp_script_path = f.name
+        
+        try:
+            # Run the simulation in a subprocess
+            print(f"🔄 Starting subprocess for replica {replica}...")
+            result = subprocess.run([sys.executable, temp_script_path], 
+                                  capture_output=not log_to_console, 
+                                  text=True, 
+                                  timeout=None)
+            
+            # Print output if we captured it
+            if not log_to_console:
+                if result.stdout:
+                    print(result.stdout)
+                if result.stderr:
+                    print(result.stderr, file=sys.stderr)
+            
+            # Check return code
+            if result.returncode == 0:
+                print(f"✅ Subprocess completed successfully for replica {replica}")
+                return True
+            else:
+                print(f"❌ Subprocess failed for replica {replica} with return code {result.returncode}")
+                return False
+                
+        finally:
+            # Clean up temporary file
+            os.unlink(temp_script_path)
+            
+    except subprocess.TimeoutExpired:
+        print(f"❌ Simulation timed out for replica {replica}")
+        return False
+    except Exception as e:
+        print(f"❌ Error running subprocess for replica {replica}: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 def main():
@@ -177,6 +281,16 @@ def main():
     parser.add_argument('--molecular-tau', type=float, default=5.0, help='Molecular thermostat time constant in ps (default: 5.0)')
     parser.add_argument('--cavity-tau', type=float, default=5.0, help='Cavity thermostat time constant in ps (default: 5.0)')
      
+    # Cavity coupling option
+    parser.add_argument('--no-cavity', action='store_true', help='Disable cavity coupling (default: False, cavity enabled)')
+    
+    # Timestepping options
+    parser.add_argument('--fixed-timestep', action='store_true', help='Use fixed timestep instead of adaptive timestepping (default: False, adaptive enabled)')
+    parser.add_argument('--timestep', type=float, default=1.0, help='Fixed timestep in femtoseconds (default: 1.0 fs, only used with --fixed-timestep)')
+    
+    # Energy tracking option
+    parser.add_argument('--no-energy-tracking', action='store_true', help='Disable energy tracking to improve performance (default: False, energy tracking enabled)')
+    
     # Replica specification options (for local loop mode)
     replica_group = parser.add_mutually_exclusive_group()
     replica_group.add_argument('--replicas', type=str, help='Replicas to run (e.g., "1-10" or "1,3,5,7")')
@@ -201,12 +315,15 @@ def main():
     
     args = parser.parse_args()
     
+    # Handle cavity coupling logic (default: cavity enabled)
+    incavity = not args.no_cavity
+    
     # Validate replica arguments
     if args.start_replica is not None and args.end_replica is None:
         print("Error: --end-replica is required when using --start-replica")
         return 1
     if args.end_replica is not None and args.start_replica is None:
-        print("Error: --start-replica is required when using --end-replica")
+        print("Error: --start-replica is required when using --start-replica")
         return 1
     
     # Determine replicas to run
@@ -244,16 +361,20 @@ def main():
     exp_name, molecular_thermo, cavity_thermo, finite_q = exp_dict[args.experiment]
     
     print("="*60)
-    print(f"CAVITY MD EXPERIMENT ({mode} MODE)")
+    print(f"{'CAVITY' if incavity else 'STANDARD'} MD EXPERIMENT ({mode} MODE)")
     print("="*60)
     print(f"Experiment: {exp_name}")
-    print(f"Coupling strength: {args.coupling}")
+    print(f"Cavity coupling: {'Enabled' if incavity else 'Disabled'}")
+    if incavity:
+        print(f"Coupling strength: {args.coupling}")
     print(f"Replicas to run: {replica_list}")
     print(f"Device: {args.device}" + (f" (GPU {args.gpu_id})" if args.device == 'GPU' else ""))
     print(f"Runtime: {args.runtime} ps")
+    print(f"Timestepping: {'Fixed ' + str(args.timestep) + ' fs' if args.fixed_timestep else 'Adaptive'}")
     print(f"Molecular thermostat: {molecular_thermo} (tau={args.molecular_tau} ps)")
-    print(f"Cavity thermostat: {cavity_thermo} (tau={args.cavity_tau} ps)")
-    print(f"Finite Q: {finite_q}")
+    if incavity:
+        print(f"Cavity thermostat: {cavity_thermo} (tau={args.cavity_tau} ps)")
+        print(f"Finite Q: {finite_q}")
     print(f"Logging: {'file ' if args.log_to_file else ''}{'console' if args.log_to_console else ''}{'none' if not args.log_to_file and not args.log_to_console else ''}".strip())
     print(f"F(k,t) calculation: {'Enabled' if args.enable_fkt else 'Disabled'}")
     if args.enable_fkt:
@@ -261,6 +382,7 @@ def main():
         print(f"  Wavevectors: {args.fkt_wavevectors}")
         print(f"  Reference interval: {args.fkt_ref_interval:.1f} ps")
         print(f"  Max references: {args.fkt_max_refs}")
+    print(f"Energy tracking: {'Disabled' if args.no_energy_tracking else 'Enabled'}")
     print("="*60)
     
     # Run experiments for all replicas
@@ -278,7 +400,8 @@ def main():
             args.coupling, replica, frame, args.runtime, args.molecular_tau, args.cavity_tau, 
             args.log_to_file, args.log_to_console, args.enable_fkt, 
             args.fkt_kmag, args.fkt_wavevectors, args.fkt_ref_interval, args.fkt_max_refs,
-            args.max_energy_output_time, args.device, args.gpu_id
+            args.max_energy_output_time, args.device, args.gpu_id, incavity, args.fixed_timestep, 
+            args.timestep, not args.no_energy_tracking
         )
         
         if success:

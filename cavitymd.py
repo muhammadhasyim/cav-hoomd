@@ -1104,6 +1104,7 @@ class ElapsedTimeTracker(hoomd.custom.Action):
         self.total_time = 0.0
         self.runtime = runtime
         self.last_timestep = 0  # Start from 0, not simulation.timestep
+        self.initial_timestep = None  # Track the starting timestep to handle inheritance
         
     def act(self, timestep):
         """Update the total elapsed time by accumulating time increments."""
@@ -1112,11 +1113,13 @@ class ElapsedTimeTracker(hoomd.custom.Action):
         
         # For the first call, handle initialization
         if self.last_timestep == 0:
-            # Initialize - assume we started at timestep 0
+            # Initialize - record the starting timestep but don't add its time
+            self.initial_timestep = timestep
             self.last_timestep = timestep
+            self.total_time = 0.0  # Always start elapsed time from 0, regardless of inherited timestep
             if timestep > 0:
-                # If we're not starting at timestep 0, accumulate the time from 0 to current timestep
-                self.total_time = timestep * dt
+                print(f"NOTICE: Starting from inherited timestep {timestep}")
+                print(f"  Elapsed time will start from 0, not from inherited simulation time")
             return
         
         # Calculate time increment since last update
@@ -1125,13 +1128,7 @@ class ElapsedTimeTracker(hoomd.custom.Action):
             time_increment = timestep_increment * dt
             self.total_time += time_increment
             
-            # Debug output for large time jumps (can help diagnose issues)
-            if time_increment > 100.0:  # More than 0.01 a.u. (~0.24 fs) in one update
-                print(f"DEBUG: Large time increment detected:")
-                print(f"  Timestep jump: {self.last_timestep} -> {timestep} (Δ={timestep_increment})")
-                print(f"  dt: {dt:.6f} a.u. ({PhysicalConstants.atomic_units_to_ps(dt)*1000:.3f} fs)")
-                print(f"  Time increment: {time_increment:.6f} a.u. ({PhysicalConstants.atomic_units_to_ps(time_increment)*1000:.3f} fs)")
-                print(f"  Total time: {self.total_time:.6f} a.u. ({PhysicalConstants.atomic_units_to_ps(self.total_time):.6f} ps)")
+
         
         # Update last timestep for next iteration
         self.last_timestep = timestep
@@ -1470,7 +1467,7 @@ class CavityMDSimulation:
                  finite_q=False, molecular_thermostat_tau=5.0, cavity_thermostat_tau=5.0,
                  log_to_file=True, log_to_console=True, log_level='INFO', custom_log_file=None,
                  enable_fkt=True, fkt_kmag=1.0, fkt_num_wavevectors=50, fkt_reference_interval_ps=1.0, fkt_max_references=10,
-                 max_energy_output_time_ps=None, device='CPU', gpu_id=0):
+                 max_energy_output_time_ps=None, enable_energy_tracking=True, dt_fs=None, device='CPU', gpu_id=0):
         """
         Initialize the CavityMDSimulation with simulation parameters.
         
@@ -1504,6 +1501,8 @@ class CavityMDSimulation:
             fkt_reference_interval_ps: Time interval between reference frames in ps (default: 1.0)
             fkt_max_references: Maximum number of reference frames to track (default: 10)
             max_energy_output_time_ps: Maximum time in ps to output energy data (None for no limit)
+            enable_energy_tracking: Whether to enable energy tracking (default: True)
+            dt_fs: Fixed timestep in femtoseconds (None for adaptive/default, only used when error_tolerance <= 0)
             device: Device type to use ('CPU' or 'GPU', default: 'CPU')
             gpu_id: GPU ID to use when device='GPU' (default: 0)
         """
@@ -1543,6 +1542,12 @@ class CavityMDSimulation:
         
         # Energy output limit parameter
         self.max_energy_output_time_ps = max_energy_output_time_ps
+        
+        # Energy tracking parameter
+        self.enable_energy_tracking = enable_energy_tracking
+        
+        # Manual timestep parameter (in femtoseconds)
+        self.dt_fs = dt_fs
         
         # Device configuration
         self.device = device.upper()
@@ -1660,6 +1665,7 @@ class CavityMDSimulation:
         if self.enable_fkt:
             self.log_info(f"  k magnitude: {self.fkt_kmag}")
             self.log_info(f"  Wavevectors: {self.fkt_num_wavevectors}")
+        self.log_info(f"Energy tracking: {'Enabled' if self.enable_energy_tracking else 'Disabled'}")
         if self.log_to_file:
             self.log_info(f"Logging to file: {getattr(self, 'log_filename', 'Unknown')}")
         self.log_info("="*60)
@@ -2197,8 +2203,16 @@ class CavityMDSimulation:
         This should be called after thermalization but before setting up trackers/loggers.
         """
         if self.error_tolerance <= 0:
-            # No adaptive timestep - keep current dt
-            print(f"Using fixed timestep: {self.sim.operations.integrator.dt:.6f} a.u. ({PhysicalConstants.atomic_units_to_ps(self.sim.operations.integrator.dt) * 1000:.3f} fs)")
+            # Fixed timestep mode
+            if self.dt_fs is not None:
+                # Use user-specified timestep
+                dt_au = PhysicalConstants.ps_to_atomic_units(self.dt_fs / 1000.0)  # Convert fs to ps, then to a.u.
+                self.sim.operations.integrator.dt = dt_au
+                self.dt = dt_au
+                print(f"Using user-specified fixed timestep: {dt_au:.6f} a.u. ({self.dt_fs:.3f} fs)")
+            else:
+                # Keep current dt (HOOMD default)
+                print(f"Using default fixed timestep: {self.sim.operations.integrator.dt:.6f} a.u. ({PhysicalConstants.atomic_units_to_ps(self.sim.operations.integrator.dt) * 1000:.3f} fs)")
             return
         
         try:
@@ -2392,34 +2406,38 @@ class CavityMDSimulation:
         else:
             self.cavity_mode_tracker = None
         
-        # Set up energy contribution tracker
-        self.energy_tracker = EnergyContributionTracker(
-            simulation=self.sim,
-            harmonic=self.trackers.get('harmonic'),
-            lj=self.trackers.get('lj'),
-            short=self.trackers.get('short'),
-            long=self.trackers.get('long'),
-            cavityforce=self.trackers.get('cavityforce'),
-            cavity_langevin_method=self.trackers.get('cavity_langevin'),
-            molecular_langevin_method=self.trackers.get('molecular_langevin'),
-            mttk_thermostat=self.trackers.get('molecular_mttk'),
-            cavity_mttk_thermostat=self.trackers.get('cavity_mttk'),
-            molecular_bussi_thermostat=self.trackers.get('molecular_bussi'),
-            cavity_bussi_thermostat=self.trackers.get('cavity_bussi'),
-            kinetic_tracker=self.kinetic_energy_tracker,
-            cavity_mode_tracker=self.cavity_mode_tracker,
-            time_tracker=self.time_tracker,
-            output_prefix=f'{self.name}-{self.replica}',
-            output_period=1,
-            max_time_ps=self.max_energy_output_time_ps
-        )
-        
-        # Add energy tracker as updater
-        energy_tracker_updater = hoomd.update.CustomUpdater(
-            action=self.energy_tracker,
-            trigger=hoomd.trigger.Periodic(1)
-        )
-        self.sim.operations.updaters.append(energy_tracker_updater)
+        # Set up energy contribution tracker if enabled
+        if self.enable_energy_tracking:
+            self.energy_tracker = EnergyContributionTracker(
+                simulation=self.sim,
+                harmonic=self.trackers.get('harmonic'),
+                lj=self.trackers.get('lj'),
+                short=self.trackers.get('short'),
+                long=self.trackers.get('long'),
+                cavityforce=self.trackers.get('cavityforce'),
+                cavity_langevin_method=self.trackers.get('cavity_langevin'),
+                molecular_langevin_method=self.trackers.get('molecular_langevin'),
+                mttk_thermostat=self.trackers.get('molecular_mttk'),
+                cavity_mttk_thermostat=self.trackers.get('cavity_mttk'),
+                molecular_bussi_thermostat=self.trackers.get('molecular_bussi'),
+                cavity_bussi_thermostat=self.trackers.get('cavity_bussi'),
+                kinetic_tracker=self.kinetic_energy_tracker,
+                cavity_mode_tracker=self.cavity_mode_tracker,
+                time_tracker=self.time_tracker,
+                output_prefix=f'{self.name}-{self.replica}',
+                output_period=1,
+                max_time_ps=self.max_energy_output_time_ps
+            )
+            
+            # Add energy tracker as updater
+            energy_tracker_updater = hoomd.update.CustomUpdater(
+                action=self.energy_tracker,
+                trigger=hoomd.trigger.Periodic(1)
+            )
+            self.sim.operations.updaters.append(energy_tracker_updater)
+        else:
+            self.energy_tracker = None
+            self.log_info("Energy tracking disabled")
         
         # Add reservoir energy tracking to console logger
         molecular_bussi = self.trackers.get('molecular_bussi')
@@ -2518,8 +2536,9 @@ class CavityMDSimulation:
         self.gsd_logger.add(self.time_tracker)
         self.gsd_logger[('integrator', 'dt')] = (self.sim.operations.integrator, 'dt', 'scalar')
         
-        # Add energy tracking to GSD logger
-        self.gsd_logger[('EnergyTracker', 'total_potential_energy')] = (self.energy_tracker, 'total_potential_energy', 'scalar')
+        # Add energy tracking to GSD logger if enabled
+        if self.enable_energy_tracking:
+            self.gsd_logger[('EnergyTracker', 'total_potential_energy')] = (self.energy_tracker, 'total_potential_energy', 'scalar')
         self.gsd_logger[('KineticEnergy', 'kinetic_energy')] = (self.kinetic_energy_tracker, 'kinetic_energy', 'scalar')
         self.gsd_logger[('MolecularTemp', 'temperature_K')] = (self.kinetic_energy_tracker, 'temperature', 'scalar')
         
@@ -2541,10 +2560,10 @@ class CavityMDSimulation:
         # Set up GSD writer
         self.gsd_writer = hoomd.write.GSD(
             filename=f'{self.name}-{self.replica}.gsd',
-            trigger=hoomd.trigger.Periodic(100),
+            trigger=hoomd.trigger.Periodic(300000),
             dynamic=['property', 'momentum', 'particles/diameter', 'topology'],
             mode='wb',
-            truncate=True,  # Could be made configurable
+            truncate=False,#True,  # Could be made configurable
             filter=hoomd.filter.All()
         )
         self.gsd_writer.logger = self.gsd_logger
