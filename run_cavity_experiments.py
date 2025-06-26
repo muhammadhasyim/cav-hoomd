@@ -69,10 +69,7 @@ Note on replica/frame behavior:
 import sys
 import os
 import argparse
-import subprocess
-import tempfile
 from pathlib import Path
-from cavitymd import CavityMDSimulation
 
 # Available bussi_langevin experiments: (name, molecular_thermostat, cavity_thermostat, finite_q)
 BUSSI_LANGEVIN_EXPERIMENTS = [
@@ -120,153 +117,85 @@ def get_slurm_info():
         print(f"SLURM Array Task ID: {task_id} (using as replica and frame number)")
         return replica, frame, job_id
 
-def create_single_simulation_script(exp_name, molecular_thermo, cavity_thermo, finite_q, coupling, replica, frame, runtime_ps, molecular_tau, cavity_tau, log_to_file, log_to_console, enable_fkt, fkt_kmag, fkt_wavevectors, fkt_ref_interval, fkt_max_refs, max_energy_output_time, device, gpu_id, incavity, fixed_timestep, timestep_fs, enable_energy_tracking):
-    """Create a temporary Python script for running a single simulation."""
+def run_single_experiment(exp_name, molecular_thermo, cavity_thermo, finite_q, coupling, replica, frame, runtime_ps, molecular_tau, cavity_tau, log_to_file, log_to_console, enable_fkt, fkt_kmag, fkt_wavevectors, fkt_ref_interval, fkt_max_refs, max_energy_output_time=None, device='CPU', gpu_id=0, incavity=True, fixed_timestep=False, timestep_fs=1.0, enable_energy_tracking=True):
+    """Run a single experiment directly (no subprocess)."""
     
-    script_content = f'''#!/usr/bin/env python3
-import sys
-import os
-from pathlib import Path
-from cavitymd import CavityMDSimulation
-
-def run_simulation():
-    """Run a single simulation."""
     try:
+        from cavitymd import CavityMDSimulation
+        
         # Create experiment directory with appropriate naming
-        if {incavity}:
+        if incavity:
             # For cavity simulations, include coupling strength in directory name
             coupling_str = f"{coupling:.0e}".replace("-", "neg").replace("+", "pos")
-            exp_dir = Path(f"{exp_name}_coupling_{{coupling_str}}")
+            exp_dir = Path(f"{exp_name}_coupling_{coupling_str}")
         else:
             # For non-cavity simulations, coupling doesn't matter - use simple naming
             exp_dir = Path(f"{exp_name}_no_cavity")
         exp_dir.mkdir(exist_ok=True)
         
         print(f"Running experiment: {exp_name}")
-        print(f"Cavity coupling: {'Enabled' if {incavity} else 'Disabled'}")
-        if {incavity}:
+        print(f"Cavity coupling: {'Enabled' if incavity else 'Disabled'}")
+        if incavity:
             print(f"Coupling strength: {coupling}")
         print(f"Replica: {replica}")
         print(f"Frame: {frame}")
-        print(f"Output directory: {{exp_dir}}")
+        print(f"Output directory: {exp_dir}")
         
         # Set error tolerance based on timestepping mode
-        error_tolerance = 0.0 if {fixed_timestep} else 1.0
+        error_tolerance = 0.0 if fixed_timestep else 1.0
         
         # Set timestep based on user preference (only used if fixed_timestep is True)
-        dt_fs = {timestep_fs} if {fixed_timestep} else None
-        
-        # Set energy tracking based on user preference
-        enable_energy_tracking = {enable_energy_tracking}
+        dt_fs = timestep_fs if fixed_timestep else None
         
         # Run simulation
         sim = CavityMDSimulation(
             job_dir=str(exp_dir),
-            replica={replica},
+            replica=replica,
             freq=1560.0,
-            couplstr={coupling},
-            incavity={incavity},
-            runtime_ps={runtime_ps},
+            couplstr=coupling,
+            incavity=incavity,
+            runtime_ps=runtime_ps,
             input_gsd='../init-0.gsd',
-            frame={frame},
+            frame=frame,
             name='prod',
             error_tolerance=error_tolerance,
             temperature=100.0,
-            molecular_thermostat='{molecular_thermo}',
-            cavity_thermostat='{cavity_thermo}',
+            molecular_thermostat=molecular_thermo,
+            cavity_thermostat=cavity_thermo,
             cavity_damping_factor=1.0,
             use_brownian_overdamped=False,
             add_cavity_particle=True,
-            finite_q={finite_q},
-            molecular_thermostat_tau={molecular_tau},
-            cavity_thermostat_tau={cavity_tau},
-            log_to_file={log_to_file},
-            log_to_console={log_to_console},
+            finite_q=finite_q,
+            molecular_thermostat_tau=molecular_tau,
+            cavity_thermostat_tau=cavity_tau,
+            log_to_file=log_to_file,
+            log_to_console=log_to_console,
             log_level='INFO',
-            enable_fkt={enable_fkt},
-            fkt_kmag={fkt_kmag},
-            fkt_num_wavevectors={fkt_wavevectors},
-            fkt_reference_interval_ps={fkt_ref_interval},
-            fkt_max_references={fkt_max_refs},
-            max_energy_output_time_ps={max_energy_output_time},
+            enable_fkt=enable_fkt,
+            fkt_kmag=fkt_kmag,
+            fkt_num_wavevectors=fkt_wavevectors,
+            fkt_reference_interval_ps=fkt_ref_interval,
+            fkt_max_references=fkt_max_refs,
+            max_energy_output_time_ps=max_energy_output_time,
             enable_energy_tracking=enable_energy_tracking,
             dt_fs=dt_fs,
-            device='{device}',
-            gpu_id={gpu_id}
+            device=device,
+            gpu_id=gpu_id
         )
         
         print(f"🔄 Starting simulation for replica {replica}...")
         exit_code = sim.run()
-        print(f"🏁 Simulation completed for replica {replica} with exit code {{exit_code}}")
+        print(f"🏁 Simulation completed for replica {replica} with exit code {exit_code}")
         
         if exit_code == 0:
             print(f"✅ {exp_name} completed successfully (replica {replica}, frame {frame})")
-            return 0
+            return True
         else:
-            print(f"❌ {exp_name} failed with exit code {{exit_code}} (replica {replica}, frame {frame})")
-            return 1
+            print(f"❌ {exp_name} failed with exit code {exit_code} (replica {replica}, frame {frame})")
+            return False
             
     except Exception as e:
-        print(f"❌ {exp_name} - error: {{e}}")
-        import traceback
-        traceback.print_exc()
-        return 1
-
-if __name__ == "__main__":
-    sys.exit(run_simulation())
-'''
-    
-    return script_content
-
-def run_single_experiment(exp_name, molecular_thermo, cavity_thermo, finite_q, coupling, replica, frame, runtime_ps, molecular_tau, cavity_tau, log_to_file, log_to_console, enable_fkt, fkt_kmag, fkt_wavevectors, fkt_ref_interval, fkt_max_refs, max_energy_output_time=None, device='CPU', gpu_id=0, incavity=True, fixed_timestep=False, timestep_fs=1.0, enable_energy_tracking=True):
-    """Run a single experiment in a subprocess."""
-    
-    try:
-        # Create temporary script
-        script_content = create_single_simulation_script(
-            exp_name, molecular_thermo, cavity_thermo, finite_q, coupling, replica, frame, 
-            runtime_ps, molecular_tau, cavity_tau, log_to_file, log_to_console, 
-            enable_fkt, fkt_kmag, fkt_wavevectors, fkt_ref_interval, fkt_max_refs, 
-            max_energy_output_time, device, gpu_id, incavity, fixed_timestep, timestep_fs, enable_energy_tracking
-        )
-        
-        # Write to temporary file
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
-            f.write(script_content)
-            temp_script_path = f.name
-        
-        try:
-            # Run the simulation in a subprocess
-            print(f"🔄 Starting subprocess for replica {replica}...")
-            result = subprocess.run([sys.executable, temp_script_path], 
-                                  capture_output=not log_to_console, 
-                                  text=True, 
-                                  timeout=None)
-            
-            # Print output if we captured it
-            if not log_to_console:
-                if result.stdout:
-                    print(result.stdout)
-                if result.stderr:
-                    print(result.stderr, file=sys.stderr)
-            
-            # Check return code
-            if result.returncode == 0:
-                print(f"✅ Subprocess completed successfully for replica {replica}")
-                return True
-            else:
-                print(f"❌ Subprocess failed for replica {replica} with return code {result.returncode}")
-                return False
-                
-        finally:
-            # Clean up temporary file
-            os.unlink(temp_script_path)
-            
-    except subprocess.TimeoutExpired:
-        print(f"❌ Simulation timed out for replica {replica}")
-        return False
-    except Exception as e:
-        print(f"❌ Error running subprocess for replica {replica}: {e}")
+        print(f"❌ {exp_name} - error: {e}")
         import traceback
         traceback.print_exc()
         return False
