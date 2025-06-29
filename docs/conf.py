@@ -67,8 +67,8 @@ exclude_patterns = [
 # The suffix(es) of source filenames.
 source_suffix = {
     '.rst': None,
-    '.md': None,
-    '.ipynb': None,
+    '.md': 'myst_parser',
+    '.ipynb': 'nbsphinx',
 }
 
 # The master toctree document.
