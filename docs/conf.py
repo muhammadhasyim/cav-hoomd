@@ -61,6 +61,7 @@ exclude_patterns = [
     '.DS_Store',
     '**.ipynb_checkpoints',
     'examples/.ipynb_checkpoints',
+    'README_DEPLOYMENT.md',
 ]
 
 # The suffix(es) of source filenames.
@@ -195,11 +196,6 @@ html_theme_options = {
     "source_repository": "https://github.com/muhammadhasyim/cav-hoomd/",
     "source_branch": "main",
     "source_directory": "docs/",
-    "edit_page_button": True,
-    "repository_url": "https://github.com/muhammadhasyim/cav-hoomd/",
-    "repository_branch": "main",
-    "path_to_docs": "docs",
-    "use_edit_page_button": True,
 }
 
 # Add any paths that contain custom static files (such as style sheets) here,

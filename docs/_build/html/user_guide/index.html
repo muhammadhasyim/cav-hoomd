@@ -3,7 +3,7 @@
   <head><meta charset="utf-8"/>
     <meta name="viewport" content="width=device-width,initial-scale=1"/>
     <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="index" title="Index" href="../genindex.html" /><link rel="search" title="Search" href="../search.html" /><link rel="next" title="API Reference" href="../api/index.html" /><link rel="prev" title="Quick Start" href="../quickstart.html" />
+<link rel="index" title="Index" href="../genindex.html" /><link rel="search" title="Search" href="../search.html" /><link rel="next" title="Basic Usage" href="basic_usage.html" /><link rel="prev" title="Theory" href="../theory.html" />
 
     <!-- Generated with Sphinx 8.2.3 and Furo 2024.08.06 -->
         <title>User Guide - Cavity HOOMD 1.0.0 documentation</title>
@@ -303,13 +303,24 @@
 <div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
   <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
 <ul>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../quickstart.html">Quick Start</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../theory.html">Theory</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
 <ul class="current">
-<li class="toctree-l1 current has-children current-page"><a class="current reference internal" href="#">User Guide</a><input checked="" class="toctree-checkbox" id="toctree-checkbox-1" name="toctree-checkbox-1" role="switch" type="checkbox"/><label for="toctree-checkbox-1"><div class="visually-hidden">Toggle navigation of User Guide</div><i class="icon"><svg><use href="#svg-arrow-right"></use></svg></i></label><ul class="simple">
+<li class="toctree-l1 current has-children current-page"><a class="current reference internal" href="#">User Guide</a><input checked="" class="toctree-checkbox" id="toctree-checkbox-1" name="toctree-checkbox-1" role="switch" type="checkbox"/><label for="toctree-checkbox-1"><div class="visually-hidden">Toggle navigation of User Guide</div><i class="icon"><svg><use href="#svg-arrow-right"></use></svg></i></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="basic_usage.html">Basic Usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="advanced_features.html">Advanced Features</a></li>
+<li class="toctree-l2"><a class="reference internal" href="parameter_sweeps.html">Parameter Sweeps</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analysis.html">Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance.html">Performance</a></li>
 </ul>
 </li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Examples</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../examples/index.html">Examples</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
 <ul>
@@ -324,10 +335,10 @@
 <li class="toctree-l2"><a class="reference internal" href="../api/_autosummary/hoomd.cavitymd.utils.html">hoomd.cavitymd.utils</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="../api/forces.html">Forces</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../api/simulation.html">Simulation</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../api/analysis.html">Analysis</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../api/utils.html">Utilities</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../license.html">License</a></li>
 </ul>
 
 </div>
@@ -376,6 +387,51 @@
 <h1>User Guide<a class="headerlink" href="#user-guide" title="Link to this heading">¶</a></h1>
 <p>This comprehensive user guide will walk you through using Cavity HOOMD for cavity-coupled molecular dynamics simulations.</p>
 <div class="toctree-wrapper compound">
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="basic_usage.html">Basic Usage</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="basic_usage.html#getting-started">Getting Started</a></li>
+<li class="toctree-l2"><a class="reference internal" href="basic_usage.html#prerequisites">Prerequisites</a></li>
+<li class="toctree-l2"><a class="reference internal" href="basic_usage.html#your-first-simulation">Your First Simulation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="basic_usage.html#understanding-the-components">Understanding the Components</a></li>
+<li class="toctree-l2"><a class="reference internal" href="basic_usage.html#setting-up-thermostats">Setting Up Thermostats</a></li>
+<li class="toctree-l2"><a class="reference internal" href="basic_usage.html#output-and-analysis">Output and Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="basic_usage.html#common-patterns">Common Patterns</a></li>
+<li class="toctree-l2"><a class="reference internal" href="basic_usage.html#best-practices">Best Practices</a></li>
+<li class="toctree-l2"><a class="reference internal" href="basic_usage.html#troubleshooting">Troubleshooting</a></li>
+<li class="toctree-l2"><a class="reference internal" href="basic_usage.html#next-steps">Next Steps</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="advanced_features.html">Advanced Features</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="advanced_features.html#adaptive-timestep-control">Adaptive Timestep Control</a></li>
+<li class="toctree-l2"><a class="reference internal" href="advanced_features.html#energy-tracking">Energy Tracking</a></li>
+<li class="toctree-l2"><a class="reference internal" href="advanced_features.html#correlation-analysis">Correlation Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="advanced_features.html#gpu-acceleration">GPU Acceleration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="advanced_features.html#custom-thermostats">Custom Thermostats</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="parameter_sweeps.html">Parameter Sweeps</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="parameter_sweeps.html#overview">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="parameter_sweeps.html#basic-parameter-sweep">Basic Parameter Sweep</a></li>
+<li class="toctree-l2"><a class="reference internal" href="parameter_sweeps.html#multi-parameter-sweeps">Multi-Parameter Sweeps</a></li>
+<li class="toctree-l2"><a class="reference internal" href="parameter_sweeps.html#hpc-integration">HPC Integration</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="analysis.html">Analysis</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="analysis.html#post-simulation-analysis">Post-Simulation Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analysis.html#energy-analysis">Energy Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analysis.html#correlation-functions">Correlation Functions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analysis.html#trajectory-analysis">Trajectory Analysis</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="performance.html">Performance</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="performance.html#optimization-guidelines">Optimization Guidelines</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance.html#gpu-acceleration">GPU Acceleration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance.html#timestep-optimization">Timestep Optimization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance.html#memory-management">Memory Management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance.html#profiling">Profiling</a></li>
+</ul>
+</li>
+</ul>
 </div>
 <section id="overview">
 <h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">¶</a></h2>
@@ -405,7 +461,7 @@
 <p class="sd-card-text">Start here to learn fundamental concepts and run your first
 cavity-coupled simulation.</p>
 </div>
-<span class="sd-stretched-link sd-hide-link-text">basic_usage</span></div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="basic_usage.html"><span class="doc">Basic Usage</span></a></div>
 </div>
 <div class="sd-col sd-d-flex-row docutils">
 <div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
@@ -415,7 +471,7 @@ cavity-coupled simulation.</p>
 <p class="sd-card-text">Explore adaptive timesteps, energy tracking, and other
 sophisticated simulation capabilities.</p>
 </div>
-<span class="sd-stretched-link sd-hide-link-text">advanced_features</span></div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="advanced_features.html"><span class="doc">Advanced Features</span></a></div>
 </div>
 <div class="sd-col sd-d-flex-row docutils">
 <div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
@@ -425,7 +481,7 @@ sophisticated simulation capabilities.</p>
 <p class="sd-card-text">Learn how to efficiently explore parameter spaces with
 automated sweeps and parallel execution.</p>
 </div>
-<span class="sd-stretched-link sd-hide-link-text">parameter_sweeps</span></div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="parameter_sweeps.html"><span class="doc">Parameter Sweeps</span></a></div>
 </div>
 <div class="sd-col sd-d-flex-row docutils">
 <div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
@@ -435,7 +491,7 @@ automated sweeps and parallel execution.</p>
 <p class="sd-card-text">Master the analysis capabilities including energy tracking,
 F(k,t) correlations, and cavity mode monitoring.</p>
 </div>
-<span class="sd-stretched-link sd-hide-link-text">analysis</span></div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="analysis.html"><span class="doc">Analysis</span></a></div>
 </div>
 </div>
 </div>
@@ -444,23 +500,23 @@ F(k,t) correlations, and cavity mode monitoring.</p>
 <h2>Learning Path<a class="headerlink" href="#learning-path" title="Link to this heading">¶</a></h2>
 <p>If you’re new to Cavity HOOMD, we recommend following this learning path:</p>
 <ol class="arabic simple">
-<li><p><strong>Start with Basic Usage</strong> (<span class="xref std std-doc">basic_usage</span>)
+<li><p><strong>Start with Basic Usage</strong> (<a class="reference internal" href="basic_usage.html"><span class="doc">Basic Usage</span></a>)
 - Understand cavity-molecule coupling
 - Set up your first simulation
 - Interpret basic results</p></li>
-<li><p><strong>Explore Advanced Features</strong> (<span class="xref std std-doc">advanced_features</span>)
+<li><p><strong>Explore Advanced Features</strong> (<a class="reference internal" href="advanced_features.html"><span class="doc">Advanced Features</span></a>)
 - Enable adaptive timestepping
 - Configure comprehensive energy tracking
 - Use different thermostat combinations</p></li>
-<li><p><strong>Learn Parameter Sweeps</strong> (<span class="xref std std-doc">parameter_sweeps</span>)
+<li><p><strong>Learn Parameter Sweeps</strong> (<a class="reference internal" href="parameter_sweeps.html"><span class="doc">Parameter Sweeps</span></a>)
 - Automate parameter exploration
 - Handle multiple replicas
 - Optimize computational resources</p></li>
-<li><p><strong>Master Analysis Tools</strong> (<span class="xref std std-doc">analysis</span>)
+<li><p><strong>Master Analysis Tools</strong> (<a class="reference internal" href="analysis.html"><span class="doc">Analysis</span></a>)
 - Monitor energy conservation
 - Calculate correlation functions
 - Analyze cavity mode dynamics</p></li>
-<li><p><strong>Optimize Performance</strong> (<span class="xref std std-doc">performance</span>)
+<li><p><strong>Optimize Performance</strong> (<a class="reference internal" href="performance.html"><span class="doc">Performance</span></a>)
 - Choose appropriate hardware
 - Configure for maximum efficiency
 - Troubleshoot common issues</p></li>
@@ -529,7 +585,7 @@ F(k,t) correlations, and cavity mode monitoring.</p>
 </section>
 <section id="next-steps">
 <h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading">¶</a></h2>
-<p>Ready to get started? Head to <span class="xref std std-doc">basic_usage</span> to run your first cavity-coupled simulation!</p>
+<p>Ready to get started? Head to <a class="reference internal" href="basic_usage.html"><span class="doc">Basic Usage</span></a> to run your first cavity-coupled simulation!</p>
 </section>
 </section>
 
@@ -538,23 +594,23 @@ F(k,t) correlations, and cavity mode monitoring.</p>
       <footer>
         
         <div class="related-pages">
-          <a class="next-page" href="../api/index.html">
+          <a class="next-page" href="basic_usage.html">
               <div class="page-info">
                 <div class="context">
                   <span>Next</span>
                 </div>
-                <div class="title">API Reference</div>
+                <div class="title">Basic Usage</div>
               </div>
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
             </a>
-          <a class="prev-page" href="../quickstart.html">
+          <a class="prev-page" href="../theory.html">
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
               <div class="page-info">
                 <div class="context">
                   <span>Previous</span>
                 </div>
                 
-                <div class="title">Quick Start</div>
+                <div class="title">Theory</div>
                 
               </div>
             </a>

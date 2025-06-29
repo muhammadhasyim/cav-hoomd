@@ -51,7 +51,7 @@ Most Common Classes
    :nosignatures:
 
    hoomd.cavitymd.CavityForce
-   hoomd.cavitymd.CavityMDSimulation
+   hoomd.cavitymd.AdaptiveTimestepUpdater
    hoomd.cavitymd.EnergyTracker
    hoomd.cavitymd.CavityModeTracker
    hoomd.cavitymd.FieldAutocorrelationTracker

@@ -303,19 +303,30 @@
 <div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
   <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
 <ul>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../quickstart.html">Quick Start</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../theory.html">Theory</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
 <ul>
-<li class="toctree-l1 has-children"><a class="reference internal" href="../user_guide/index.html">User Guide</a><input class="toctree-checkbox" id="toctree-checkbox-1" name="toctree-checkbox-1" role="switch" type="checkbox"/><label for="toctree-checkbox-1"><div class="visually-hidden">Toggle navigation of User Guide</div><i class="icon"><svg><use href="#svg-arrow-right"></use></svg></i></label><ul class="simple">
+<li class="toctree-l1 has-children"><a class="reference internal" href="../user_guide/index.html">User Guide</a><input class="toctree-checkbox" id="toctree-checkbox-1" name="toctree-checkbox-1" role="switch" type="checkbox"/><label for="toctree-checkbox-1"><div class="visually-hidden">Toggle navigation of User Guide</div><i class="icon"><svg><use href="#svg-arrow-right"></use></svg></i></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../user_guide/basic_usage.html">Basic Usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user_guide/advanced_features.html">Advanced Features</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user_guide/parameter_sweeps.html">Parameter Sweeps</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user_guide/analysis.html">Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user_guide/performance.html">Performance</a></li>
 </ul>
 </li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Examples</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../examples/index.html">Examples</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
 <ul class="current">
 <li class="toctree-l1 current has-children"><a class="reference internal" href="index.html">API Reference</a><input checked="" class="toctree-checkbox" id="toctree-checkbox-2" name="toctree-checkbox-2" role="switch" type="checkbox"/><label for="toctree-checkbox-2"><div class="visually-hidden">Toggle navigation of API Reference</div><i class="icon"><svg><use href="#svg-arrow-right"></use></svg></i></label><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="forces.html">Forces</a></li>
-<li class="toctree-l2 current"><a class="current reference internal" href="#">Simulation</a></li>
+<li class="toctree-l2 current current-page"><a class="current reference internal" href="#">Simulation</a></li>
 <li class="toctree-l2"><a class="reference internal" href="analysis.html">Analysis</a></li>
 <li class="toctree-l2"><a class="reference internal" href="utils.html">Utilities</a></li>
 <li class="toctree-l2"><a class="reference internal" href="_autosummary/hoomd.cavitymd.forces.html">hoomd.cavitymd.forces</a></li>
@@ -324,10 +335,10 @@
 <li class="toctree-l2"><a class="reference internal" href="_autosummary/hoomd.cavitymd.utils.html">hoomd.cavitymd.utils</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="forces.html">Forces</a></li>
-<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Simulation</a></li>
-<li class="toctree-l1"><a class="reference internal" href="analysis.html">Analysis</a></li>
-<li class="toctree-l1"><a class="reference internal" href="utils.html">Utilities</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../license.html">License</a></li>
 </ul>
 
 </div>
@@ -374,13 +385,7 @@
         <article role="main" id="furo-main-content">
           <section id="simulation">
 <h1>Simulation<a class="headerlink" href="#simulation" title="Link to this heading">¶</a></h1>
-<p>This module provides high-level simulation management classes and utilities.</p>
-<section id="high-level-simulation-classes">
-<h2>High-Level Simulation Classes<a class="headerlink" href="#high-level-simulation-classes" title="Link to this heading">¶</a></h2>
-<section id="cavitymdsimulation">
-<h3>CavityMDSimulation<a class="headerlink" href="#cavitymdsimulation" title="Link to this heading">¶</a></h3>
-</section>
-</section>
+<p>This module provides simulation management utilities for cavity molecular dynamics.</p>
 <section id="adaptive-timestep-control">
 <h2>Adaptive Timestep Control<a class="headerlink" href="#adaptive-timestep-control" title="Link to this heading">¶</a></h2>
 <section id="adaptivetimestepupdater">
@@ -390,6 +395,16 @@
 <em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">hoomd.cavitymd.</span></span><span class="sig-name descname"><span class="pre">AdaptiveTimestepUpdater</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">state</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">integrator</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">error_tolerance</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">time_constant_ps</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">50.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">initial_fraction</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.01</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">adaptiveerror</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cavity_damping_factor</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">molecular_thermostat_tau</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">5.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cavity_thermostat_tau</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">5.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">time_tracker</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/hoomd/cavitymd/simulation.html#AdaptiveTimestepUpdater"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#hoomd.cavitymd.AdaptiveTimestepUpdater" title="Link to this definition">¶</a></dt>
 <dd><p>Bases: <a class="reference external" href="https://hoomd-blue.readthedocs.io/en/stable/hoomd/custom/action.html#hoomd.custom.Action" title="(in HOOMD-blue v5.3.0)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Action</span></code></a></p>
 <p>Update timestep adaptively based on energy conservation and stability.</p>
+<p>The <cite>AdaptiveTimestepUpdater</cite> automatically adjusts the simulation timestep based on
+force magnitudes and error tolerances to maintain numerical stability while maximizing
+computational efficiency.</p>
+<p class="rubric">Key Features</p>
+<ul class="simple">
+<li><p>Automatic timestep adaptation based on force magnitudes</p></li>
+<li><p>Configurable error tolerance and time constants</p></li>
+<li><p>Integration with cavity thermostats and molecular dynamics</p></li>
+<li><p>Real-time monitoring of simulation stability</p></li>
+</ul>
 <dl class="py method">
 <dt class="sig sig-object py" id="hoomd.cavitymd.AdaptiveTimestepUpdater.__init__">
 <span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">state</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">integrator</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">error_tolerance</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">time_constant_ps</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">50.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">initial_fraction</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.01</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">adaptiveerror</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cavity_damping_factor</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">molecular_thermostat_tau</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">5.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cavity_thermostat_tau</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">5.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">time_tracker</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/hoomd/cavitymd/simulation.html#AdaptiveTimestepUpdater.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#hoomd.cavitymd.AdaptiveTimestepUpdater.__init__" title="Link to this definition">¶</a></dt>
@@ -422,221 +437,126 @@
 </section>
 <section id="usage-examples">
 <h2>Usage Examples<a class="headerlink" href="#usage-examples" title="Link to this heading">¶</a></h2>
-<section id="basic-simulation-setup">
-<h3>Basic Simulation Setup<a class="headerlink" href="#basic-simulation-setup" title="Link to this heading">¶</a></h3>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">hoomd.cavitymd</span> <span class="kn">import</span> <span class="n">CavityMDSimulation</span>
+<section id="basic-adaptive-timestep-setup">
+<h3>Basic Adaptive Timestep Setup<a class="headerlink" href="#basic-adaptive-timestep-setup" title="Link to this heading">¶</a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">hoomd.cavitymd</span> <span class="kn">import</span> <span class="n">AdaptiveTimestepUpdater</span>
 
-<span class="c1"># Create a basic cavity MD simulation</span>
-<span class="n">sim</span> <span class="o">=</span> <span class="n">CavityMDSimulation</span><span class="p">(</span>
-    <span class="n">job_dir</span><span class="o">=</span><span class="s2">&quot;./simulation&quot;</span><span class="p">,</span>
-    <span class="n">replica</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
-    <span class="n">freq</span><span class="o">=</span><span class="mf">2000.0</span><span class="p">,</span>                    <span class="c1"># Cavity frequency (cm⁻¹)</span>
-    <span class="n">couplstr</span><span class="o">=</span><span class="mf">1e-3</span><span class="p">,</span>                  <span class="c1"># Coupling strength</span>
-    <span class="n">incavity</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>                  <span class="c1"># Enable cavity coupling</span>
-    <span class="n">runtime_ps</span><span class="o">=</span><span class="mf">1000.0</span><span class="p">,</span>              <span class="c1"># Runtime in picoseconds</span>
-    <span class="n">temperature</span><span class="o">=</span><span class="mf">300.0</span><span class="p">,</span>              <span class="c1"># Temperature in Kelvin</span>
-    <span class="n">molecular_thermostat</span><span class="o">=</span><span class="s1">&#39;bussi&#39;</span><span class="p">,</span>   <span class="c1"># Molecular thermostat</span>
-    <span class="n">cavity_thermostat</span><span class="o">=</span><span class="s1">&#39;langevin&#39;</span>    <span class="c1"># Cavity thermostat</span>
+<span class="c1"># Create adaptive timestep updater</span>
+<span class="n">adaptive_action</span> <span class="o">=</span> <span class="n">AdaptiveTimestepUpdater</span><span class="p">(</span>
+    <span class="n">state</span><span class="o">=</span><span class="n">simulation</span><span class="o">.</span><span class="n">state</span><span class="p">,</span>
+    <span class="n">integrator</span><span class="o">=</span><span class="n">simulation</span><span class="o">.</span><span class="n">operations</span><span class="o">.</span><span class="n">integrator</span><span class="p">,</span>
+    <span class="n">error_tolerance</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>           <span class="c1"># Target error tolerance</span>
+    <span class="n">time_constant_ps</span><span class="o">=</span><span class="mf">50.0</span><span class="p">,</span>          <span class="c1"># Adaptation time constant</span>
+    <span class="n">adaptiveerror</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>             <span class="c1"># Enable adaptive error</span>
+    <span class="n">cavity_damping_factor</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>      <span class="c1"># Cavity damping</span>
+    <span class="n">molecular_thermostat_tau</span><span class="o">=</span><span class="mf">5.0</span><span class="p">,</span>   <span class="c1"># Molecular tau (ps)</span>
+    <span class="n">cavity_thermostat_tau</span><span class="o">=</span><span class="mf">5.0</span>       <span class="c1"># Cavity tau (ps)</span>
 <span class="p">)</span>
 
-<span class="c1"># Run the simulation</span>
-<span class="n">exit_code</span> <span class="o">=</span> <span class="n">sim</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+<span class="c1"># Add to simulation as updater</span>
+<span class="kn">import</span> <span class="nn">hoomd</span>
+<span class="n">adaptive_updater</span> <span class="o">=</span> <span class="n">hoomd</span><span class="o">.</span><span class="n">update</span><span class="o">.</span><span class="n">CustomUpdater</span><span class="p">(</span>
+    <span class="n">action</span><span class="o">=</span><span class="n">adaptive_action</span><span class="p">,</span>
+    <span class="n">trigger</span><span class="o">=</span><span class="n">hoomd</span><span class="o">.</span><span class="n">trigger</span><span class="o">.</span><span class="n">Periodic</span><span class="p">(</span><span class="mi">100</span><span class="p">)</span>  <span class="c1"># Update every 100 steps</span>
+<span class="p">)</span>
+<span class="n">simulation</span><span class="o">.</span><span class="n">operations</span><span class="o">.</span><span class="n">updaters</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">adaptive_updater</span><span class="p">)</span>
 </pre></div>
 </div>
 </section>
 <section id="advanced-configuration">
 <h3>Advanced Configuration<a class="headerlink" href="#advanced-configuration" title="Link to this heading">¶</a></h3>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Advanced simulation with custom parameters</span>
-<span class="n">sim</span> <span class="o">=</span> <span class="n">CavityMDSimulation</span><span class="p">(</span>
-    <span class="n">job_dir</span><span class="o">=</span><span class="s2">&quot;./advanced_sim&quot;</span><span class="p">,</span>
-    <span class="n">replica</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
-    <span class="n">freq</span><span class="o">=</span><span class="mf">1800.0</span><span class="p">,</span>
-    <span class="n">couplstr</span><span class="o">=</span><span class="mf">5e-4</span><span class="p">,</span>
-    <span class="n">incavity</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-    <span class="n">runtime_ps</span><span class="o">=</span><span class="mf">2000.0</span><span class="p">,</span>
-    <span class="n">temperature</span><span class="o">=</span><span class="mf">250.0</span><span class="p">,</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Advanced adaptive timestep with time tracking</span>
+<span class="kn">from</span> <span class="nn">hoomd.cavitymd</span> <span class="kn">import</span> <span class="n">ElapsedTimeTracker</span>
 
-    <span class="c1"># Thermostat configuration</span>
-    <span class="n">molecular_thermostat</span><span class="o">=</span><span class="s1">&#39;bussi&#39;</span><span class="p">,</span>
-    <span class="n">cavity_thermostat</span><span class="o">=</span><span class="s1">&#39;langevin&#39;</span><span class="p">,</span>
-    <span class="n">molecular_thermostat_tau</span><span class="o">=</span><span class="mf">10.0</span><span class="p">,</span>  <span class="c1"># ps</span>
-    <span class="n">cavity_thermostat_tau</span><span class="o">=</span><span class="mf">2.0</span><span class="p">,</span>      <span class="c1"># ps</span>
-    <span class="n">cavity_damping_factor</span><span class="o">=</span><span class="mf">2.0</span><span class="p">,</span>
+<span class="c1"># Create time tracker for runtime control</span>
+<span class="n">time_tracker</span> <span class="o">=</span> <span class="n">ElapsedTimeTracker</span><span class="p">(</span><span class="n">simulation</span><span class="p">,</span> <span class="n">runtime_ps</span><span class="o">=</span><span class="mf">1000.0</span><span class="p">)</span>
 
-    <span class="c1"># Advanced features</span>
-    <span class="n">finite_q</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>                  <span class="c1"># Allow finite-q modes</span>
-    <span class="n">error_tolerance</span><span class="o">=</span><span class="mf">0.005</span><span class="p">,</span>          <span class="c1"># Adaptive timestep</span>
-    <span class="n">enable_energy_tracking</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>    <span class="c1"># Energy conservation</span>
-    <span class="n">enable_fkt</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>                <span class="c1"># F(k,t) calculations</span>
-
-    <span class="c1"># Output control</span>
-    <span class="n">energy_output_period_ps</span><span class="o">=</span><span class="mf">0.05</span><span class="p">,</span>
-    <span class="n">gsd_output_period_ps</span><span class="o">=</span><span class="mf">25.0</span><span class="p">,</span>
-
-    <span class="c1"># Device configuration</span>
-    <span class="n">device</span><span class="o">=</span><span class="s1">&#39;GPU&#39;</span><span class="p">,</span>
-    <span class="n">gpu_id</span><span class="o">=</span><span class="mi">0</span>
+<span class="c1"># Create adaptive timestep updater with time tracking</span>
+<span class="n">adaptive_action</span> <span class="o">=</span> <span class="n">AdaptiveTimestepUpdater</span><span class="p">(</span>
+    <span class="n">state</span><span class="o">=</span><span class="n">simulation</span><span class="o">.</span><span class="n">state</span><span class="p">,</span>
+    <span class="n">integrator</span><span class="o">=</span><span class="n">simulation</span><span class="o">.</span><span class="n">operations</span><span class="o">.</span><span class="n">integrator</span><span class="p">,</span>
+    <span class="n">error_tolerance</span><span class="o">=</span><span class="mf">0.005</span><span class="p">,</span>          <span class="c1"># Tighter tolerance</span>
+    <span class="n">time_constant_ps</span><span class="o">=</span><span class="mf">25.0</span><span class="p">,</span>          <span class="c1"># Faster adaptation</span>
+    <span class="n">initial_fraction</span><span class="o">=</span><span class="mf">1e-4</span><span class="p">,</span>          <span class="c1"># Conservative start</span>
+    <span class="n">adaptiveerror</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">cavity_damping_factor</span><span class="o">=</span><span class="mf">2.0</span><span class="p">,</span>      <span class="c1"># Enhanced damping</span>
+    <span class="n">molecular_thermostat_tau</span><span class="o">=</span><span class="mf">10.0</span><span class="p">,</span>
+    <span class="n">cavity_thermostat_tau</span><span class="o">=</span><span class="mf">2.0</span><span class="p">,</span>
+    <span class="n">time_tracker</span><span class="o">=</span><span class="n">time_tracker</span>       <span class="c1"># Optional time tracking</span>
 <span class="p">)</span>
-
-<span class="c1"># Run with comprehensive logging</span>
-<span class="n">exit_code</span> <span class="o">=</span> <span class="n">sim</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
 </pre></div>
 </div>
 </section>
-<section id="parameter-sweeps">
-<h3>Parameter Sweeps<a class="headerlink" href="#parameter-sweeps" title="Link to this heading">¶</a></h3>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+<section id="integration-with-energy-tracking">
+<h3>Integration with Energy Tracking<a class="headerlink" href="#integration-with-energy-tracking" title="Link to this heading">¶</a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Complete simulation setup with adaptive timestep</span>
+<span class="kn">import</span> <span class="nn">hoomd</span>
+<span class="kn">from</span> <span class="nn">hoomd.cavitymd</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">AdaptiveTimestepUpdater</span><span class="p">,</span> <span class="n">ElapsedTimeTracker</span><span class="p">,</span>
+    <span class="n">EnergyTracker</span><span class="p">,</span> <span class="n">CavityModeTracker</span>
+<span class="p">)</span>
 
-<span class="c1"># Parameter sweep over coupling strengths</span>
-<span class="n">coupling_values</span> <span class="o">=</span> <span class="p">[</span><span class="mf">1e-4</span><span class="p">,</span> <span class="mf">5e-4</span><span class="p">,</span> <span class="mf">1e-3</span><span class="p">,</span> <span class="mf">5e-3</span><span class="p">]</span>
-<span class="n">temperatures</span> <span class="o">=</span> <span class="p">[</span><span class="mi">200</span><span class="p">,</span> <span class="mi">250</span><span class="p">,</span> <span class="mi">300</span><span class="p">]</span>
+<span class="c1"># Setup simulation (assume simulation object exists)</span>
+<span class="c1"># ... simulation setup code ...</span>
 
-<span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="p">(</span><span class="n">coupling</span><span class="p">,</span> <span class="n">temp</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span>
-    <span class="n">itertools</span><span class="o">.</span><span class="n">product</span><span class="p">(</span><span class="n">coupling_values</span><span class="p">,</span> <span class="n">temperatures</span><span class="p">)</span>
-<span class="p">):</span>
-    <span class="n">sim</span> <span class="o">=</span> <span class="n">CavityMDSimulation</span><span class="p">(</span>
-        <span class="n">job_dir</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;./sweep_</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
-        <span class="n">replica</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
-        <span class="n">freq</span><span class="o">=</span><span class="mf">2000.0</span><span class="p">,</span>
-        <span class="n">couplstr</span><span class="o">=</span><span class="n">coupling</span><span class="p">,</span>
-        <span class="n">incavity</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-        <span class="n">runtime_ps</span><span class="o">=</span><span class="mf">500.0</span><span class="p">,</span>
-        <span class="n">temperature</span><span class="o">=</span><span class="n">temp</span><span class="p">,</span>
-        <span class="n">molecular_thermostat</span><span class="o">=</span><span class="s1">&#39;bussi&#39;</span><span class="p">,</span>
-        <span class="n">cavity_thermostat</span><span class="o">=</span><span class="s1">&#39;langevin&#39;</span>
+<span class="c1"># Create time tracker</span>
+<span class="n">time_tracker</span> <span class="o">=</span> <span class="n">ElapsedTimeTracker</span><span class="p">(</span><span class="n">simulation</span><span class="p">,</span> <span class="n">runtime_ps</span><span class="o">=</span><span class="mf">500.0</span><span class="p">)</span>
+
+<span class="c1"># Create adaptive timestep updater</span>
+<span class="n">adaptive_action</span> <span class="o">=</span> <span class="n">AdaptiveTimestepUpdater</span><span class="p">(</span>
+    <span class="n">state</span><span class="o">=</span><span class="n">simulation</span><span class="o">.</span><span class="n">state</span><span class="p">,</span>
+    <span class="n">integrator</span><span class="o">=</span><span class="n">simulation</span><span class="o">.</span><span class="n">operations</span><span class="o">.</span><span class="n">integrator</span><span class="p">,</span>
+    <span class="n">error_tolerance</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+    <span class="n">time_constant_ps</span><span class="o">=</span><span class="mf">50.0</span><span class="p">,</span>
+    <span class="n">time_tracker</span><span class="o">=</span><span class="n">time_tracker</span>
+<span class="p">)</span>
+
+<span class="c1"># Create energy tracker for monitoring</span>
+<span class="n">energy_tracker</span> <span class="o">=</span> <span class="n">EnergyTracker</span><span class="p">(</span>
+    <span class="n">simulation</span><span class="o">=</span><span class="n">simulation</span><span class="p">,</span>
+    <span class="n">components</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;harmonic&#39;</span><span class="p">,</span> <span class="s1">&#39;lj&#39;</span><span class="p">,</span> <span class="s1">&#39;cavity&#39;</span><span class="p">],</span>
+    <span class="n">output_prefix</span><span class="o">=</span><span class="s2">&quot;energy_log&quot;</span><span class="p">,</span>
+    <span class="n">output_period_steps</span><span class="o">=</span><span class="mi">100</span>
+<span class="p">)</span>
+
+<span class="c1"># Add all updaters to simulation</span>
+<span class="n">simulation</span><span class="o">.</span><span class="n">operations</span><span class="o">.</span><span class="n">updaters</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span>
+    <span class="n">hoomd</span><span class="o">.</span><span class="n">update</span><span class="o">.</span><span class="n">CustomUpdater</span><span class="p">(</span>
+        <span class="n">action</span><span class="o">=</span><span class="n">time_tracker</span><span class="p">,</span>
+        <span class="n">trigger</span><span class="o">=</span><span class="n">hoomd</span><span class="o">.</span><span class="n">trigger</span><span class="o">.</span><span class="n">Periodic</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+    <span class="p">),</span>
+    <span class="n">hoomd</span><span class="o">.</span><span class="n">update</span><span class="o">.</span><span class="n">CustomUpdater</span><span class="p">(</span>
+        <span class="n">action</span><span class="o">=</span><span class="n">adaptive_action</span><span class="p">,</span>
+        <span class="n">trigger</span><span class="o">=</span><span class="n">hoomd</span><span class="o">.</span><span class="n">trigger</span><span class="o">.</span><span class="n">Periodic</span><span class="p">(</span><span class="mi">100</span><span class="p">)</span>
+    <span class="p">),</span>
+    <span class="n">hoomd</span><span class="o">.</span><span class="n">update</span><span class="o">.</span><span class="n">CustomUpdater</span><span class="p">(</span>
+        <span class="n">action</span><span class="o">=</span><span class="n">energy_tracker</span><span class="p">,</span>
+        <span class="n">trigger</span><span class="o">=</span><span class="n">hoomd</span><span class="o">.</span><span class="n">trigger</span><span class="o">.</span><span class="n">Periodic</span><span class="p">(</span><span class="mi">100</span><span class="p">)</span>
     <span class="p">)</span>
+<span class="p">])</span>
 
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Running coupling=</span><span class="si">{</span><span class="n">coupling</span><span class="si">}</span><span class="s2">, T=</span><span class="si">{</span><span class="n">temp</span><span class="si">}</span><span class="s2">K&quot;</span><span class="p">)</span>
-    <span class="n">sim</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
-</pre></div>
-</div>
-</section>
-<section id="no-cavity-control-simulations">
-<h3>No-Cavity Control Simulations<a class="headerlink" href="#no-cavity-control-simulations" title="Link to this heading">¶</a></h3>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Run control simulation without cavity</span>
-<span class="n">control_sim</span> <span class="o">=</span> <span class="n">CavityMDSimulation</span><span class="p">(</span>
-    <span class="n">job_dir</span><span class="o">=</span><span class="s2">&quot;./control&quot;</span><span class="p">,</span>
-    <span class="n">replica</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
-    <span class="n">freq</span><span class="o">=</span><span class="mf">2000.0</span><span class="p">,</span>      <span class="c1"># Ignored when incavity=False</span>
-    <span class="n">couplstr</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span>     <span class="c1"># Ignored when incavity=False</span>
-    <span class="n">incavity</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>   <span class="c1"># Disable cavity coupling</span>
-    <span class="n">runtime_ps</span><span class="o">=</span><span class="mf">1000.0</span><span class="p">,</span>
-    <span class="n">temperature</span><span class="o">=</span><span class="mf">300.0</span><span class="p">,</span>
-    <span class="n">molecular_thermostat</span><span class="o">=</span><span class="s1">&#39;bussi&#39;</span>
-    <span class="c1"># cavity_thermostat not needed for no-cavity runs</span>
-<span class="p">)</span>
-
-<span class="n">control_sim</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+<span class="c1"># Run simulation - will automatically terminate when runtime_ps is reached</span>
+<span class="c1"># and maintain optimal timestep throughout</span>
+<span class="n">simulation</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="mi">999999999</span><span class="p">)</span>  <span class="c1"># Large number, limited by time_tracker</span>
 </pre></div>
 </div>
 </section>
 </section>
-<section id="logging-and-output-control">
-<h2>Logging and Output Control<a class="headerlink" href="#logging-and-output-control" title="Link to this heading">¶</a></h2>
-<section id="logging-configuration">
-<h3>Logging Configuration<a class="headerlink" href="#logging-configuration" title="Link to this heading">¶</a></h3>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">sim</span> <span class="o">=</span> <span class="n">CavityMDSimulation</span><span class="p">(</span>
-    <span class="c1"># ... other parameters ...</span>
-
-    <span class="c1"># Logging options</span>
-    <span class="n">log_to_file</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-    <span class="n">log_to_console</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-    <span class="n">log_level</span><span class="o">=</span><span class="s1">&#39;INFO&#39;</span><span class="p">,</span>
-    <span class="n">custom_log_file</span><span class="o">=</span><span class="s1">&#39;my_simulation.log&#39;</span>
-<span class="p">)</span>
-</pre></div>
-</div>
-</section>
-<section id="output-period-control">
-<h3>Output Period Control<a class="headerlink" href="#output-period-control" title="Link to this heading">¶</a></h3>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">sim</span> <span class="o">=</span> <span class="n">CavityMDSimulation</span><span class="p">(</span>
-    <span class="c1"># ... other parameters ...</span>
-
-    <span class="c1"># Fine-grained output control</span>
-    <span class="n">energy_output_period_ps</span><span class="o">=</span><span class="mf">0.1</span><span class="p">,</span>     <span class="c1"># High-frequency energy data</span>
-    <span class="n">fkt_output_period_ps</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>        <span class="c1"># F(k,t) calculations</span>
-    <span class="n">gsd_output_period_ps</span><span class="o">=</span><span class="mf">50.0</span><span class="p">,</span>       <span class="c1"># Trajectory snapshots</span>
-    <span class="n">console_output_period_ps</span><span class="o">=</span><span class="mf">5.0</span>     <span class="c1"># Console updates</span>
-<span class="p">)</span>
-</pre></div>
-</div>
-</section>
-</section>
-<section id="error-handling">
-<h2>Error Handling<a class="headerlink" href="#error-handling" title="Link to this heading">¶</a></h2>
-<p>The simulation framework provides robust error handling:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">try</span><span class="p">:</span>
-    <span class="n">sim</span> <span class="o">=</span> <span class="n">CavityMDSimulation</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
-    <span class="n">exit_code</span> <span class="o">=</span> <span class="n">sim</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
-
-    <span class="k">if</span> <span class="n">exit_code</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Simulation completed successfully&quot;</span><span class="p">)</span>
-    <span class="k">else</span><span class="p">:</span>
-        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Simulation failed&quot;</span><span class="p">)</span>
-
-<span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Setup error: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</pre></div>
-</div>
-<p>The simulation automatically handles:</p>
+<section id="see-also">
+<h2>See Also<a class="headerlink" href="#see-also" title="Link to this heading">¶</a></h2>
 <ul class="simple">
-<li><p>GPU initialization failures (falls back to CPU)</p></li>
-<li><p>Invalid parameter combinations</p></li>
-<li><p>File I/O errors</p></li>
-<li><p>Memory allocation issues</p></li>
-<li><p>HOOMD internal errors</p></li>
+<li><p><a class="reference internal" href="analysis.html#hoomd.cavitymd.ElapsedTimeTracker" title="hoomd.cavitymd.ElapsedTimeTracker"><code class="xref py py-class docutils literal notranslate"><span class="pre">ElapsedTimeTracker</span></code></a> - For runtime control</p></li>
+<li><p><a class="reference internal" href="analysis.html#hoomd.cavitymd.EnergyTracker" title="hoomd.cavitymd.EnergyTracker"><code class="xref py py-class docutils literal notranslate"><span class="pre">EnergyTracker</span></code></a> - For energy monitoring</p></li>
+<li><p><a class="reference internal" href="analysis.html#hoomd.cavitymd.CavityModeTracker" title="hoomd.cavitymd.CavityModeTracker"><code class="xref py py-class docutils literal notranslate"><span class="pre">CavityModeTracker</span></code></a> - For cavity analysis</p></li>
 </ul>
-</section>
-<section id="performance-considerations">
-<h2>Performance Considerations<a class="headerlink" href="#performance-considerations" title="Link to this heading">¶</a></h2>
-<section id="device-selection">
-<h3>Device Selection<a class="headerlink" href="#device-selection" title="Link to this heading">¶</a></h3>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># GPU acceleration (recommended for large systems)</span>
-<span class="n">sim</span> <span class="o">=</span> <span class="n">CavityMDSimulation</span><span class="p">(</span>
-    <span class="n">device</span><span class="o">=</span><span class="s1">&#39;GPU&#39;</span><span class="p">,</span>
-    <span class="n">gpu_id</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>  <span class="c1"># Use first GPU</span>
-    <span class="c1"># ... other parameters ...</span>
-<span class="p">)</span>
-
-<span class="c1"># CPU for smaller systems or debugging</span>
-<span class="n">sim</span> <span class="o">=</span> <span class="n">CavityMDSimulation</span><span class="p">(</span>
-    <span class="n">device</span><span class="o">=</span><span class="s1">&#39;CPU&#39;</span><span class="p">,</span>
-    <span class="c1"># ... other parameters ...</span>
-<span class="p">)</span>
-</pre></div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><strong>High-Level Simulation Class</strong>: For a complete simulation framework that
+includes <cite>AdaptiveTimestepUpdater</cite> and other features automatically, see
+the <cite>CavityMDSimulation</cite> class in <code class="docutils literal notranslate"><span class="pre">examples/05_advanced_run.py</span></code>. This
+example class demonstrates how to integrate all cavity MD components into
+a comprehensive simulation workflow.</p>
 </div>
-</section>
-<section id="timestep-control">
-<h3>Timestep Control<a class="headerlink" href="#timestep-control" title="Link to this heading">¶</a></h3>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Adaptive timestep (recommended)</span>
-<span class="n">sim</span> <span class="o">=</span> <span class="n">CavityMDSimulation</span><span class="p">(</span>
-    <span class="n">error_tolerance</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>  <span class="c1"># Adaptive control</span>
-    <span class="c1"># ... other parameters ...</span>
-<span class="p">)</span>
-
-<span class="c1"># Fixed timestep</span>
-<span class="n">sim</span> <span class="o">=</span> <span class="n">CavityMDSimulation</span><span class="p">(</span>
-    <span class="n">error_tolerance</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span>   <span class="c1"># Disable adaptive</span>
-    <span class="n">dt_fs</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>            <span class="c1"># Fixed 1 fs timestep</span>
-    <span class="c1"># ... other parameters ...</span>
-<span class="p">)</span>
-</pre></div>
-</div>
-</section>
-<section id="memory-optimization">
-<h3>Memory Optimization<a class="headerlink" href="#memory-optimization" title="Link to this heading">¶</a></h3>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># For large systems, limit output frequency</span>
-<span class="n">sim</span> <span class="o">=</span> <span class="n">CavityMDSimulation</span><span class="p">(</span>
-    <span class="c1"># ... other parameters ...</span>
-
-    <span class="c1"># Reduce output frequency to save memory/disk space</span>
-    <span class="n">gsd_output_period_ps</span><span class="o">=</span><span class="mf">100.0</span><span class="p">,</span>      <span class="c1"># Less frequent snapshots</span>
-    <span class="n">energy_output_period_ps</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>     <span class="c1"># Less frequent energy data</span>
-    <span class="n">max_energy_output_time_ps</span><span class="o">=</span><span class="mf">500.0</span>  <span class="c1"># Limit energy output duration</span>
-<span class="p">)</span>
-</pre></div>
-</div>
-</section>
 </section>
 </section>
 
@@ -696,10 +616,6 @@
           <div class="toc-tree">
             <ul>
 <li><a class="reference internal" href="#">Simulation</a><ul>
-<li><a class="reference internal" href="#high-level-simulation-classes">High-Level Simulation Classes</a><ul>
-<li><a class="reference internal" href="#cavitymdsimulation">CavityMDSimulation</a></li>
-</ul>
-</li>
 <li><a class="reference internal" href="#adaptive-timestep-control">Adaptive Timestep Control</a><ul>
 <li><a class="reference internal" href="#adaptivetimestepupdater">AdaptiveTimestepUpdater</a><ul>
 <li><a class="reference internal" href="#hoomd.cavitymd.AdaptiveTimestepUpdater"><code class="docutils literal notranslate"><span class="pre">AdaptiveTimestepUpdater</span></code></a><ul>
@@ -714,24 +630,12 @@
 </ul>
 </li>
 <li><a class="reference internal" href="#usage-examples">Usage Examples</a><ul>
-<li><a class="reference internal" href="#basic-simulation-setup">Basic Simulation Setup</a></li>
+<li><a class="reference internal" href="#basic-adaptive-timestep-setup">Basic Adaptive Timestep Setup</a></li>
 <li><a class="reference internal" href="#advanced-configuration">Advanced Configuration</a></li>
-<li><a class="reference internal" href="#parameter-sweeps">Parameter Sweeps</a></li>
-<li><a class="reference internal" href="#no-cavity-control-simulations">No-Cavity Control Simulations</a></li>
+<li><a class="reference internal" href="#integration-with-energy-tracking">Integration with Energy Tracking</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#logging-and-output-control">Logging and Output Control</a><ul>
-<li><a class="reference internal" href="#logging-configuration">Logging Configuration</a></li>
-<li><a class="reference internal" href="#output-period-control">Output Period Control</a></li>
-</ul>
-</li>
-<li><a class="reference internal" href="#error-handling">Error Handling</a></li>
-<li><a class="reference internal" href="#performance-considerations">Performance Considerations</a><ul>
-<li><a class="reference internal" href="#device-selection">Device Selection</a></li>
-<li><a class="reference internal" href="#timestep-control">Timestep Control</a></li>
-<li><a class="reference internal" href="#memory-optimization">Memory Optimization</a></li>
-</ul>
-</li>
+<li><a class="reference internal" href="#see-also">See Also</a></li>
 </ul>
 </li>
 </ul>

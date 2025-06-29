@@ -25,8 +25,7 @@ PhysicalConstants
 
       ~PhysicalConstants.KB_HARTREE_PER_K
       ~PhysicalConstants.HARTREE_TO_CM_MINUS1
-      ~PhysicalConstants.ATOMIC_TIME_TO_PS
-      ~PhysicalConstants.BOHR_TO_ANGSTROM
+      ~PhysicalConstants.TIME_PS_CONVERSION
 
    .. rubric:: Unit Conversions
 
@@ -36,7 +35,6 @@ PhysicalConstants
       ~PhysicalConstants.atomic_units_to_ps
       ~PhysicalConstants.ps_to_atomic_units
       ~PhysicalConstants.gamma_from_tau_ps
-      ~PhysicalConstants.tau_from_gamma_ps
 
 Helper Functions
 ================

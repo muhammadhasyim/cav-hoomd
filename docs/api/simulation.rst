@@ -2,50 +2,9 @@
 Simulation
 ==========
 
-This module provides high-level simulation management classes and utilities.
+This module provides simulation management utilities for cavity molecular dynamics.
 
 .. currentmodule:: hoomd.cavitymd
-
-High-Level Simulation Classes
-=============================
-
-CavityMDSimulation
-------------------
-
-.. autoclass:: CavityMDSimulation
-   :members:
-   :show-inheritance:
-
-   .. rubric:: Main Methods
-
-   .. autosummary::
-      :nosignatures:
-
-      ~CavityMDSimulation.__init__
-      ~CavityMDSimulation.run
-      ~CavityMDSimulation.setup_logging
-      ~CavityMDSimulation.cleanup
-
-   .. rubric:: Setup Methods
-
-   .. autosummary::
-      :nosignatures:
-
-      ~CavityMDSimulation.setup_simulation
-      ~CavityMDSimulation.setup_integrator
-      ~CavityMDSimulation.setup_force_parameters
-      ~CavityMDSimulation.setup_thermostat_parameters
-      ~CavityMDSimulation.setup_trackers_and_loggers
-      ~CavityMDSimulation.setup_output_writers
-
-   .. rubric:: Utility Methods
-
-   .. autosummary::
-      :nosignatures:
-
-      ~CavityMDSimulation.create_cavity_particle
-      ~CavityMDSimulation.thermalize_system
-      ~CavityMDSimulation.compute_and_set_optimal_timestep
 
 Adaptive Timestep Control
 ==========================
@@ -57,231 +16,138 @@ AdaptiveTimestepUpdater
    :members:
    :show-inheritance:
 
+   The `AdaptiveTimestepUpdater` automatically adjusts the simulation timestep based on 
+   force magnitudes and error tolerances to maintain numerical stability while maximizing 
+   computational efficiency.
+
+   .. rubric:: Key Features
+
+   - Automatic timestep adaptation based on force magnitudes
+   - Configurable error tolerance and time constants
+   - Integration with cavity thermostats and molecular dynamics
+   - Real-time monitoring of simulation stability
+
 Usage Examples
 ==============
 
-Basic Simulation Setup
------------------------
+Basic Adaptive Timestep Setup
+------------------------------
 
 .. code-block:: python
 
-   from hoomd.cavitymd import CavityMDSimulation
+   from hoomd.cavitymd import AdaptiveTimestepUpdater
 
-   # Create a basic cavity MD simulation
-   sim = CavityMDSimulation(
-       job_dir="./simulation",
-       replica=1,
-       freq=2000.0,                    # Cavity frequency (cm⁻¹)
-       couplstr=1e-3,                  # Coupling strength
-       incavity=True,                  # Enable cavity coupling
-       runtime_ps=1000.0,              # Runtime in picoseconds
-       temperature=300.0,              # Temperature in Kelvin
-       molecular_thermostat='bussi',   # Molecular thermostat
-       cavity_thermostat='langevin'    # Cavity thermostat
+   # Create adaptive timestep updater
+   adaptive_action = AdaptiveTimestepUpdater(
+       state=simulation.state,
+       integrator=simulation.operations.integrator,
+       error_tolerance=0.01,           # Target error tolerance
+       time_constant_ps=50.0,          # Adaptation time constant
+       adaptiveerror=True,             # Enable adaptive error
+       cavity_damping_factor=1.0,      # Cavity damping
+       molecular_thermostat_tau=5.0,   # Molecular tau (ps)
+       cavity_thermostat_tau=5.0       # Cavity tau (ps)
    )
 
-   # Run the simulation
-   exit_code = sim.run()
+   # Add to simulation as updater
+   import hoomd
+   adaptive_updater = hoomd.update.CustomUpdater(
+       action=adaptive_action,
+       trigger=hoomd.trigger.Periodic(100)  # Update every 100 steps
+   )
+   simulation.operations.updaters.append(adaptive_updater)
 
 Advanced Configuration
 ----------------------
 
 .. code-block:: python
 
-   # Advanced simulation with custom parameters
-   sim = CavityMDSimulation(
-       job_dir="./advanced_sim",
-       replica=1,
-       freq=1800.0,
-       couplstr=5e-4,
-       incavity=True,
-       runtime_ps=2000.0,
-       temperature=250.0,
-       
-       # Thermostat configuration
-       molecular_thermostat='bussi',
-       cavity_thermostat='langevin',
-       molecular_thermostat_tau=10.0,  # ps
-       cavity_thermostat_tau=2.0,      # ps
-       cavity_damping_factor=2.0,
-       
-       # Advanced features
-       finite_q=True,                  # Allow finite-q modes
-       error_tolerance=0.005,          # Adaptive timestep
-       enable_energy_tracking=True,    # Energy conservation
-       enable_fkt=True,                # F(k,t) calculations
-       
-       # Output control
-       energy_output_period_ps=0.05,
-       gsd_output_period_ps=25.0,
-       
-       # Device configuration
-       device='GPU',
-       gpu_id=0
+   # Advanced adaptive timestep with time tracking
+   from hoomd.cavitymd import ElapsedTimeTracker
+   
+   # Create time tracker for runtime control
+   time_tracker = ElapsedTimeTracker(simulation, runtime_ps=1000.0)
+   
+   # Create adaptive timestep updater with time tracking
+   adaptive_action = AdaptiveTimestepUpdater(
+       state=simulation.state,
+       integrator=simulation.operations.integrator,
+       error_tolerance=0.005,          # Tighter tolerance
+       time_constant_ps=25.0,          # Faster adaptation
+       initial_fraction=1e-4,          # Conservative start
+       adaptiveerror=True,
+       cavity_damping_factor=2.0,      # Enhanced damping
+       molecular_thermostat_tau=10.0,
+       cavity_thermostat_tau=2.0,
+       time_tracker=time_tracker       # Optional time tracking
    )
 
-   # Run with comprehensive logging
-   exit_code = sim.run()
-
-Parameter Sweeps
-----------------
+Integration with Energy Tracking
+---------------------------------
 
 .. code-block:: python
 
-   import numpy as np
+   # Complete simulation setup with adaptive timestep
+   import hoomd
+   from hoomd.cavitymd import (
+       AdaptiveTimestepUpdater, ElapsedTimeTracker, 
+       EnergyTracker, CavityModeTracker
+   )
 
-   # Parameter sweep over coupling strengths
-   coupling_values = [1e-4, 5e-4, 1e-3, 5e-3]
-   temperatures = [200, 250, 300]
+   # Setup simulation (assume simulation object exists)
+   # ... simulation setup code ...
 
-   for i, (coupling, temp) in enumerate(
-       itertools.product(coupling_values, temperatures)
-   ):
-       sim = CavityMDSimulation(
-           job_dir=f"./sweep_{i}",
-           replica=1,
-           freq=2000.0,
-           couplstr=coupling,
-           incavity=True,
-           runtime_ps=500.0,
-           temperature=temp,
-           molecular_thermostat='bussi',
-           cavity_thermostat='langevin'
+   # Create time tracker
+   time_tracker = ElapsedTimeTracker(simulation, runtime_ps=500.0)
+
+   # Create adaptive timestep updater
+   adaptive_action = AdaptiveTimestepUpdater(
+       state=simulation.state,
+       integrator=simulation.operations.integrator,
+       error_tolerance=0.01,
+       time_constant_ps=50.0,
+       time_tracker=time_tracker
+   )
+
+   # Create energy tracker for monitoring
+   energy_tracker = EnergyTracker(
+       simulation=simulation,
+       components=['harmonic', 'lj', 'cavity'],
+       output_prefix="energy_log",
+       output_period_steps=100
+   )
+
+   # Add all updaters to simulation
+   simulation.operations.updaters.extend([
+       hoomd.update.CustomUpdater(
+           action=time_tracker, 
+           trigger=hoomd.trigger.Periodic(1)
+       ),
+       hoomd.update.CustomUpdater(
+           action=adaptive_action, 
+           trigger=hoomd.trigger.Periodic(100)
+       ),
+       hoomd.update.CustomUpdater(
+           action=energy_tracker, 
+           trigger=hoomd.trigger.Periodic(100)
        )
-       
-       print(f"Running coupling={coupling}, T={temp}K")
-       sim.run()
+   ])
 
-No-Cavity Control Simulations
-------------------------------
+   # Run simulation - will automatically terminate when runtime_ps is reached
+   # and maintain optimal timestep throughout
+   simulation.run(999999999)  # Large number, limited by time_tracker
 
-.. code-block:: python
+See Also
+========
 
-   # Run control simulation without cavity
-   control_sim = CavityMDSimulation(
-       job_dir="./control",
-       replica=1,
-       freq=2000.0,      # Ignored when incavity=False
-       couplstr=0.0,     # Ignored when incavity=False
-       incavity=False,   # Disable cavity coupling
-       runtime_ps=1000.0,
-       temperature=300.0,
-       molecular_thermostat='bussi'
-       # cavity_thermostat not needed for no-cavity runs
-   )
+* :class:`~hoomd.cavitymd.ElapsedTimeTracker` - For runtime control
+* :class:`~hoomd.cavitymd.EnergyTracker` - For energy monitoring
+* :class:`~hoomd.cavitymd.CavityModeTracker` - For cavity analysis
 
-   control_sim.run()
-
-Logging and Output Control
-==========================
-
-Logging Configuration
----------------------
-
-.. code-block:: python
-
-   sim = CavityMDSimulation(
-       # ... other parameters ...
-       
-       # Logging options
-       log_to_file=True,
-       log_to_console=True,
-       log_level='INFO',
-       custom_log_file='my_simulation.log'
-   )
-
-Output Period Control
----------------------
-
-.. code-block:: python
-
-   sim = CavityMDSimulation(
-       # ... other parameters ...
-       
-       # Fine-grained output control
-       energy_output_period_ps=0.1,     # High-frequency energy data
-       fkt_output_period_ps=1.0,        # F(k,t) calculations
-       gsd_output_period_ps=50.0,       # Trajectory snapshots
-       console_output_period_ps=5.0     # Console updates
-   )
-
-Error Handling
-==============
-
-The simulation framework provides robust error handling:
-
-.. code-block:: python
-
-   try:
-       sim = CavityMDSimulation(...)
-       exit_code = sim.run()
-       
-       if exit_code == 0:
-           print("Simulation completed successfully")
-       else:
-           print("Simulation failed")
-           
-   except Exception as e:
-       print(f"Setup error: {e}")
-
-The simulation automatically handles:
-
-- GPU initialization failures (falls back to CPU)
-- Invalid parameter combinations
-- File I/O errors
-- Memory allocation issues
-- HOOMD internal errors
-
-Performance Considerations
-==========================
-
-Device Selection
-----------------
-
-.. code-block:: python
-
-   # GPU acceleration (recommended for large systems)
-   sim = CavityMDSimulation(
-       device='GPU',
-       gpu_id=0,  # Use first GPU
-       # ... other parameters ...
-   )
-
-   # CPU for smaller systems or debugging
-   sim = CavityMDSimulation(
-       device='CPU',
-       # ... other parameters ...
-   )
-
-Timestep Control
-----------------
-
-.. code-block:: python
-
-   # Adaptive timestep (recommended)
-   sim = CavityMDSimulation(
-       error_tolerance=0.01,  # Adaptive control
-       # ... other parameters ...
-   )
-
-   # Fixed timestep
-   sim = CavityMDSimulation(
-       error_tolerance=0.0,   # Disable adaptive
-       dt_fs=1.0,            # Fixed 1 fs timestep
-       # ... other parameters ...
-   )
-
-Memory Optimization
--------------------
-
-.. code-block:: python
-
-   # For large systems, limit output frequency
-   sim = CavityMDSimulation(
-       # ... other parameters ...
-       
-       # Reduce output frequency to save memory/disk space
-       gsd_output_period_ps=100.0,      # Less frequent snapshots
-       energy_output_period_ps=1.0,     # Less frequent energy data
-       max_energy_output_time_ps=500.0  # Limit energy output duration
-   ) 
+.. note::
+   
+   **High-Level Simulation Class**: For a complete simulation framework that 
+   includes `AdaptiveTimestepUpdater` and other features automatically, see 
+   the `CavityMDSimulation` class in ``examples/05_advanced_run.py``. This 
+   example class demonstrates how to integrate all cavity MD components into 
+   a comprehensive simulation workflow. 

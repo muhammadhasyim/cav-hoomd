@@ -159,48 +159,24 @@ Contents
    :caption: User Guide
 
    user_guide/index
-   user_guide/basic_usage
-   user_guide/advanced_features
-   user_guide/parameter_sweeps
-   user_guide/analysis
-   user_guide/performance
 
 .. toctree::
    :maxdepth: 2
    :caption: Examples
 
    examples/index
-   examples/basic_simulation
-   examples/energy_tracking
-   examples/parameter_sweep
-   examples/analysis_tutorial
 
 .. toctree::
    :maxdepth: 2
    :caption: API Reference
 
    api/index
-   api/forces
-   api/simulation
-   api/analysis
-   api/utils
-
-.. toctree::
-   :maxdepth: 2
-   :caption: Development
-
-   development/index
-   development/contributing
-   development/testing
-   development/documentation
 
 .. toctree::
    :maxdepth: 1
    :caption: Reference
 
-   changelog
    license
-   references
 
 Support & Community
 ===================
