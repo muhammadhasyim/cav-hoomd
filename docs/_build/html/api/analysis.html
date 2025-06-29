@@ -1,0 +1,1468 @@
+<!doctype html>
+<html class="no-js" lang="en" data-content_root="../">
+  <head><meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width,initial-scale=1"/>
+    <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="index" title="Index" href="../genindex.html" /><link rel="search" title="Search" href="../search.html" /><link rel="next" title="Utilities" href="utils.html" /><link rel="prev" title="Simulation" href="simulation.html" />
+
+    <!-- Generated with Sphinx 8.2.3 and Furo 2024.08.06 -->
+        <title>Analysis - Cavity HOOMD 1.0.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=a746c00c" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=354aac6f" />
+    <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=269f3e6a" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=302659d7" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=269f3e6a" />
+    
+    
+
+
+<style>
+  body {
+    --color-code-background: #f8f8f8;
+  --color-code-foreground: black;
+  --color-brand-primary: #2980b9;
+  --color-brand-content: #2980b9;
+  --color-brand-visited: #9b59b6;
+  --color-background-primary: #ffffff;
+  --color-background-secondary: #f8f9fa;
+  --color-background-hover: #efeff4;
+  --color-background-hover--transparent: #efeff400;
+  --color-background-border: #e1e4e5;
+  --color-foreground-primary: #000000;
+  --color-foreground-secondary: #5a5c63;
+  --color-foreground-muted: #6c6c6c;
+  --color-foreground-border: #878787;
+  --color-api-background: #f8f9fa;
+  --color-api-background-hover: #efeff4;
+  --color-api-overall: #2980b9;
+  --color-api-name: #2c3e50;
+  --color-api-pre-name: #34495e;
+  --color-api-paren: #6c6c6c;
+  --color-api-keyword: #8e44ad;
+  --color-admonition-background: transparent;
+  --color-inline-code-background: #f1f2f3;
+  --color-highlighted-background: #ffd43b;
+  --color-highlighted-text: #000000;
+  --color-guilabel-background: #ddeeff;
+  --color-guilabel-border: #b3d4ff;
+  --color-guilabel-text: #2c3e50;
+  --color-kbd-background: #f9f9f9;
+  --color-kbd-border: #d1d5da;
+  --color-kbd-text: #2c3e50;
+  --color-link: #2980b9;
+  --color-link-underline: #2980b9;
+  --color-link-hover: #1abc9c;
+  --color-link-hover-underline: #1abc9c;
+  
+  }
+  @media not print {
+    body[data-theme="dark"] {
+      --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  --color-brand-primary: #3498db;
+  --color-brand-content: #3498db;
+  --color-brand-visited: #bb86fc;
+  --color-background-primary: #131416;
+  --color-background-secondary: #1a1c23;
+  --color-background-hover: #1e2124;
+  --color-background-hover--transparent: #1e212400;
+  --color-background-border: #303335;
+  --color-foreground-primary: #ffffffcc;
+  --color-foreground-secondary: #9ca0a5;
+  --color-foreground-muted: #81868d;
+  --color-foreground-border: #666666;
+  --color-api-background: #1a1c23;
+  --color-api-background-hover: #1e2124;
+  --color-api-overall: #3498db;
+  --color-api-name: #ecf0f1;
+  --color-api-pre-name: #bdc3c7;
+  --color-api-paren: #95a5a6;
+  --color-api-keyword: #e74c3c;
+  --color-admonition-background: transparent;
+  --color-inline-code-background: #2c2c2c;
+  --color-highlighted-background: #f39c12;
+  --color-highlighted-text: #000000;
+  --color-guilabel-background: #2c3e50;
+  --color-guilabel-border: #34495e;
+  --color-guilabel-text: #ecf0f1;
+  --color-kbd-background: #2c2c2c;
+  --color-kbd-border: #525252;
+  --color-kbd-text: #ecf0f1;
+  --color-link: #3498db;
+  --color-link-underline: #3498db;
+  --color-link-hover: #1abc9c;
+  --color-link-hover-underline: #1abc9c;
+  
+    }
+    @media (prefers-color-scheme: dark) {
+      body:not([data-theme="light"]) {
+        --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  --color-brand-primary: #3498db;
+  --color-brand-content: #3498db;
+  --color-brand-visited: #bb86fc;
+  --color-background-primary: #131416;
+  --color-background-secondary: #1a1c23;
+  --color-background-hover: #1e2124;
+  --color-background-hover--transparent: #1e212400;
+  --color-background-border: #303335;
+  --color-foreground-primary: #ffffffcc;
+  --color-foreground-secondary: #9ca0a5;
+  --color-foreground-muted: #81868d;
+  --color-foreground-border: #666666;
+  --color-api-background: #1a1c23;
+  --color-api-background-hover: #1e2124;
+  --color-api-overall: #3498db;
+  --color-api-name: #ecf0f1;
+  --color-api-pre-name: #bdc3c7;
+  --color-api-paren: #95a5a6;
+  --color-api-keyword: #e74c3c;
+  --color-admonition-background: transparent;
+  --color-inline-code-background: #2c2c2c;
+  --color-highlighted-background: #f39c12;
+  --color-highlighted-text: #000000;
+  --color-guilabel-background: #2c3e50;
+  --color-guilabel-border: #34495e;
+  --color-guilabel-text: #ecf0f1;
+  --color-kbd-background: #2c2c2c;
+  --color-kbd-border: #525252;
+  --color-kbd-text: #ecf0f1;
+  --color-link: #3498db;
+  --color-link-underline: #3498db;
+  --color-link-hover: #1abc9c;
+  --color-link-hover-underline: #1abc9c;
+  
+      }
+    }
+  }
+</style></head>
+  <body>
+    
+    <script>
+      document.body.dataset.theme = localStorage.getItem("theme") || "auto";
+    </script>
+    
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+  <symbol id="svg-toc" viewBox="0 0 24 24">
+    <title>Contents</title>
+    <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 1024 1024">
+      <path d="M408 442h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8zm-8 204c0 4.4 3.6 8 8 8h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56zm504-486H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zm0 632H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zM115.4 518.9L271.7 642c5.8 4.6 14.4.5 14.4-6.9V388.9c0-7.4-8.5-11.5-14.4-6.9L115.4 505.1a8.74 8.74 0 0 0 0 13.8z"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-menu" viewBox="0 0 24 24">
+    <title>Menu</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-menu">
+      <line x1="3" y1="12" x2="21" y2="12"></line>
+      <line x1="3" y1="6" x2="21" y2="6"></line>
+      <line x1="3" y1="18" x2="21" y2="18"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-arrow-right" viewBox="0 0 24 24">
+    <title>Expand</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-chevron-right">
+      <polyline points="9 18 15 12 9 6"></polyline>
+    </svg>
+  </symbol>
+  <symbol id="svg-sun" viewBox="0 0 24 24">
+    <title>Light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="feather-sun">
+      <circle cx="12" cy="12" r="5"></circle>
+      <line x1="12" y1="1" x2="12" y2="3"></line>
+      <line x1="12" y1="21" x2="12" y2="23"></line>
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+      <line x1="1" y1="12" x2="3" y2="12"></line>
+      <line x1="21" y1="12" x2="23" y2="12"></line>
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon" viewBox="0 0 24 24">
+    <title>Dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-moon">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z" />
+    </svg>
+  </symbol>
+  <symbol id="svg-sun-with-moon" viewBox="0 0 24 24">
+    <title>Auto light/dark, in light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path style="opacity: 50%" d="M 5.411 14.504 C 5.471 14.504 5.532 14.504 5.591 14.504 C 3.639 16.319 4.383 19.569 6.931 20.352 C 7.693 20.586 8.512 20.551 9.25 20.252 C 8.023 23.207 4.056 23.725 2.11 21.184 C 0.166 18.642 1.702 14.949 4.874 14.536 C 5.051 14.512 5.231 14.5 5.411 14.5 L 5.411 14.504 Z"/>
+      <line x1="14.5" y1="3.25" x2="14.5" y2="1.25"/>
+      <line x1="14.5" y1="15.85" x2="14.5" y2="17.85"/>
+      <line x1="10.044" y1="5.094" x2="8.63" y2="3.68"/>
+      <line x1="19" y1="14.05" x2="20.414" y2="15.464"/>
+      <line x1="8.2" y1="9.55" x2="6.2" y2="9.55"/>
+      <line x1="20.8" y1="9.55" x2="22.8" y2="9.55"/>
+      <line x1="10.044" y1="14.006" x2="8.63" y2="15.42"/>
+      <line x1="19" y1="5.05" x2="20.414" y2="3.636"/>
+      <circle cx="14.5" cy="9.55" r="3.6"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon-with-sun" viewBox="0 0 24 24">
+    <title>Auto light/dark, in dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path d="M 8.282 7.007 C 8.385 7.007 8.494 7.007 8.595 7.007 C 5.18 10.184 6.481 15.869 10.942 17.24 C 12.275 17.648 13.706 17.589 15 17.066 C 12.851 22.236 5.91 23.143 2.505 18.696 C -0.897 14.249 1.791 7.786 7.342 7.063 C 7.652 7.021 7.965 7 8.282 7 L 8.282 7.007 Z"/>
+      <line style="opacity: 50%" x1="18" y1="3.705" x2="18" y2="2.5"/>
+      <line style="opacity: 50%" x1="18" y1="11.295" x2="18" y2="12.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="4.816" x2="14.464" y2="3.964"/>
+      <line style="opacity: 50%" x1="20.711" y1="10.212" x2="21.563" y2="11.063"/>
+      <line style="opacity: 50%" x1="14.205" y1="7.5" x2="13.001" y2="7.5"/>
+      <line style="opacity: 50%" x1="21.795" y1="7.5" x2="23" y2="7.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="10.184" x2="14.464" y2="11.036"/>
+      <line style="opacity: 50%" x1="20.711" y1="4.789" x2="21.563" y2="3.937"/>
+      <circle style="opacity: 50%" cx="18" cy="7.5" r="2.169"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-pencil" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-pencil-code">
+      <path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" />
+      <path d="M13.5 6.5l4 4" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+  <symbol id="svg-eye" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-eye-code">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" />
+      <path
+        d="M11.11 17.958c-3.209 -.307 -5.91 -2.293 -8.11 -5.958c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6c-.21 .352 -.427 .688 -.647 1.008" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+</svg>
+
+<input type="checkbox" class="sidebar-toggle" name="__navigation" id="__navigation">
+<input type="checkbox" class="sidebar-toggle" name="__toc" id="__toc">
+<label class="overlay sidebar-overlay" for="__navigation">
+  <div class="visually-hidden">Hide navigation sidebar</div>
+</label>
+<label class="overlay toc-overlay" for="__toc">
+  <div class="visually-hidden">Hide table of contents sidebar</div>
+</label>
+
+<a class="skip-to-content muted-link" href="#furo-main-content">Skip to content</a>
+
+
+
+<div class="page">
+  <header class="mobile-header">
+    <div class="header-left">
+      <label class="nav-overlay-icon" for="__navigation">
+        <div class="visually-hidden">Toggle site navigation sidebar</div>
+        <i class="icon"><svg><use href="#svg-menu"></use></svg></i>
+      </label>
+    </div>
+    <div class="header-center">
+      <a href="../index.html"><div class="brand">Cavity HOOMD 1.0.0 documentation</div></a>
+    </div>
+    <div class="header-right">
+      <div class="theme-toggle-container theme-toggle-header">
+        <button class="theme-toggle">
+          <div class="visually-hidden">Toggle Light / Dark / Auto color theme</div>
+          <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+          <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+          <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+          <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+        </button>
+      </div>
+      <label class="toc-overlay-icon toc-header-icon" for="__toc">
+        <div class="visually-hidden">Toggle table of contents sidebar</div>
+        <i class="icon"><svg><use href="#svg-toc"></use></svg></i>
+      </label>
+    </div>
+  </header>
+  <aside class="sidebar-drawer">
+    <div class="sidebar-container">
+      
+      <div class="sidebar-sticky"><a class="sidebar-brand" href="../index.html">
+  
+  
+  <span class="sidebar-brand-text">Cavity HOOMD 1.0.0 documentation</span>
+  
+</a><form class="sidebar-search-container" method="get" action="../search.html" role="search">
+  <input class="sidebar-search" placeholder="Search" name="q" aria-label="Search">
+  <input type="hidden" name="check_keywords" value="yes">
+  <input type="hidden" name="area" value="default">
+</form>
+<div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
+  <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../quickstart.html">Quick Start</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../user_guide/index.html">User Guide</a><input class="toctree-checkbox" id="toctree-checkbox-1" name="toctree-checkbox-1" role="switch" type="checkbox"/><label for="toctree-checkbox-1"><div class="visually-hidden">Toggle navigation of User Guide</div><i class="icon"><svg><use href="#svg-arrow-right"></use></svg></i></label><ul class="simple">
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul class="current">
+<li class="toctree-l1 current has-children"><a class="reference internal" href="index.html">API Reference</a><input checked="" class="toctree-checkbox" id="toctree-checkbox-2" name="toctree-checkbox-2" role="switch" type="checkbox"/><label for="toctree-checkbox-2"><div class="visually-hidden">Toggle navigation of API Reference</div><i class="icon"><svg><use href="#svg-arrow-right"></use></svg></i></label><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="forces.html">Forces</a></li>
+<li class="toctree-l2"><a class="reference internal" href="simulation.html">Simulation</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="utils.html">Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="_autosummary/hoomd.cavitymd.forces.html">hoomd.cavitymd.forces</a></li>
+<li class="toctree-l2"><a class="reference internal" href="_autosummary/hoomd.cavitymd.simulation.html">hoomd.cavitymd.simulation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="_autosummary/hoomd.cavitymd.analysis.html">hoomd.cavitymd.analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="_autosummary/hoomd.cavitymd.utils.html">hoomd.cavitymd.utils</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="forces.html">Forces</a></li>
+<li class="toctree-l1"><a class="reference internal" href="simulation.html">Simulation</a></li>
+<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="utils.html">Utilities</a></li>
+</ul>
+
+</div>
+</div>
+
+      </div>
+      
+    </div>
+  </aside>
+  <div class="main">
+    <div class="content">
+      <div class="article-container">
+        <a href="#" class="back-to-top muted-link">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8v12z"></path>
+          </svg>
+          <span>Back to top</span>
+        </a>
+        <div class="content-icon-container">
+          <div class="view-this-page">
+  <a class="muted-link" href="https://github.com/muhammadhasyim/cav-hoomd/blob/main/docs/api/analysis.rst?plain=true" title="View this page">
+    <svg><use href="#svg-eye"></use></svg>
+    <span class="visually-hidden">View this page</span>
+  </a>
+</div><div class="edit-this-page">
+  <a class="muted-link" href="https://github.com/muhammadhasyim/cav-hoomd/edit/main/docs/api/analysis.rst" title="Edit this page">
+    <svg><use href="#svg-pencil"></use></svg>
+    <span class="visually-hidden">Edit this page</span>
+  </a>
+</div><div class="theme-toggle-container theme-toggle-content">
+            <button class="theme-toggle">
+              <div class="visually-hidden">Toggle Light / Dark / Auto color theme</div>
+              <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+              <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+              <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+              <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+            </button>
+          </div>
+          <label class="toc-overlay-icon toc-content-icon" for="__toc">
+            <div class="visually-hidden">Toggle table of contents sidebar</div>
+            <i class="icon"><svg><use href="#svg-toc"></use></svg></i>
+          </label>
+        </div>
+        <article role="main" id="furo-main-content">
+          <section id="analysis">
+<h1>Analysis<a class="headerlink" href="#analysis" title="Link to this heading">¶</a></h1>
+<p>This module provides comprehensive analysis and tracking capabilities for cavity MD simulations.</p>
+<section id="energy-tracking">
+<h2>Energy Tracking<a class="headerlink" href="#energy-tracking" title="Link to this heading">¶</a></h2>
+<section id="energytracker">
+<h3>EnergyTracker<a class="headerlink" href="#energytracker" title="Link to this heading">¶</a></h3>
+<dl class="py class">
+<dt class="sig sig-object py" id="hoomd.cavitymd.EnergyTracker">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">hoomd.cavitymd.</span></span><span class="sig-name descname"><span class="pre">EnergyTracker</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">simulation</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">components</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">force_objects</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">thermostat_objects</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kinetic_tracker</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cavity_mode_tracker</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">time_tracker</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_prefix</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'energy'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_period_steps</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_timesteps</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">compute_temperature</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">track_reservoirs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/hoomd/cavitymd/analysis.html#EnergyTracker"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#hoomd.cavitymd.EnergyTracker" title="Link to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="_autosummary/hoomd.cavitymd.analysis.html#hoomd.cavitymd.analysis.BaseTracker" title="hoomd.cavitymd.analysis.BaseTracker"><code class="xref py py-class docutils literal notranslate"><span class="pre">BaseTracker</span></code></a></p>
+<p>Energy tracking that exactly follows the working EnergyContributionTracker pattern.</p>
+<p><strong>KEY FIXES to match working code:</strong></p>
+<ol class="arabic simple">
+<li><p><strong>Direct Force Energy Access</strong>: Use direct <cite>.energy</cite> access like working code,
+no complex force computation initialization</p></li>
+<li><p><strong>Separate Kinetic Trackers</strong>: Use separate kinetic energy trackers instead
+of computing from snapshot (matches working code architecture)</p></li>
+<li><p><strong>Simple Error Handling</strong>: Use simple AttributeError/DataAccessError handling
+like working code, not complex initialization</p></li>
+<li><p><strong>Exact Universe Total Calculation</strong>: Follow working code’s exact calculation:
+universe_total = system_total + total_thermostat_energy</p></li>
+<li><p><strong>Extensive Debug Output</strong>: Add comprehensive debugging to identify issues</p></li>
+</ol>
+<p>Comprehensive energy tracking with reservoir monitoring and conservation analysis.</p>
+<p class="rubric">Key Features</p>
+<ul class="simple">
+<li><p>Individual force component energies</p></li>
+<li><p>Thermostat reservoir energies</p></li>
+<li><p>Kinetic energy tracking</p></li>
+<li><p>Total energy conservation monitoring</p></li>
+<li><p>Configurable output periods</p></li>
+</ul>
+<dl class="py method">
+<dt class="sig sig-object py" id="hoomd.cavitymd.EnergyTracker.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">simulation</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">components</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">force_objects</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">thermostat_objects</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kinetic_tracker</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cavity_mode_tracker</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">time_tracker</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_prefix</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'energy'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_period_steps</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_timesteps</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">compute_temperature</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">track_reservoirs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/hoomd/cavitymd/analysis.html#EnergyTracker.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#hoomd.cavitymd.EnergyTracker.__init__" title="Link to this definition">¶</a></dt>
+<dd><p>Initialize corrected energy tracker following working code pattern.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>simulation</strong> – HOOMD simulation object</p></li>
+<li><p><strong>components</strong> – List of energy components to track</p></li>
+<li><p><strong>force_objects</strong> – Dictionary of force objects (harmonic, lj, ewald_short, ewald_long, cavity)</p></li>
+<li><p><strong>thermostat_objects</strong> – Dictionary of thermostat/method objects for reservoir energy</p></li>
+<li><p><strong>kinetic_tracker</strong> – KineticEnergyTracker object (like working code)</p></li>
+<li><p><strong>cavity_mode_tracker</strong> – CavityModeTracker object (like working code)</p></li>
+<li><p><strong>time_tracker</strong> – ElapsedTimeTracker for accurate timing</p></li>
+<li><p><strong>output_prefix</strong> – Prefix for output files</p></li>
+<li><p><strong>output_period_steps</strong> – Output frequency in simulation steps</p></li>
+<li><p><strong>max_timesteps</strong> – Maximum timesteps to track</p></li>
+<li><p><strong>compute_temperature</strong> – Whether to compute temperature</p></li>
+<li><p><strong>track_reservoirs</strong> – Whether to track reservoir energies</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="hoomd.cavitymd.EnergyTracker.act">
+<span class="sig-name descname"><span class="pre">act</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">timestep</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/hoomd/cavitymd/analysis.html#EnergyTracker.act"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#hoomd.cavitymd.EnergyTracker.act" title="Link to this definition">¶</a></dt>
+<dd><p>Main energy computation method following working code pattern exactly.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="hoomd.cavitymd.EnergyTracker.total_energy">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">total_energy</span></span><a class="headerlink" href="#hoomd.cavitymd.EnergyTracker.total_energy" title="Link to this definition">¶</a></dt>
+<dd><p>category=”scalar”)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>(<cite>Loggable &lt;hoomd.logging.Logger&gt;</cite></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="hoomd.cavitymd.EnergyTracker.universe_total_energy">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">universe_total_energy</span></span><a class="headerlink" href="#hoomd.cavitymd.EnergyTracker.universe_total_energy" title="Link to this definition">¶</a></dt>
+<dd><p>category=”scalar”)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>(<cite>Loggable &lt;hoomd.logging.Logger&gt;</cite></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="hoomd.cavitymd.EnergyTracker.total_potential_energy">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">total_potential_energy</span></span><a class="headerlink" href="#hoomd.cavitymd.EnergyTracker.total_potential_energy" title="Link to this definition">¶</a></dt>
+<dd><p>category=”scalar”)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>(<cite>Loggable &lt;hoomd.logging.Logger&gt;</cite></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="hoomd.cavitymd.EnergyTracker.kinetic_energy">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">kinetic_energy</span></span><a class="headerlink" href="#hoomd.cavitymd.EnergyTracker.kinetic_energy" title="Link to this definition">¶</a></dt>
+<dd><p>category=”scalar”)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>(<cite>Loggable &lt;hoomd.logging.Logger&gt;</cite></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="hoomd.cavitymd.EnergyTracker.total_reservoir_energy">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">total_reservoir_energy</span></span><a class="headerlink" href="#hoomd.cavitymd.EnergyTracker.total_reservoir_energy" title="Link to this definition">¶</a></dt>
+<dd><p>category=”scalar”)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>(<cite>Loggable &lt;hoomd.logging.Logger&gt;</cite></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="hoomd.cavitymd.EnergyTracker.temperature">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">temperature</span></span><a class="headerlink" href="#hoomd.cavitymd.EnergyTracker.temperature" title="Link to this definition">¶</a></dt>
+<dd><p>category=”scalar”)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>(<cite>Loggable &lt;hoomd.logging.Logger&gt;</cite></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="hoomd.cavitymd.EnergyTracker.harmonic_energy">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">harmonic_energy</span></span><a class="headerlink" href="#hoomd.cavitymd.EnergyTracker.harmonic_energy" title="Link to this definition">¶</a></dt>
+<dd><p>category=”scalar”)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>(<cite>Loggable &lt;hoomd.logging.Logger&gt;</cite></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="hoomd.cavitymd.EnergyTracker.lj_energy">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">lj_energy</span></span><a class="headerlink" href="#hoomd.cavitymd.EnergyTracker.lj_energy" title="Link to this definition">¶</a></dt>
+<dd><p>category=”scalar”)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>(<cite>Loggable &lt;hoomd.logging.Logger&gt;</cite></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="hoomd.cavitymd.EnergyTracker.ewald_short_energy">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">ewald_short_energy</span></span><a class="headerlink" href="#hoomd.cavitymd.EnergyTracker.ewald_short_energy" title="Link to this definition">¶</a></dt>
+<dd><p>category=”scalar”)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>(<cite>Loggable &lt;hoomd.logging.Logger&gt;</cite></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="hoomd.cavitymd.EnergyTracker.ewald_long_energy">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">ewald_long_energy</span></span><a class="headerlink" href="#hoomd.cavitymd.EnergyTracker.ewald_long_energy" title="Link to this definition">¶</a></dt>
+<dd><p>category=”scalar”)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>(<cite>Loggable &lt;hoomd.logging.Logger&gt;</cite></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="hoomd.cavitymd.EnergyTracker.cavity_harmonic_energy">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">cavity_harmonic_energy</span></span><a class="headerlink" href="#hoomd.cavitymd.EnergyTracker.cavity_harmonic_energy" title="Link to this definition">¶</a></dt>
+<dd><p>category=”scalar”)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>(<cite>Loggable &lt;hoomd.logging.Logger&gt;</cite></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="hoomd.cavitymd.EnergyTracker.cavity_coupling_energy">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">cavity_coupling_energy</span></span><a class="headerlink" href="#hoomd.cavitymd.EnergyTracker.cavity_coupling_energy" title="Link to this definition">¶</a></dt>
+<dd><p>category=”scalar”)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>(<cite>Loggable &lt;hoomd.logging.Logger&gt;</cite></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="hoomd.cavitymd.EnergyTracker.cavity_dipole_self_energy">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">cavity_dipole_self_energy</span></span><a class="headerlink" href="#hoomd.cavitymd.EnergyTracker.cavity_dipole_self_energy" title="Link to this definition">¶</a></dt>
+<dd><p>category=”scalar”)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>(<cite>Loggable &lt;hoomd.logging.Logger&gt;</cite></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="hoomd.cavitymd.EnergyTracker.molecular_kinetic_energy">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">molecular_kinetic_energy</span></span><a class="headerlink" href="#hoomd.cavitymd.EnergyTracker.molecular_kinetic_energy" title="Link to this definition">¶</a></dt>
+<dd><p>category=”scalar”)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>(<cite>Loggable &lt;hoomd.logging.Logger&gt;</cite></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="hoomd.cavitymd.EnergyTracker.cavity_kinetic_energy_separate">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">cavity_kinetic_energy_separate</span></span><a class="headerlink" href="#hoomd.cavitymd.EnergyTracker.cavity_kinetic_energy_separate" title="Link to this definition">¶</a></dt>
+<dd><p>category=”scalar”)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>(<cite>Loggable &lt;hoomd.logging.Logger&gt;</cite></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="hoomd.cavitymd.EnergyTracker.molecular_reservoir_energy">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">molecular_reservoir_energy</span></span><a class="headerlink" href="#hoomd.cavitymd.EnergyTracker.molecular_reservoir_energy" title="Link to this definition">¶</a></dt>
+<dd><p>category=”scalar”)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>(<cite>Loggable &lt;hoomd.logging.Logger&gt;</cite></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="hoomd.cavitymd.EnergyTracker.cavity_reservoir_energy_separate">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">cavity_reservoir_energy_separate</span></span><a class="headerlink" href="#hoomd.cavitymd.EnergyTracker.cavity_reservoir_energy_separate" title="Link to this definition">¶</a></dt>
+<dd><p>category=”scalar”)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>(<cite>Loggable &lt;hoomd.logging.Logger&gt;</cite></p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+</section>
+<section id="cavity-mode-analysis">
+<h2>Cavity Mode Analysis<a class="headerlink" href="#cavity-mode-analysis" title="Link to this heading">¶</a></h2>
+<section id="cavitymodetracker">
+<h3>CavityModeTracker<a class="headerlink" href="#cavitymodetracker" title="Link to this heading">¶</a></h3>
+<dl class="py class">
+<dt class="sig sig-object py" id="hoomd.cavitymd.CavityModeTracker">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">hoomd.cavitymd.</span></span><span class="sig-name descname"><span class="pre">CavityModeTracker</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">simulation</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cavityforce</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">time_tracker</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_prefix</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'cavity_mode'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_period_steps</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1000</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/hoomd/cavitymd/analysis.html#CavityModeTracker"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#hoomd.cavitymd.CavityModeTracker" title="Link to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference external" href="https://hoomd-blue.readthedocs.io/en/stable/hoomd/custom/action.html#hoomd.custom.Action" title="(in HOOMD-blue v5.3.0)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Action</span></code></a></p>
+<p>Track cavity mode properties and energies (specialized tracker).</p>
+<p>Tracks cavity mode properties including position, velocity, and energy components.</p>
+<p class="rubric">Tracked Quantities</p>
+<ul class="simple">
+<li><p>Cavity mode position and velocity</p></li>
+<li><p>Kinetic and potential energies</p></li>
+<li><p>Mode amplitude and phase</p></li>
+<li><p>Coupling interaction strength</p></li>
+</ul>
+<dl class="py method">
+<dt class="sig sig-object py" id="hoomd.cavitymd.CavityModeTracker.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">simulation</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cavityforce</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">time_tracker</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_prefix</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'cavity_mode'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_period_steps</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1000</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/hoomd/cavitymd/analysis.html#CavityModeTracker.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#hoomd.cavitymd.CavityModeTracker.__init__" title="Link to this definition">¶</a></dt>
+<dd><p>Initialize cavity mode tracker.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>simulation</strong> – HOOMD simulation object</p></li>
+<li><p><strong>cavityforce</strong> – Cavity force object to track</p></li>
+<li><p><strong>time_tracker</strong> – Optional time tracker for accurate timing</p></li>
+<li><p><strong>output_prefix</strong> – Prefix for output files</p></li>
+<li><p><strong>output_period_steps</strong> – Output frequency in simulation steps</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="hoomd.cavitymd.CavityModeTracker.compute_cavity_properties">
+<span class="sig-name descname"><span class="pre">compute_cavity_properties</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/hoomd/cavitymd/analysis.html#CavityModeTracker.compute_cavity_properties"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#hoomd.cavitymd.CavityModeTracker.compute_cavity_properties" title="Link to this definition">¶</a></dt>
+<dd><p>Compute cavity mode kinetic and potential energies.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="hoomd.cavitymd.CavityModeTracker.act">
+<span class="sig-name descname"><span class="pre">act</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">timestep</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/hoomd/cavitymd/analysis.html#CavityModeTracker.act"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#hoomd.cavitymd.CavityModeTracker.act" title="Link to this definition">¶</a></dt>
+<dd><p>Performs whatever action a subclass implements.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>timestep</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a>) – The current timestep in a simulation.</p>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Use <code class="docutils literal notranslate"><span class="pre">self._state</span></code> to access the simulation state via
+<cite>hoomd.State</cite> when using the base class <cite>attach</cite>.</p>
+</div>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="hoomd.cavitymd.CavityModeTracker.cavity_kinetic_energy">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">cavity_kinetic_energy</span></span><a class="headerlink" href="#hoomd.cavitymd.CavityModeTracker.cavity_kinetic_energy" title="Link to this definition">¶</a></dt>
+<dd><p>category=”scalar”)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>(<cite>Loggable &lt;hoomd.logging.Logger&gt;</cite></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="hoomd.cavitymd.CavityModeTracker.cavity_potential_energy_harmonic">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">cavity_potential_energy_harmonic</span></span><a class="headerlink" href="#hoomd.cavitymd.CavityModeTracker.cavity_potential_energy_harmonic" title="Link to this definition">¶</a></dt>
+<dd><p>category=”scalar”)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>(<cite>Loggable &lt;hoomd.logging.Logger&gt;</cite></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="hoomd.cavitymd.CavityModeTracker.cavity_total_energy">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">cavity_total_energy</span></span><a class="headerlink" href="#hoomd.cavitymd.CavityModeTracker.cavity_total_energy" title="Link to this definition">¶</a></dt>
+<dd><p>category=”scalar”)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>(<cite>Loggable &lt;hoomd.logging.Logger&gt;</cite></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="hoomd.cavitymd.CavityModeTracker.cavity_temperature">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">cavity_temperature</span></span><a class="headerlink" href="#hoomd.cavitymd.CavityModeTracker.cavity_temperature" title="Link to this definition">¶</a></dt>
+<dd><p>category=”scalar”)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>(<cite>Loggable &lt;hoomd.logging.Logger&gt;</cite></p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+</section>
+<section id="correlation-functions">
+<h2>Correlation Functions<a class="headerlink" href="#correlation-functions" title="Link to this heading">¶</a></h2>
+<section id="fieldautocorrelationtracker">
+<h3>FieldAutocorrelationTracker<a class="headerlink" href="#fieldautocorrelationtracker" title="Link to this heading">¶</a></h3>
+<dl class="py class">
+<dt class="sig sig-object py" id="hoomd.cavitymd.FieldAutocorrelationTracker">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">hoomd.cavitymd.</span></span><span class="sig-name descname"><span class="pre">FieldAutocorrelationTracker</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">simulation</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">observable</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">time_tracker</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_prefix</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_period_steps</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reference_interval_steps</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_references</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/hoomd/cavitymd/analysis.html#FieldAutocorrelationTracker"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#hoomd.cavitymd.FieldAutocorrelationTracker" title="Link to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="_autosummary/hoomd.cavitymd.analysis.html#hoomd.cavitymd.analysis.BaseTracker" title="hoomd.cavitymd.analysis.BaseTracker"><code class="xref py py-class docutils literal notranslate"><span class="pre">BaseTracker</span></code></a></p>
+<p>Generic autocorrelation tracker for field observables with k-space averaging.</p>
+<p>Computes field autocorrelation functions including F(k,t) density correlations.</p>
+<p class="rubric">Supported Observables</p>
+<ul class="simple">
+<li><p>Density correlation functions F(k,t)</p></li>
+<li><p>Custom field observables</p></li>
+<li><p>Multiple wavevector sampling</p></li>
+<li><p>Reference frame management</p></li>
+</ul>
+<dl class="py method">
+<dt class="sig sig-object py" id="hoomd.cavitymd.FieldAutocorrelationTracker.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">simulation</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">observable</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">time_tracker</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_prefix</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_period_steps</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reference_interval_steps</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_references</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/hoomd/cavitymd/analysis.html#FieldAutocorrelationTracker.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#hoomd.cavitymd.FieldAutocorrelationTracker.__init__" title="Link to this definition">¶</a></dt>
+<dd><p>Initialize field autocorrelation tracker.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>simulation</strong> – HOOMD simulation object</p></li>
+<li><p><strong>observable</strong> – Observable name from FIELD_OBSERVABLES</p></li>
+<li><p><strong>time_tracker</strong> – Optional time tracker for accurate timing</p></li>
+<li><p><strong>output_prefix</strong> – Prefix for output files</p></li>
+<li><p><strong>output_period_steps</strong> – Output frequency in simulation steps</p></li>
+<li><p><strong>reference_interval_steps</strong> – Interval between new references in steps</p></li>
+<li><p><strong>max_references</strong> – Maximum number of reference states to keep</p></li>
+<li><p><strong>**kwargs</strong> – Observable-specific parameters</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="hoomd.cavitymd.FieldAutocorrelationTracker.compute_field_autocorr">
+<span class="sig-name descname"><span class="pre">compute_field_autocorr</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">field0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">field_t</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/hoomd/cavitymd/analysis.html#FieldAutocorrelationTracker.compute_field_autocorr"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#hoomd.cavitymd.FieldAutocorrelationTracker.compute_field_autocorr" title="Link to this definition">¶</a></dt>
+<dd><p>Compute field autocorrelation.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="hoomd.cavitymd.FieldAutocorrelationTracker.act">
+<span class="sig-name descname"><span class="pre">act</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">timestep</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/hoomd/cavitymd/analysis.html#FieldAutocorrelationTracker.act"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#hoomd.cavitymd.FieldAutocorrelationTracker.act" title="Link to this definition">¶</a></dt>
+<dd><p>Performs whatever action a subclass implements.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>timestep</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a>) – The current timestep in a simulation.</p>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Use <code class="docutils literal notranslate"><span class="pre">self._state</span></code> to access the simulation state via
+<cite>hoomd.State</cite> when using the base class <cite>attach</cite>.</p>
+</div>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="hoomd.cavitymd.FieldAutocorrelationTracker.current_autocorr">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">current_autocorr</span></span><a class="headerlink" href="#hoomd.cavitymd.FieldAutocorrelationTracker.current_autocorr" title="Link to this definition">¶</a></dt>
+<dd><p>category=”scalar”)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>(<cite>Loggable &lt;hoomd.logging.Logger&gt;</cite></p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="autocorrelationtracker">
+<h3>AutocorrelationTracker<a class="headerlink" href="#autocorrelationtracker" title="Link to this heading">¶</a></h3>
+<dl class="py class">
+<dt class="sig sig-object py" id="hoomd.cavitymd.AutocorrelationTracker">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">hoomd.cavitymd.</span></span><span class="sig-name descname"><span class="pre">AutocorrelationTracker</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">simulation</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">observable</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">time_tracker</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_prefix</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_period_steps</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1000</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/hoomd/cavitymd/analysis.html#AutocorrelationTracker"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#hoomd.cavitymd.AutocorrelationTracker" title="Link to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="_autosummary/hoomd.cavitymd.analysis.html#hoomd.cavitymd.analysis.BaseTracker" title="hoomd.cavitymd.analysis.BaseTracker"><code class="xref py py-class docutils literal notranslate"><span class="pre">BaseTracker</span></code></a></p>
+<p>Generic autocorrelation tracker for simple observables.</p>
+<p>Base class for autocorrelation function calculations.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="hoomd.cavitymd.AutocorrelationTracker.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">simulation</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">observable</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">time_tracker</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_prefix</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_period_steps</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1000</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/hoomd/cavitymd/analysis.html#AutocorrelationTracker.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#hoomd.cavitymd.AutocorrelationTracker.__init__" title="Link to this definition">¶</a></dt>
+<dd><p>Initialize autocorrelation tracker.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>simulation</strong> – HOOMD simulation object</p></li>
+<li><p><strong>observable</strong> – Observable name from SIMPLE_OBSERVABLES</p></li>
+<li><p><strong>time_tracker</strong> – Optional time tracker for accurate timing</p></li>
+<li><p><strong>output_prefix</strong> – Prefix for output files</p></li>
+<li><p><strong>output_period_steps</strong> – Output frequency in simulation steps</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="hoomd.cavitymd.AutocorrelationTracker.compute_autocorr">
+<span class="sig-name descname"><span class="pre">compute_autocorr</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">current_value</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/hoomd/cavitymd/analysis.html#AutocorrelationTracker.compute_autocorr"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#hoomd.cavitymd.AutocorrelationTracker.compute_autocorr" title="Link to this definition">¶</a></dt>
+<dd><p>Compute autocorrelation C(t) = observable(0)·observable(t).</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="hoomd.cavitymd.AutocorrelationTracker.act">
+<span class="sig-name descname"><span class="pre">act</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">timestep</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/hoomd/cavitymd/analysis.html#AutocorrelationTracker.act"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#hoomd.cavitymd.AutocorrelationTracker.act" title="Link to this definition">¶</a></dt>
+<dd><p>Performs whatever action a subclass implements.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>timestep</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a>) – The current timestep in a simulation.</p>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Use <code class="docutils literal notranslate"><span class="pre">self._state</span></code> to access the simulation state via
+<cite>hoomd.State</cite> when using the base class <cite>attach</cite>.</p>
+</div>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="hoomd.cavitymd.AutocorrelationTracker.current_autocorr">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">current_autocorr</span></span><a class="headerlink" href="#hoomd.cavitymd.AutocorrelationTracker.current_autocorr" title="Link to this definition">¶</a></dt>
+<dd><p>category=”scalar”)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>(<cite>Loggable &lt;hoomd.logging.Logger&gt;</cite></p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="dipoleautocorrelation">
+<h3>DipoleAutocorrelation<a class="headerlink" href="#dipoleautocorrelation" title="Link to this heading">¶</a></h3>
+<dl class="py class">
+<dt class="sig sig-object py" id="hoomd.cavitymd.DipoleAutocorrelation">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">hoomd.cavitymd.</span></span><span class="sig-name descname"><span class="pre">DipoleAutocorrelation</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">simulation</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">time_tracker</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_prefix</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'dipole_autocorr'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_period_steps</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1000</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/hoomd/cavitymd/analysis.html#DipoleAutocorrelation"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#hoomd.cavitymd.DipoleAutocorrelation" title="Link to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="_autosummary/hoomd.cavitymd.analysis.html#hoomd.cavitymd.analysis.AutocorrelationTracker" title="hoomd.cavitymd.analysis.AutocorrelationTracker"><code class="xref py py-class docutils literal notranslate"><span class="pre">AutocorrelationTracker</span></code></a></p>
+<p>Dipole autocorrelation tracker - convenience wrapper around AutocorrelationTracker.</p>
+<p>This class provides backward compatibility for the DipoleAutocorrelation class
+that was previously defined in the monolithic cavitymd.py file.</p>
+<p>Specialized tracker for molecular dipole moment autocorrelations.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="hoomd.cavitymd.DipoleAutocorrelation.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">simulation</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">time_tracker</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_prefix</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'dipole_autocorr'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_period_steps</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1000</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/hoomd/cavitymd/analysis.html#DipoleAutocorrelation.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#hoomd.cavitymd.DipoleAutocorrelation.__init__" title="Link to this definition">¶</a></dt>
+<dd><p>Initialize dipole autocorrelation tracker.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>simulation</strong> – HOOMD simulation object</p></li>
+<li><p><strong>time_tracker</strong> – Optional time tracker for accurate timing</p></li>
+<li><p><strong>output_prefix</strong> – Prefix for output files</p></li>
+<li><p><strong>output_period_steps</strong> – Output frequency in simulation steps</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+</section>
+<section id="utility-classes">
+<h2>Utility Classes<a class="headerlink" href="#utility-classes" title="Link to this heading">¶</a></h2>
+<section id="status">
+<h3>Status<a class="headerlink" href="#status" title="Link to this heading">¶</a></h3>
+<dl class="py class">
+<dt class="sig sig-object py" id="hoomd.cavitymd.Status">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">hoomd.cavitymd.</span></span><span class="sig-name descname"><span class="pre">Status</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">simulation</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chartime</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">time_tracker</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/hoomd/cavitymd/analysis.html#Status"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#hoomd.cavitymd.Status" title="Link to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>Status monitoring for cavity MD simulations.</p>
+<p>Performance monitoring and status reporting.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="hoomd.cavitymd.Status.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">simulation</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chartime</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">time_tracker</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/hoomd/cavitymd/analysis.html#Status.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#hoomd.cavitymd.Status.__init__" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="hoomd.cavitymd.Status.seconds_remaining">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">seconds_remaining</span></span><a class="headerlink" href="#hoomd.cavitymd.Status.seconds_remaining" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="hoomd.cavitymd.Status.etr">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">etr</span></span><a class="headerlink" href="#hoomd.cavitymd.Status.etr" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="hoomd.cavitymd.Status.etr_string">
+<span class="sig-name descname"><span class="pre">etr_string</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/hoomd/cavitymd/analysis.html#Status.etr_string"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#hoomd.cavitymd.Status.etr_string" title="Link to this definition">¶</a></dt>
+<dd><p>Get estimated time remaining as a string for logging.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="hoomd.cavitymd.Status.nsd">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">nsd</span></span><a class="headerlink" href="#hoomd.cavitymd.Status.nsd" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="hoomd.cavitymd.Status.ns_per_day">
+<span class="sig-name descname"><span class="pre">ns_per_day</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/hoomd/cavitymd/analysis.html#Status.ns_per_day"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#hoomd.cavitymd.Status.ns_per_day" title="Link to this definition">¶</a></dt>
+<dd><p>Get nanoseconds per day performance metric for logging.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="hoomd.cavitymd.Status.Dt">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">Dt</span></span><a class="headerlink" href="#hoomd.cavitymd.Status.Dt" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="hoomd.cavitymd.Status.elapsed">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">elapsed</span></span><a class="headerlink" href="#hoomd.cavitymd.Status.elapsed" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="elapsedtimetracker">
+<h3>ElapsedTimeTracker<a class="headerlink" href="#elapsedtimetracker" title="Link to this heading">¶</a></h3>
+<dl class="py class">
+<dt class="sig sig-object py" id="hoomd.cavitymd.ElapsedTimeTracker">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">hoomd.cavitymd.</span></span><span class="sig-name descname"><span class="pre">ElapsedTimeTracker</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">simulation</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">runtime</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/hoomd/cavitymd/analysis.html#ElapsedTimeTracker"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#hoomd.cavitymd.ElapsedTimeTracker" title="Link to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference external" href="https://hoomd-blue.readthedocs.io/en/stable/hoomd/custom/action.html#hoomd.custom.Action" title="(in HOOMD-blue v5.3.0)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Action</span></code></a></p>
+<p>Track elapsed simulation time in physical units and exit when runtime is reached.</p>
+<p>Tracks simulation time progress and handles runtime termination.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="hoomd.cavitymd.ElapsedTimeTracker.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">simulation</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">runtime</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/hoomd/cavitymd/analysis.html#ElapsedTimeTracker.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#hoomd.cavitymd.ElapsedTimeTracker.__init__" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="hoomd.cavitymd.ElapsedTimeTracker.act">
+<span class="sig-name descname"><span class="pre">act</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">timestep</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/hoomd/cavitymd/analysis.html#ElapsedTimeTracker.act"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#hoomd.cavitymd.ElapsedTimeTracker.act" title="Link to this definition">¶</a></dt>
+<dd><p>Update the total elapsed time by accumulating time increments.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="hoomd.cavitymd.ElapsedTimeTracker.elapsed_time">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">elapsed_time</span></span><a class="headerlink" href="#hoomd.cavitymd.ElapsedTimeTracker.elapsed_time" title="Link to this definition">¶</a></dt>
+<dd><p>Expose the total elapsed time as a property in (ps).</p>
+<p>(<cite>Loggable &lt;hoomd.logging.Logger&gt;</cite>: category=”scalar”)</p>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="timestepformatter">
+<h3>TimestepFormatter<a class="headerlink" href="#timestepformatter" title="Link to this heading">¶</a></h3>
+<dl class="py class">
+<dt class="sig sig-object py" id="hoomd.cavitymd.TimestepFormatter">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">hoomd.cavitymd.</span></span><span class="sig-name descname"><span class="pre">TimestepFormatter</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">integrator</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/hoomd/cavitymd/analysis.html#TimestepFormatter"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#hoomd.cavitymd.TimestepFormatter" title="Link to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference external" href="https://hoomd-blue.readthedocs.io/en/stable/hoomd/custom/action.html#hoomd.custom.Action" title="(in HOOMD-blue v5.3.0)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Action</span></code></a></p>
+<p>Format timestep information for logging.</p>
+<p>Formats timestep information for display (atomic units to femtoseconds).</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="hoomd.cavitymd.TimestepFormatter.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">integrator</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/hoomd/cavitymd/analysis.html#TimestepFormatter.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#hoomd.cavitymd.TimestepFormatter.__init__" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="hoomd.cavitymd.TimestepFormatter.act">
+<span class="sig-name descname"><span class="pre">act</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">timestep</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/hoomd/cavitymd/analysis.html#TimestepFormatter.act"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#hoomd.cavitymd.TimestepFormatter.act" title="Link to this definition">¶</a></dt>
+<dd><p>Performs whatever action a subclass implements.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>timestep</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a>) – The current timestep in a simulation.</p>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Use <code class="docutils literal notranslate"><span class="pre">self._state</span></code> to access the simulation state via
+<cite>hoomd.State</cite> when using the base class <cite>attach</cite>.</p>
+</div>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="hoomd.cavitymd.TimestepFormatter.dt_fs">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">dt_fs</span></span><a class="headerlink" href="#hoomd.cavitymd.TimestepFormatter.dt_fs" title="Link to this definition">¶</a></dt>
+<dd><p>Current timestep size in femtoseconds.</p>
+<p>(<cite>Loggable &lt;hoomd.logging.Logger&gt;</cite>: category=”scalar”)</p>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+</section>
+<section id="usage-examples">
+<h2>Usage Examples<a class="headerlink" href="#usage-examples" title="Link to this heading">¶</a></h2>
+<section id="energy-conservation-monitoring">
+<h3>Energy Conservation Monitoring<a class="headerlink" href="#energy-conservation-monitoring" title="Link to this heading">¶</a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">hoomd.cavitymd</span> <span class="kn">import</span> <span class="n">EnergyTracker</span>
+
+<span class="c1"># Set up comprehensive energy tracking</span>
+<span class="n">energy_tracker</span> <span class="o">=</span> <span class="n">EnergyTracker</span><span class="p">(</span>
+    <span class="n">simulation</span><span class="o">=</span><span class="n">sim</span><span class="p">,</span>
+    <span class="n">components</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;harmonic&#39;</span><span class="p">,</span> <span class="s1">&#39;lj&#39;</span><span class="p">,</span> <span class="s1">&#39;ewald_short&#39;</span><span class="p">,</span> <span class="s1">&#39;ewald_long&#39;</span><span class="p">,</span> <span class="s1">&#39;cavity&#39;</span><span class="p">],</span>
+    <span class="n">force_objects</span><span class="o">=</span><span class="p">{</span>
+        <span class="s1">&#39;cavity&#39;</span><span class="p">:</span> <span class="n">cavity_force</span><span class="p">,</span>
+        <span class="s1">&#39;lj&#39;</span><span class="p">:</span> <span class="n">lj_force</span><span class="p">,</span>
+        <span class="s1">&#39;harmonic&#39;</span><span class="p">:</span> <span class="n">harmonic_force</span>
+    <span class="p">},</span>
+    <span class="n">thermostat_objects</span><span class="o">=</span><span class="p">{</span>
+        <span class="s1">&#39;langevin_molecular&#39;</span><span class="p">:</span> <span class="n">molecular_method</span><span class="p">,</span>
+        <span class="s1">&#39;langevin_cavity&#39;</span><span class="p">:</span> <span class="n">cavity_method</span>
+    <span class="p">},</span>
+    <span class="n">time_tracker</span><span class="o">=</span><span class="n">time_tracker</span><span class="p">,</span>
+    <span class="n">output_prefix</span><span class="o">=</span><span class="s1">&#39;energy_data&#39;</span><span class="p">,</span>
+    <span class="n">output_period_steps</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
+    <span class="n">track_reservoirs</span><span class="o">=</span><span class="kc">True</span>
+<span class="p">)</span>
+
+<span class="c1"># Add to simulation</span>
+<span class="n">energy_updater</span> <span class="o">=</span> <span class="n">hoomd</span><span class="o">.</span><span class="n">update</span><span class="o">.</span><span class="n">CustomUpdater</span><span class="p">(</span>
+    <span class="n">action</span><span class="o">=</span><span class="n">energy_tracker</span><span class="p">,</span>
+    <span class="n">trigger</span><span class="o">=</span><span class="n">hoomd</span><span class="o">.</span><span class="n">trigger</span><span class="o">.</span><span class="n">Periodic</span><span class="p">(</span><span class="mi">100</span><span class="p">)</span>
+<span class="p">)</span>
+<span class="n">sim</span><span class="o">.</span><span class="n">operations</span><span class="o">.</span><span class="n">updaters</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">energy_updater</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="f-k-t-density-correlations">
+<h3>F(k,t) Density Correlations<a class="headerlink" href="#f-k-t-density-correlations" title="Link to this heading">¶</a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">hoomd.cavitymd</span> <span class="kn">import</span> <span class="n">FieldAutocorrelationTracker</span>
+
+<span class="c1"># Set up F(k,t) calculations</span>
+<span class="n">fkt_tracker</span> <span class="o">=</span> <span class="n">FieldAutocorrelationTracker</span><span class="p">(</span>
+    <span class="n">simulation</span><span class="o">=</span><span class="n">sim</span><span class="p">,</span>
+    <span class="n">observable</span><span class="o">=</span><span class="s2">&quot;density_correlation&quot;</span><span class="p">,</span>
+    <span class="n">time_tracker</span><span class="o">=</span><span class="n">time_tracker</span><span class="p">,</span>
+    <span class="n">output_period_steps</span><span class="o">=</span><span class="mi">1000</span><span class="p">,</span>
+    <span class="n">output_prefix</span><span class="o">=</span><span class="s1">&#39;fkt_data&#39;</span><span class="p">,</span>
+    <span class="n">reference_interval_steps</span><span class="o">=</span><span class="mi">5000</span><span class="p">,</span>
+    <span class="n">max_references</span><span class="o">=</span><span class="mi">20</span><span class="p">,</span>
+    <span class="n">kmag</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>                    <span class="c1"># Wavevector magnitude</span>
+    <span class="n">num_wavevectors</span><span class="o">=</span><span class="mi">100</span>          <span class="c1"># Number of k-vectors to sample</span>
+<span class="p">)</span>
+
+<span class="c1"># Add to simulation</span>
+<span class="n">fkt_updater</span> <span class="o">=</span> <span class="n">hoomd</span><span class="o">.</span><span class="n">update</span><span class="o">.</span><span class="n">CustomUpdater</span><span class="p">(</span>
+    <span class="n">action</span><span class="o">=</span><span class="n">fkt_tracker</span><span class="p">,</span>
+    <span class="n">trigger</span><span class="o">=</span><span class="n">hoomd</span><span class="o">.</span><span class="n">trigger</span><span class="o">.</span><span class="n">Periodic</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<span class="p">)</span>
+<span class="n">sim</span><span class="o">.</span><span class="n">operations</span><span class="o">.</span><span class="n">updaters</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">fkt_updater</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="cavity-mode-monitoring">
+<h3>Cavity Mode Monitoring<a class="headerlink" href="#cavity-mode-monitoring" title="Link to this heading">¶</a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">hoomd.cavitymd</span> <span class="kn">import</span> <span class="n">CavityModeTracker</span>
+
+<span class="c1"># Track cavity mode properties</span>
+<span class="n">cavity_tracker</span> <span class="o">=</span> <span class="n">CavityModeTracker</span><span class="p">(</span>
+    <span class="n">simulation</span><span class="o">=</span><span class="n">sim</span><span class="p">,</span>
+    <span class="n">cavityforce</span><span class="o">=</span><span class="n">cavity_force</span><span class="p">,</span>
+    <span class="n">time_tracker</span><span class="o">=</span><span class="n">time_tracker</span><span class="p">,</span>
+    <span class="n">output_prefix</span><span class="o">=</span><span class="s1">&#39;cavity_mode&#39;</span><span class="p">,</span>
+    <span class="n">output_period_steps</span><span class="o">=</span><span class="mi">10</span>
+<span class="p">)</span>
+
+<span class="c1"># Add to simulation</span>
+<span class="n">cavity_updater</span> <span class="o">=</span> <span class="n">hoomd</span><span class="o">.</span><span class="n">update</span><span class="o">.</span><span class="n">CustomUpdater</span><span class="p">(</span>
+    <span class="n">action</span><span class="o">=</span><span class="n">cavity_tracker</span><span class="p">,</span>
+    <span class="n">trigger</span><span class="o">=</span><span class="n">hoomd</span><span class="o">.</span><span class="n">trigger</span><span class="o">.</span><span class="n">Periodic</span><span class="p">(</span><span class="mi">10</span><span class="p">)</span>
+<span class="p">)</span>
+<span class="n">sim</span><span class="o">.</span><span class="n">operations</span><span class="o">.</span><span class="n">updaters</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">cavity_updater</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="custom-analysis-pipeline">
+<h3>Custom Analysis Pipeline<a class="headerlink" href="#custom-analysis-pipeline" title="Link to this heading">¶</a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Create comprehensive analysis pipeline</span>
+<span class="k">def</span> <span class="nf">setup_analysis</span><span class="p">(</span><span class="n">sim</span><span class="p">,</span> <span class="n">cavity_force</span><span class="p">,</span> <span class="n">time_tracker</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Set up complete analysis pipeline.&quot;&quot;&quot;</span>
+
+    <span class="c1"># Energy tracking</span>
+    <span class="n">energy_tracker</span> <span class="o">=</span> <span class="n">EnergyTracker</span><span class="p">(</span>
+        <span class="n">simulation</span><span class="o">=</span><span class="n">sim</span><span class="p">,</span>
+        <span class="n">components</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;cavity&#39;</span><span class="p">,</span> <span class="s1">&#39;molecular&#39;</span><span class="p">],</span>
+        <span class="n">track_reservoirs</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+        <span class="n">output_period_steps</span><span class="o">=</span><span class="mi">100</span>
+    <span class="p">)</span>
+
+    <span class="c1"># Cavity mode tracking</span>
+    <span class="n">cavity_tracker</span> <span class="o">=</span> <span class="n">CavityModeTracker</span><span class="p">(</span>
+        <span class="n">simulation</span><span class="o">=</span><span class="n">sim</span><span class="p">,</span>
+        <span class="n">cavityforce</span><span class="o">=</span><span class="n">cavity_force</span><span class="p">,</span>
+        <span class="n">time_tracker</span><span class="o">=</span><span class="n">time_tracker</span>
+    <span class="p">)</span>
+
+    <span class="c1"># F(k,t) correlations</span>
+    <span class="n">fkt_tracker</span> <span class="o">=</span> <span class="n">FieldAutocorrelationTracker</span><span class="p">(</span>
+        <span class="n">simulation</span><span class="o">=</span><span class="n">sim</span><span class="p">,</span>
+        <span class="n">observable</span><span class="o">=</span><span class="s2">&quot;density_correlation&quot;</span><span class="p">,</span>
+        <span class="n">kmag</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+        <span class="n">num_wavevectors</span><span class="o">=</span><span class="mi">50</span>
+    <span class="p">)</span>
+
+    <span class="c1"># Add all trackers</span>
+    <span class="n">trackers</span> <span class="o">=</span> <span class="p">[</span><span class="n">energy_tracker</span><span class="p">,</span> <span class="n">cavity_tracker</span><span class="p">,</span> <span class="n">fkt_tracker</span><span class="p">]</span>
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">tracker</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">trackers</span><span class="p">):</span>
+        <span class="n">updater</span> <span class="o">=</span> <span class="n">hoomd</span><span class="o">.</span><span class="n">update</span><span class="o">.</span><span class="n">CustomUpdater</span><span class="p">(</span>
+            <span class="n">action</span><span class="o">=</span><span class="n">tracker</span><span class="p">,</span>
+            <span class="n">trigger</span><span class="o">=</span><span class="n">hoomd</span><span class="o">.</span><span class="n">trigger</span><span class="o">.</span><span class="n">Periodic</span><span class="p">(</span><span class="mi">10</span> <span class="o">*</span> <span class="p">(</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">))</span>
+        <span class="p">)</span>
+        <span class="n">sim</span><span class="o">.</span><span class="n">operations</span><span class="o">.</span><span class="n">updaters</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">updater</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">trackers</span>
+
+<span class="c1"># Use in simulation</span>
+<span class="n">trackers</span> <span class="o">=</span> <span class="n">setup_analysis</span><span class="p">(</span><span class="n">sim</span><span class="p">,</span> <span class="n">cavity_force</span><span class="p">,</span> <span class="n">time_tracker</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="data-analysis">
+<h2>Data Analysis<a class="headerlink" href="#data-analysis" title="Link to this heading">¶</a></h2>
+<section id="reading-output-files">
+<h3>Reading Output Files<a class="headerlink" href="#reading-output-files" title="Link to this heading">¶</a></h3>
+<p>The analysis classes generate several types of output files:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+<span class="kn">import</span> <span class="nn">pandas</span> <span class="k">as</span> <span class="nn">pd</span>
+
+<span class="c1"># Read energy tracking data</span>
+<span class="n">energy_data</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="s1">&#39;energy_data.txt&#39;</span><span class="p">,</span> <span class="n">delimiter</span><span class="o">=</span><span class="s1">&#39;</span><span class="se">\t</span><span class="s1">&#39;</span><span class="p">)</span>
+
+<span class="c1"># Plot energy conservation</span>
+<span class="kn">import</span> <span class="nn">matplotlib.pyplot</span> <span class="k">as</span> <span class="nn">plt</span>
+
+<span class="n">plt</span><span class="o">.</span><span class="n">figure</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">6</span><span class="p">))</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">energy_data</span><span class="p">[</span><span class="s1">&#39;time_ps&#39;</span><span class="p">],</span> <span class="n">energy_data</span><span class="p">[</span><span class="s1">&#39;total_energy&#39;</span><span class="p">])</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s1">&#39;Time (ps)&#39;</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s1">&#39;Total Energy (Hartree)&#39;</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="s1">&#39;Energy Conservation&#39;</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+
+<span class="c1"># Check energy conservation</span>
+<span class="n">total_energy</span> <span class="o">=</span> <span class="n">energy_data</span><span class="p">[</span><span class="s1">&#39;total_energy&#39;</span><span class="p">]</span>
+<span class="n">energy_drift</span> <span class="o">=</span> <span class="p">(</span><span class="n">total_energy</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">-</span> <span class="n">total_energy</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span> <span class="o">/</span> <span class="n">total_energy</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Relative energy drift: </span><span class="si">{</span><span class="n">energy_drift</span><span class="si">:</span><span class="s2">.2e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="f-k-t-analysis">
+<h3>F(k,t) Analysis<a class="headerlink" href="#f-k-t-analysis" title="Link to this heading">¶</a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Read F(k,t) correlation data</span>
+<span class="n">fkt_data</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">loadtxt</span><span class="p">(</span><span class="s1">&#39;fkt_data.txt&#39;</span><span class="p">)</span>
+
+<span class="c1"># Extract time and correlation values</span>
+<span class="n">times</span> <span class="o">=</span> <span class="n">fkt_data</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">]</span>  <span class="c1"># Time values</span>
+<span class="n">correlations</span> <span class="o">=</span> <span class="n">fkt_data</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">:]</span>  <span class="c1"># F(k,t) for different k-vectors</span>
+
+<span class="c1"># Plot autocorrelation decay</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">figure</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">6</span><span class="p">))</span>
+<span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">min</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="n">correlations</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">])):</span>
+    <span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">times</span><span class="p">,</span> <span class="n">correlations</span><span class="p">[:,</span> <span class="n">i</span><span class="p">],</span> <span class="n">label</span><span class="o">=</span><span class="sa">f</span><span class="s1">&#39;k-vector </span><span class="si">{</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">)</span>
+
+<span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s1">&#39;Time (ps)&#39;</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s1">&#39;F(k,t)&#39;</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="s1">&#39;Density Correlation Functions&#39;</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">legend</span><span class="p">()</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">yscale</span><span class="p">(</span><span class="s1">&#39;log&#39;</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+
+<span class="c1"># Fit exponential decay</span>
+<span class="k">def</span> <span class="nf">exponential_decay</span><span class="p">(</span><span class="n">t</span><span class="p">,</span> <span class="n">A</span><span class="p">,</span> <span class="n">tau</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">A</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="n">t</span> <span class="o">/</span> <span class="n">tau</span><span class="p">)</span>
+
+<span class="kn">from</span> <span class="nn">scipy.optimize</span> <span class="kn">import</span> <span class="n">curve_fit</span>
+
+<span class="c1"># Fit first correlation function</span>
+<span class="n">popt</span><span class="p">,</span> <span class="n">pcov</span> <span class="o">=</span> <span class="n">curve_fit</span><span class="p">(</span><span class="n">exponential_decay</span><span class="p">,</span> <span class="n">times</span><span class="p">,</span> <span class="n">correlations</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">])</span>
+<span class="n">decay_time</span> <span class="o">=</span> <span class="n">popt</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Decay time: </span><span class="si">{</span><span class="n">decay_time</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> ps&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="id1">
+<h3>Cavity Mode Analysis<a class="headerlink" href="#id1" title="Link to this heading">¶</a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Read cavity mode data</span>
+<span class="n">cavity_data</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="s1">&#39;cavity_mode.txt&#39;</span><span class="p">,</span> <span class="n">delimiter</span><span class="o">=</span><span class="s1">&#39;</span><span class="se">\t</span><span class="s1">&#39;</span><span class="p">)</span>
+
+<span class="c1"># Plot cavity mode trajectory</span>
+<span class="n">fig</span><span class="p">,</span> <span class="n">axes</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">subplots</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">12</span><span class="p">,</span> <span class="mi">8</span><span class="p">))</span>
+
+<span class="c1"># Position components</span>
+<span class="n">axes</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">cavity_data</span><span class="p">[</span><span class="s1">&#39;time_ps&#39;</span><span class="p">],</span> <span class="n">cavity_data</span><span class="p">[</span><span class="s1">&#39;position_x&#39;</span><span class="p">])</span>
+<span class="n">axes</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">set_title</span><span class="p">(</span><span class="s1">&#39;Cavity X Position&#39;</span><span class="p">)</span>
+<span class="n">axes</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">cavity_data</span><span class="p">[</span><span class="s1">&#39;time_ps&#39;</span><span class="p">],</span> <span class="n">cavity_data</span><span class="p">[</span><span class="s1">&#39;position_y&#39;</span><span class="p">])</span>
+<span class="n">axes</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">set_title</span><span class="p">(</span><span class="s1">&#39;Cavity Y Position&#39;</span><span class="p">)</span>
+
+<span class="c1"># Energy components</span>
+<span class="n">axes</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">cavity_data</span><span class="p">[</span><span class="s1">&#39;time_ps&#39;</span><span class="p">],</span> <span class="n">cavity_data</span><span class="p">[</span><span class="s1">&#39;kinetic_energy&#39;</span><span class="p">])</span>
+<span class="n">axes</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">set_title</span><span class="p">(</span><span class="s1">&#39;Cavity Kinetic Energy&#39;</span><span class="p">)</span>
+<span class="n">axes</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">cavity_data</span><span class="p">[</span><span class="s1">&#39;time_ps&#39;</span><span class="p">],</span> <span class="n">cavity_data</span><span class="p">[</span><span class="s1">&#39;potential_energy&#39;</span><span class="p">])</span>
+<span class="n">axes</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">set_title</span><span class="p">(</span><span class="s1">&#39;Cavity Potential Energy&#39;</span><span class="p">)</span>
+
+<span class="n">plt</span><span class="o">.</span><span class="n">tight_layout</span><span class="p">()</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+
+<span class="c1"># Calculate mode properties</span>
+<span class="n">amplitude</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">cavity_data</span><span class="p">[</span><span class="s1">&#39;position_x&#39;</span><span class="p">]</span><span class="o">**</span><span class="mi">2</span> <span class="o">+</span> <span class="n">cavity_data</span><span class="p">[</span><span class="s1">&#39;position_y&#39;</span><span class="p">]</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span>
+<span class="n">phase</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arctan2</span><span class="p">(</span><span class="n">cavity_data</span><span class="p">[</span><span class="s1">&#39;position_y&#39;</span><span class="p">],</span> <span class="n">cavity_data</span><span class="p">[</span><span class="s1">&#39;position_x&#39;</span><span class="p">])</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Average amplitude: </span><span class="si">{</span><span class="n">amplitude</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Amplitude std: </span><span class="si">{</span><span class="n">amplitude</span><span class="o">.</span><span class="n">std</span><span class="p">()</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="performance-monitoring">
+<h2>Performance Monitoring<a class="headerlink" href="#performance-monitoring" title="Link to this heading">¶</a></h2>
+<p>The analysis framework includes built-in performance monitoring:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">hoomd.cavitymd</span> <span class="kn">import</span> <span class="n">Status</span>
+
+<span class="c1"># Create status monitor</span>
+<span class="n">status</span> <span class="o">=</span> <span class="n">Status</span><span class="p">(</span><span class="n">sim</span><span class="p">,</span> <span class="n">runtime_ps</span><span class="o">=</span><span class="mf">1000.0</span><span class="p">,</span> <span class="n">time_tracker</span><span class="o">=</span><span class="n">time_tracker</span><span class="p">)</span>
+
+<span class="c1"># Access performance metrics</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Simulation progress: </span><span class="si">{</span><span class="n">status</span><span class="o">.</span><span class="n">progress</span><span class="si">:</span><span class="s2">.1%</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Performance: </span><span class="si">{</span><span class="n">status</span><span class="o">.</span><span class="n">ns_per_day</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> ns/day&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;ETA: </span><span class="si">{</span><span class="n">status</span><span class="o">.</span><span class="n">eta</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>The Status class provides:</p>
+<ul class="simple">
+<li><p>Real-time progress monitoring</p></li>
+<li><p>Performance metrics (ns/day)</p></li>
+<li><p>Estimated time to completion</p></li>
+<li><p>Memory usage tracking</p></li>
+<li><p>GPU utilization (when available)</p></li>
+</ul>
+</section>
+</section>
+
+        </article>
+      </div>
+      <footer>
+        
+        <div class="related-pages">
+          <a class="next-page" href="utils.html">
+              <div class="page-info">
+                <div class="context">
+                  <span>Next</span>
+                </div>
+                <div class="title">Utilities</div>
+              </div>
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+            </a>
+          <a class="prev-page" href="simulation.html">
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+              <div class="page-info">
+                <div class="context">
+                  <span>Previous</span>
+                </div>
+                
+                <div class="title">Simulation</div>
+                
+              </div>
+            </a>
+        </div>
+        <div class="bottom-of-page">
+          <div class="left-details">
+            <div class="copyright">
+                Copyright &#169; 2025, Cavity HOOMD Development Team
+            </div>
+            Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
+            
+            <a href="https://github.com/pradyunsg/furo">Furo</a>
+            
+          </div>
+          <div class="right-details">
+            
+          </div>
+        </div>
+        
+      </footer>
+    </div>
+    <aside class="toc-drawer">
+      
+      
+      <div class="toc-sticky toc-scroll">
+        <div class="toc-title-container">
+          <span class="toc-title">
+            On this page
+          </span>
+        </div>
+        <div class="toc-tree-container">
+          <div class="toc-tree">
+            <ul>
+<li><a class="reference internal" href="#">Analysis</a><ul>
+<li><a class="reference internal" href="#energy-tracking">Energy Tracking</a><ul>
+<li><a class="reference internal" href="#energytracker">EnergyTracker</a><ul>
+<li><a class="reference internal" href="#hoomd.cavitymd.EnergyTracker"><code class="docutils literal notranslate"><span class="pre">EnergyTracker</span></code></a><ul>
+<li><a class="reference internal" href="#hoomd.cavitymd.EnergyTracker.__init__"><code class="docutils literal notranslate"><span class="pre">EnergyTracker.__init__()</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.EnergyTracker.act"><code class="docutils literal notranslate"><span class="pre">EnergyTracker.act()</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.EnergyTracker.total_energy"><code class="docutils literal notranslate"><span class="pre">EnergyTracker.total_energy</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.EnergyTracker.universe_total_energy"><code class="docutils literal notranslate"><span class="pre">EnergyTracker.universe_total_energy</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.EnergyTracker.total_potential_energy"><code class="docutils literal notranslate"><span class="pre">EnergyTracker.total_potential_energy</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.EnergyTracker.kinetic_energy"><code class="docutils literal notranslate"><span class="pre">EnergyTracker.kinetic_energy</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.EnergyTracker.total_reservoir_energy"><code class="docutils literal notranslate"><span class="pre">EnergyTracker.total_reservoir_energy</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.EnergyTracker.temperature"><code class="docutils literal notranslate"><span class="pre">EnergyTracker.temperature</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.EnergyTracker.harmonic_energy"><code class="docutils literal notranslate"><span class="pre">EnergyTracker.harmonic_energy</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.EnergyTracker.lj_energy"><code class="docutils literal notranslate"><span class="pre">EnergyTracker.lj_energy</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.EnergyTracker.ewald_short_energy"><code class="docutils literal notranslate"><span class="pre">EnergyTracker.ewald_short_energy</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.EnergyTracker.ewald_long_energy"><code class="docutils literal notranslate"><span class="pre">EnergyTracker.ewald_long_energy</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.EnergyTracker.cavity_harmonic_energy"><code class="docutils literal notranslate"><span class="pre">EnergyTracker.cavity_harmonic_energy</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.EnergyTracker.cavity_coupling_energy"><code class="docutils literal notranslate"><span class="pre">EnergyTracker.cavity_coupling_energy</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.EnergyTracker.cavity_dipole_self_energy"><code class="docutils literal notranslate"><span class="pre">EnergyTracker.cavity_dipole_self_energy</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.EnergyTracker.molecular_kinetic_energy"><code class="docutils literal notranslate"><span class="pre">EnergyTracker.molecular_kinetic_energy</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.EnergyTracker.cavity_kinetic_energy_separate"><code class="docutils literal notranslate"><span class="pre">EnergyTracker.cavity_kinetic_energy_separate</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.EnergyTracker.molecular_reservoir_energy"><code class="docutils literal notranslate"><span class="pre">EnergyTracker.molecular_reservoir_energy</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.EnergyTracker.cavity_reservoir_energy_separate"><code class="docutils literal notranslate"><span class="pre">EnergyTracker.cavity_reservoir_energy_separate</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a class="reference internal" href="#cavity-mode-analysis">Cavity Mode Analysis</a><ul>
+<li><a class="reference internal" href="#cavitymodetracker">CavityModeTracker</a><ul>
+<li><a class="reference internal" href="#hoomd.cavitymd.CavityModeTracker"><code class="docutils literal notranslate"><span class="pre">CavityModeTracker</span></code></a><ul>
+<li><a class="reference internal" href="#hoomd.cavitymd.CavityModeTracker.__init__"><code class="docutils literal notranslate"><span class="pre">CavityModeTracker.__init__()</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.CavityModeTracker.compute_cavity_properties"><code class="docutils literal notranslate"><span class="pre">CavityModeTracker.compute_cavity_properties()</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.CavityModeTracker.act"><code class="docutils literal notranslate"><span class="pre">CavityModeTracker.act()</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.CavityModeTracker.cavity_kinetic_energy"><code class="docutils literal notranslate"><span class="pre">CavityModeTracker.cavity_kinetic_energy</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.CavityModeTracker.cavity_potential_energy_harmonic"><code class="docutils literal notranslate"><span class="pre">CavityModeTracker.cavity_potential_energy_harmonic</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.CavityModeTracker.cavity_total_energy"><code class="docutils literal notranslate"><span class="pre">CavityModeTracker.cavity_total_energy</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.CavityModeTracker.cavity_temperature"><code class="docutils literal notranslate"><span class="pre">CavityModeTracker.cavity_temperature</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a class="reference internal" href="#correlation-functions">Correlation Functions</a><ul>
+<li><a class="reference internal" href="#fieldautocorrelationtracker">FieldAutocorrelationTracker</a><ul>
+<li><a class="reference internal" href="#hoomd.cavitymd.FieldAutocorrelationTracker"><code class="docutils literal notranslate"><span class="pre">FieldAutocorrelationTracker</span></code></a><ul>
+<li><a class="reference internal" href="#hoomd.cavitymd.FieldAutocorrelationTracker.__init__"><code class="docutils literal notranslate"><span class="pre">FieldAutocorrelationTracker.__init__()</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.FieldAutocorrelationTracker.compute_field_autocorr"><code class="docutils literal notranslate"><span class="pre">FieldAutocorrelationTracker.compute_field_autocorr()</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.FieldAutocorrelationTracker.act"><code class="docutils literal notranslate"><span class="pre">FieldAutocorrelationTracker.act()</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.FieldAutocorrelationTracker.current_autocorr"><code class="docutils literal notranslate"><span class="pre">FieldAutocorrelationTracker.current_autocorr</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a class="reference internal" href="#autocorrelationtracker">AutocorrelationTracker</a><ul>
+<li><a class="reference internal" href="#hoomd.cavitymd.AutocorrelationTracker"><code class="docutils literal notranslate"><span class="pre">AutocorrelationTracker</span></code></a><ul>
+<li><a class="reference internal" href="#hoomd.cavitymd.AutocorrelationTracker.__init__"><code class="docutils literal notranslate"><span class="pre">AutocorrelationTracker.__init__()</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.AutocorrelationTracker.compute_autocorr"><code class="docutils literal notranslate"><span class="pre">AutocorrelationTracker.compute_autocorr()</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.AutocorrelationTracker.act"><code class="docutils literal notranslate"><span class="pre">AutocorrelationTracker.act()</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.AutocorrelationTracker.current_autocorr"><code class="docutils literal notranslate"><span class="pre">AutocorrelationTracker.current_autocorr</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a class="reference internal" href="#dipoleautocorrelation">DipoleAutocorrelation</a><ul>
+<li><a class="reference internal" href="#hoomd.cavitymd.DipoleAutocorrelation"><code class="docutils literal notranslate"><span class="pre">DipoleAutocorrelation</span></code></a><ul>
+<li><a class="reference internal" href="#hoomd.cavitymd.DipoleAutocorrelation.__init__"><code class="docutils literal notranslate"><span class="pre">DipoleAutocorrelation.__init__()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a class="reference internal" href="#utility-classes">Utility Classes</a><ul>
+<li><a class="reference internal" href="#status">Status</a><ul>
+<li><a class="reference internal" href="#hoomd.cavitymd.Status"><code class="docutils literal notranslate"><span class="pre">Status</span></code></a><ul>
+<li><a class="reference internal" href="#hoomd.cavitymd.Status.__init__"><code class="docutils literal notranslate"><span class="pre">Status.__init__()</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.Status.seconds_remaining"><code class="docutils literal notranslate"><span class="pre">Status.seconds_remaining</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.Status.etr"><code class="docutils literal notranslate"><span class="pre">Status.etr</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.Status.etr_string"><code class="docutils literal notranslate"><span class="pre">Status.etr_string()</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.Status.nsd"><code class="docutils literal notranslate"><span class="pre">Status.nsd</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.Status.ns_per_day"><code class="docutils literal notranslate"><span class="pre">Status.ns_per_day()</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.Status.Dt"><code class="docutils literal notranslate"><span class="pre">Status.Dt</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.Status.elapsed"><code class="docutils literal notranslate"><span class="pre">Status.elapsed</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a class="reference internal" href="#elapsedtimetracker">ElapsedTimeTracker</a><ul>
+<li><a class="reference internal" href="#hoomd.cavitymd.ElapsedTimeTracker"><code class="docutils literal notranslate"><span class="pre">ElapsedTimeTracker</span></code></a><ul>
+<li><a class="reference internal" href="#hoomd.cavitymd.ElapsedTimeTracker.__init__"><code class="docutils literal notranslate"><span class="pre">ElapsedTimeTracker.__init__()</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.ElapsedTimeTracker.act"><code class="docutils literal notranslate"><span class="pre">ElapsedTimeTracker.act()</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.ElapsedTimeTracker.elapsed_time"><code class="docutils literal notranslate"><span class="pre">ElapsedTimeTracker.elapsed_time</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a class="reference internal" href="#timestepformatter">TimestepFormatter</a><ul>
+<li><a class="reference internal" href="#hoomd.cavitymd.TimestepFormatter"><code class="docutils literal notranslate"><span class="pre">TimestepFormatter</span></code></a><ul>
+<li><a class="reference internal" href="#hoomd.cavitymd.TimestepFormatter.__init__"><code class="docutils literal notranslate"><span class="pre">TimestepFormatter.__init__()</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.TimestepFormatter.act"><code class="docutils literal notranslate"><span class="pre">TimestepFormatter.act()</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.TimestepFormatter.dt_fs"><code class="docutils literal notranslate"><span class="pre">TimestepFormatter.dt_fs</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a class="reference internal" href="#usage-examples">Usage Examples</a><ul>
+<li><a class="reference internal" href="#energy-conservation-monitoring">Energy Conservation Monitoring</a></li>
+<li><a class="reference internal" href="#f-k-t-density-correlations">F(k,t) Density Correlations</a></li>
+<li><a class="reference internal" href="#cavity-mode-monitoring">Cavity Mode Monitoring</a></li>
+<li><a class="reference internal" href="#custom-analysis-pipeline">Custom Analysis Pipeline</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#data-analysis">Data Analysis</a><ul>
+<li><a class="reference internal" href="#reading-output-files">Reading Output Files</a></li>
+<li><a class="reference internal" href="#f-k-t-analysis">F(k,t) Analysis</a></li>
+<li><a class="reference internal" href="#id1">Cavity Mode Analysis</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#performance-monitoring">Performance Monitoring</a></li>
+</ul>
+</li>
+</ul>
+
+          </div>
+        </div>
+      </div>
+      
+      
+    </aside>
+  </div>
+</div><script src="../_static/documentation_options.js?v=4ebf8126"></script>
+    <script src="../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/scripts/furo.js?v=5fa4622c"></script>
+    <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../_static/copybutton.js?v=d1c4098b"></script>
+    <script src="../_static/design-tabs.js?v=f930bc37"></script>
+    <script crossorigin="anonymous" integrity="sha256-Ae2Vz/4ePdIu6ZyI/5ZGsYnb+m0JlOmKPjt6XZ9JJkA=" src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.4/require.min.js"></script>
+    </body>
+</html>
