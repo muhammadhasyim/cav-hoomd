@@ -126,8 +126,9 @@ class CavityForcePython(hoomd.md.force.Custom):
                     arrays.force[:] = 0.0
                     arrays.potential_energy[:] = 0.0
                     
-                    # Assign total potential energy to cavity particle
-                    arrays.potential_energy[cavity_idx] = total_energy
+                    # DO NOT assign energy to particle potential energy - prevents double-counting
+                    # Energy is accessed directly through force object attributes
+                    arrays.potential_energy[cavity_idx] = 0.0
                     
                     # Force on molecular particles: F_i = -g * q_i * [q_xy + (g/K) * d_xy]
                     # Only x,y components contribute

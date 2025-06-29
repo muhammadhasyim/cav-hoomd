@@ -39,8 +39,60 @@ from hoomd.cavitymd import CavityForce
 from hoomd.cavitymd import (
     CavityForce, PhysicalConstants, Status, ElapsedTimeTracker,
     TimestepFormatter, AdaptiveTimestepUpdater, FieldAutocorrelationTracker,
-    EnergyTracker
+    CavityModeTracker, EnergyTracker
 )
+
+# CRITICAL FIX: Import working kinetic energy tracker from main cavitymd module
+# The plugin's trackers work correctly, use EnergyTracker from plugin
+import sys
+sys.path.append('..')  # Add parent directory to path
+from cavitymd import KineticEnergyTracker
+
+# Simple local kinetic energy tracker (to avoid duplication from main module)
+class SimpleKineticEnergyTracker(hoomd.custom.Action):
+    """Simple kinetic energy tracker without file output to avoid duplication."""
+    
+    def __init__(self, simulation, time_tracker=None):
+        super().__init__()
+        self.simulation = simulation
+        self.time_tracker = time_tracker
+        self.current_kinetic_energy = 0.0
+        self.current_temperature = 0.0
+        self.current_timestep = -1
+    
+    def compute_kinetic_energy(self):
+        """Compute kinetic energy of molecular particles only."""
+        with self.simulation.state.cpu_local_snapshot as snap:
+            # Filter to molecular particles only (exclude cavity particle type 'L')
+            molecular_mask = snap.particles.typeid != 2  # Type 2 is 'L' (cavity)
+            velocities = snap.particles.velocity[molecular_mask]
+            masses = snap.particles.mass[molecular_mask]
+            
+            # Compute kinetic energy: KE = 0.5 * sum(m_i * v_i^2)
+            kinetic_energy = 0.5 * np.sum(masses[:, np.newaxis] * velocities**2)
+            
+            # Compute temperature: T = (2/3) * KE / (N * k_B)
+            N_dof = 3 * len(masses)  # 3 degrees of freedom per particle
+            temperature = (2.0/3.0) * kinetic_energy / (N_dof * PhysicalConstants.KB_HARTREE_PER_K)
+            
+            return kinetic_energy, temperature
+    
+    def act(self, timestep):
+        """Update kinetic energy and temperature."""
+        kinetic_energy, temperature = self.compute_kinetic_energy()
+        self.current_kinetic_energy = kinetic_energy
+        self.current_temperature = temperature
+        self.current_timestep = timestep
+    
+    @hoomd.logging.log
+    def kinetic_energy(self):
+        """Return current kinetic energy for logging."""
+        return self.current_kinetic_energy
+    
+    @hoomd.logging.log
+    def temperature(self):
+        """Return current temperature for logging."""
+        return self.current_temperature
 
 def unwrap_positions(positions, images, box_lengths):
     """Unwrap particle positions across periodic boundaries."""
@@ -836,7 +888,8 @@ class CavityMDSimulation:
                 adaptiveerror=True,
                 cavity_damping_factor=self.cavity_damping_factor,
                 molecular_thermostat_tau=self.molecular_thermostat_tau,
-                cavity_thermostat_tau=self.cavity_thermostat_tau
+                cavity_thermostat_tau=self.cavity_thermostat_tau,
+                time_tracker=self.time_tracker
             )
             
             # Add adaptive updater - use energy period for adaptive timestep updates
@@ -875,8 +928,8 @@ class CavityMDSimulation:
         
         # Add thermodynamic quantities
         try:
-            # Add integrator energies
-            logger.add(self.sim.operations.integrator, quantities=['kinetic_energy', 'potential_energy'])
+            # Add integrator energies - DISABLED: integrator doesn't expose these quantities
+            # logger.add(self.sim.operations.integrator, quantities=['kinetic_energy', 'potential_energy'])
             
             # Create molecular thermodynamics computer
             molecular_filter = hoomd.filter.Type(['O', 'N'])
@@ -951,46 +1004,135 @@ class CavityMDSimulation:
                 
                 self.log_info(f"Energy tracking setup completed: {method_count} methods, {force_count} forces")
                 
-                # Set up dedicated EnergyTracker for text file output
+                # === CRITICAL FIX: Create kinetic energy trackers like working code ===
+                # Set up kinetic energy tracking for molecular particles (using local class to avoid file duplication)
+                self.kinetic_energy_tracker = SimpleKineticEnergyTracker(
+                    simulation=self.sim,
+                    time_tracker=self.time_tracker
+                )
+                
+                # Add kinetic energy tracker as updater
+                kinetic_energy_updater = hoomd.update.CustomUpdater(
+                    action=self.kinetic_energy_tracker,
+                    trigger=hoomd.trigger.Periodic(1)
+                )
+                self.sim.operations.updaters.append(kinetic_energy_updater)
+                self.log_info("SimpleKineticEnergyTracker created and added to simulation (no duplicate file output)")
+                
+                # Set up cavity mode tracking if in cavity simulation
+                if self.incavity:
+                    # Find the cavity force object to pass to CavityModeTracker
+                    cavityforce = None
+                    for force in self.sim.operations.integrator.forces:
+                        if 'cavity' in type(force).__name__.lower():
+                            cavityforce = force
+                            break
+                    
+                    if cavityforce is not None:
+                        self.cavity_mode_tracker = CavityModeTracker(
+                            simulation=self.sim,
+                            cavityforce=cavityforce,
+                            time_tracker=self.time_tracker,
+                            output_prefix=f'{self.name}-{self.replica}',
+                            output_period_steps=1
+                        )
+                        
+                        # Add cavity mode tracker as updater
+                        cavity_mode_updater = hoomd.update.CustomUpdater(
+                            action=self.cavity_mode_tracker,
+                            trigger=hoomd.trigger.Periodic(1)
+                        )
+                        self.sim.operations.updaters.append(cavity_mode_updater)
+                        self.log_info("CavityModeTracker created and added to simulation")
+                    else:
+                        self.cavity_mode_tracker = None
+                        self.log_warning("Cavity simulation requested but no cavity force found - cavity mode tracker disabled")
+                else:
+                    self.cavity_mode_tracker = None
+                    self.log_info("No cavity simulation - cavity mode tracker not created")
+
+                # Set up corrected EnergyTracker from plugin for proper reservoir energy tracking
                 try:
                     energy_filename = f'{self.name}-{self.replica}-energy.txt'
-                    self.log_info(f"Setting up EnergyTracker with output file: {energy_filename}")
+                    self.log_info(f"Setting up CORRECTED EnergyTracker with output file: {energy_filename}")
                     
                     # Use the pre-calculated energy output period in steps
                     output_period_steps = self.energy_period
                     
-                    # Prepare force objects dictionary for energy tracking
+                    # Prepare individual force objects for EnergyTracker
                     force_objects = {}
+                    thermostat_objects = {}
+                    
                     for force in self.sim.operations.integrator.forces:
                         force_name = type(force).__name__.lower()
                         if 'cavity' in force_name:
                             force_objects['cavity'] = force
                         elif 'lj' in force_name or 'lennard' in force_name:
                             force_objects['lj'] = force
+                        elif 'harmonic' in force_name or 'bond' in force_name:
+                            force_objects['harmonic'] = force
                         elif 'ewald' in force_name:
-                            if 'short' in force_name:
-                                force_objects['ewald_short'] = force
-                            elif 'long' in force_name:
-                                force_objects['ewald_long'] = force
+                            force_objects['ewald_short'] = force  # Ewald is the short-range PPPM force
+                        elif 'coulomb' in force_name:
+                            force_objects['ewald_long'] = force   # Coulomb is the long-range PPPM force
                     
-                    # Define which energy components to track
-                    components = ['kinetic']  # Always track kinetic energy
-                    if 'cavity' in force_objects:
-                        components.append('cavity')
-                    if 'lj' in force_objects:
-                        components.append('lj') 
-                    if 'ewald_short' in force_objects or 'ewald_long' in force_objects:
-                        components.append('ewald')  # Combined ewald energy
+                    # Extract thermostat objects for EnergyTracker
+                    for i, method in enumerate(self.sim.operations.integrator.methods):
+                        method_name = type(method).__name__.lower()
+                        
+                        # Check for Langevin methods (have reservoir_energy)
+                        if 'langevin' in method_name and hasattr(method, 'reservoir_energy'):
+                            # Determine if this is molecular or cavity based on filter
+                            if hasattr(method, 'filter'):
+                                filter_types = getattr(method.filter, '_types', [])
+                                if 'L' in filter_types:
+                                    thermostat_objects['langevin_cavity'] = method
+                                else:
+                                    thermostat_objects['langevin_molecular'] = method
+                        
+                        # Check for Bussi thermostats
+                        if hasattr(method, 'thermostat') and method.thermostat is not None:
+                            thermostat_type = type(method.thermostat).__name__.lower()
+                            if 'bussi' in thermostat_type:
+                                # Determine if this is molecular or cavity based on filter
+                                if hasattr(method, 'filter'):
+                                    filter_types = getattr(method.filter, '_types', [])
+                                    if 'L' in filter_types:
+                                        thermostat_objects['bussi_cavity'] = method.thermostat
+                                    else:
+                                        thermostat_objects['bussi_molecular'] = method.thermostat
                     
+                    self.log_info(f"CORRECTED EnergyTracker configuration:")
+                    self.log_info(f"  Force objects: {list(force_objects.keys())}")
+                    self.log_info(f"  Thermostat objects: {list(thermostat_objects.keys())}")
+                    
+                    # Calculate max timesteps limit
+                    max_timesteps = None
+                    if self.max_energy_output_time_ps:
+                        dt_ps = PhysicalConstants.atomic_units_to_ps(self.sim.operations.integrator.dt)
+                        max_timesteps = int(self.max_energy_output_time_ps / dt_ps)
+                    
+                    # Get kinetic trackers 
+                    kinetic_tracker = getattr(self, 'kinetic_energy_tracker', None)
+                    cavity_mode_tracker = getattr(self, 'cavity_mode_tracker', None) if self.incavity else None
+                    
+                    self.log_info(f"  Kinetic tracker available: {kinetic_tracker is not None}")
+                    self.log_info(f"  Cavity mode tracker available: {cavity_mode_tracker is not None}")
+                    
+                    # CORRECTED VERSION: Use EnergyTracker from plugin with proper reservoir tracking
                     self.energy_tracker = EnergyTracker(
                         simulation=self.sim,
-                        components=components,
+                        components=['harmonic', 'lj', 'ewald_short', 'ewald_long', 'cavity'],
                         force_objects=force_objects,
+                        thermostat_objects=thermostat_objects,
+                        kinetic_tracker=kinetic_tracker,
+                        cavity_mode_tracker=cavity_mode_tracker,
                         time_tracker=self.time_tracker,
                         output_prefix=energy_filename.replace('.txt', ''),
                         output_period_steps=output_period_steps,
-                        max_timesteps=int(self.max_energy_output_time_ps * 1.0/PhysicalConstants.atomic_units_to_ps(self.sim.operations.integrator.dt)) if self.max_energy_output_time_ps else None,
-                        compute_temperature=True
+                        max_timesteps=max_timesteps,
+                        compute_temperature=True,
+                        track_reservoirs=True
                     )
                     
                     # Add energy tracker to simulation operations
@@ -1000,20 +1142,29 @@ class CavityMDSimulation:
                     )
                     self.sim.operations.updaters.append(energy_updater)
                     
-                    self.log_info(f"EnergyTracker enabled: writing to {energy_filename} every {output_period_steps} steps")
-                    if self.max_energy_output_time_ps:
-                        max_steps = int(self.max_energy_output_time_ps * 1.0/PhysicalConstants.atomic_units_to_ps(self.sim.operations.integrator.dt))
-                        self.log_info(f"Energy output will stop after {max_steps} steps ({self.max_energy_output_time_ps:.1f} ps)")
-                    else:
-                        self.log_info("Energy output will continue for entire simulation")
+                    # Note: EnergyTracker writes its own file and has extensive debugging
+                    # The generated file contains all energy components with proper reservoir tracking
+                    
+                    self.log_info(f"CORRECTED EnergyTracker setup completed successfully")
+                    self.log_info(f"  Universe total energy will include reservoir energies (CONSERVED)")
+                    self.log_info(f"  Output: {energy_filename} every {output_period_steps} steps")
+                    self.log_info(f"  Using corrected implementation with proper reservoir energy tracking")
                     
                 except Exception as e:
-                    self.log_warning(f"Could not set up EnergyTracker: {str(e)}")
+                    self.log_error(f"Failed to setup CORRECTED EnergyTracker: {e}")
+                    import traceback
+                    self.log_error("Full traceback:")
+                    for line in traceback.format_exc().split('\n'):
+                        if line.strip():
+                            self.log_error(line)
                     self.energy_tracker = None
                 
             except Exception as e:
                 self.log_warning(f"Could not complete energy tracking setup: {str(e)}")
                 self.log_warning(f"Error details: {type(e).__name__}: {str(e)}")
+                self.log_warning(f"Full traceback:")
+                import traceback
+                traceback.print_exc()
         else:
             self.log_info("Detailed energy tracking disabled")
             self.energy_tracker = None
@@ -1024,7 +1175,12 @@ class CavityMDSimulation:
                 self.log_info("Setting up F(k,t) density correlation tracker")
                 self.log_info(f"  k magnitude: {self.fkt_kmag:.2f}")
                 self.log_info(f"  Number of wavevectors: {self.fkt_num_wavevectors}")
-                reference_interval_steps = int(self.fkt_reference_interval_ps * 1.0/PhysicalConstants.atomic_units_to_ps(self.sim.operations.integrator.dt))
+                try:
+                    dt_ps = PhysicalConstants.atomic_units_to_ps(self.sim.operations.integrator.dt)
+                    reference_interval_steps = int(self.fkt_reference_interval_ps / dt_ps)
+                except Exception as e:
+                    self.log_warning(f"Could not calculate F(k,t) reference interval: {e}")
+                    reference_interval_steps = 10000  # Default fallback
                 self.log_info(f"  Reference interval: {reference_interval_steps} steps ({self.fkt_reference_interval_ps:.1f} ps)")
                 self.log_info(f"  Max references: {self.fkt_max_references}")
                 
@@ -1036,7 +1192,7 @@ class CavityMDSimulation:
                 # Create density correlation tracker with correct interface
                 self.density_corr_tracker = FieldAutocorrelationTracker(
                     simulation=self.sim,
-                    observable="density",
+                    observable="density_correlation",
                     time_tracker=self.time_tracker,
                     output_period_steps=output_period,
                     output_prefix=f'{self.name}-{self.replica}',
@@ -1068,32 +1224,12 @@ class CavityMDSimulation:
         # Store logger for later use
         self.logger_hoomd = logger
         
-        # Create comprehensive console output summary
-        console_items = ["timestep", "tps", "dt(fs)", "elapsed_time"]
+        # Create console output with only performance and time metrics
+        console_items = ["timestep", "tps", "elapsed_time", "ns_per_day", "eta", "dt(fs)"]
         
-        # Add thermodynamics
-        if hasattr(self, 'molecular_thermo'):
-            console_items.append("molecular_temp")
-        if hasattr(self, 'cavity_thermo') and self.incavity:
-            console_items.append("cavity_temp")
-        
-        # Add basic energies
-        console_items.append("potential_energy")
-        console_items.append("kinetic_energy")
-        
-        # Add detailed energy tracking info
-        if self.enable_energy_tracking:
-            console_items.extend(["thermostat_energies", "force_energies"])
-            if self.incavity:
-                console_items.append("cavity_energy_components")
-        
-        # Add F(k,t) tracking info
-        if self.enable_fkt:
-            console_items.append("F(k,t)")
-        
-        # Add adaptive timestep info
+        # Add adaptive timestep info (performance related)
         if hasattr(self, 'adaptive_action') and self.adaptive_action is not None:
-            console_items.append("adaptive_timestep")
+            console_items.append("adaptive_error_tolerance")
         
         self.log_info("Comprehensive tracking and logging setup completed")
         self.log_info(f"Console output includes: {', '.join(console_items)}")
@@ -1134,13 +1270,30 @@ class CavityMDSimulation:
         self.log_info(f"GSD writer added for file: {self.name}-{self.replica}.gsd")
         self.log_info(f"  GSD output period: {self.gsd_period} steps ({self.gsd_output_period_ps:.3f} ps)")
         
-        # Set up console output table with configurable period
+        # Create a separate logger for console output with only performance and time metrics
+        console_logger = hoomd.logging.Logger(categories=['scalar', 'string'])
+        
+        # Basic simulation quantities
+        console_logger.add(self.sim, quantities=['timestep', 'tps'])
+        
+        # Time and performance information
+        console_logger[('Time', 'elapsed_ps')] = (self.time_tracker, 'elapsed_time', 'scalar')
+        console_logger[('Performance', 'ns_per_day')] = (self.performance_tracker, 'ns_per_day', 'string')
+        console_logger[('Performance', 'eta')] = (self.performance_tracker, 'eta_remaining', 'string')
+        console_logger[('Timestep', 'dt_fs')] = (self.timestep_formatter, 'dt_fs', 'scalar')
+        
+        # Add adaptive timestep logging if enabled
+        if hasattr(self, 'adaptive_action') and self.adaptive_action is not None:
+            console_logger[('Adaptive', 'error_tolerance')] = (self.adaptive_action, 'error_tolerance', 'scalar')
+        
+        # Set up console output table with configurable period and performance-only logger
         table = hoomd.write.Table(
             trigger=hoomd.trigger.Periodic(period=self.console_period),
-            logger=self.logger_hoomd
+            logger=console_logger
         )
         self.sim.operations.writers.append(table)
         self.log_info(f"Console output period: {self.console_period} steps ({self.console_output_period_ps:.3f} ps)")
+        self.log_info("Console output restricted to performance and time metrics only")
 
     def run_simulation(self):
         """Execute the main simulation loop."""
@@ -1338,7 +1491,7 @@ def run_single_experiment_enhanced(exp_name, molecular_thermo, cavity_thermo, fi
         return sim.run()
         
     except Exception as e:
-        print(f"❌ Experiment failed: {e}")
+        print(f"ERROR: Experiment failed: {e}")
         return False
 
 def main():
@@ -1373,7 +1526,8 @@ def main():
     parser.add_argument('--timestep', type=float, default=1.0, help='Fixed timestep in fs')
     
     # Energy tracking
-    parser.add_argument('--enable-energy-tracker', action='store_true', help='Enable energy tracking')
+    parser.add_argument('--enable-energy-tracker', action='store_true', help='Enable comprehensive energy tracking')
+    parser.add_argument('--enable-comprehensive-energy', action='store_true', help='Enable comprehensive energy tracking (alias for --enable-energy-tracker)')
     
     # Logging options
     parser.add_argument('--log-to-file', action='store_true', help='Log to files')
@@ -1404,7 +1558,7 @@ def main():
     
     args = parser.parse_args()
     
-    print("🚀 Enhanced Cavity MD Experiment Runner")
+    print("Enhanced Cavity MD Experiment Runner")
     print("   Using hoomd.cavitymd plugin for all tracker classes")
     print("   Only CavityMDSimulation defined locally")
     
@@ -1421,12 +1575,12 @@ def main():
         replica, frame, job_id = get_slurm_info()
         if replica is not None:
             replica_list = [replica]
-            print(f"🔄 Running under SLURM: Task {replica} (Job {job_id})")
+            print(f"Running under SLURM: Task {replica} (Job {job_id})")
         else:
             replica_list = [1]  # Default single replica
-            print("⚠️  No replica specification - running single replica (1)")
+            print("WARNING: No replica specification - running single replica (1)")
     
-    print(f"📋 Replicas to run: {replica_list}")
+    print(f"Replicas to run: {replica_list}")
     
     # Get experiment configuration
     exp_config = None
@@ -1436,25 +1590,25 @@ def main():
             break
     
     if not exp_config:
-        print(f"❌ Unknown experiment: {args.experiment}")
+        print(f"ERROR: Unknown experiment: {args.experiment}")
         return 1
     
     exp_name, molecular_thermo, cavity_thermo, finite_q = exp_config
-    print(f"🧪 Experiment: {exp_name}")
+    print(f"Experiment: {exp_name}")
     print(f"   Molecular thermostat: {molecular_thermo}")
     print(f"   Cavity thermostat: {cavity_thermo}")
     print(f"   Finite Q: {finite_q}")
     
     # Calculate total experiments
     total_experiments = parameter_sweep.get_total_experiments(replica_list)
-    print(f"📊 Total experiments: {total_experiments}")
+    print(f"Total experiments: {total_experiments}")
     
     # Set up device configuration
     device = args.device.upper()
     if device == 'GPU':
-        print(f"🖥️  Using GPU {args.gpu_id}")
+        print(f"Using GPU {args.gpu_id}")
     else:
-        print("🖥️  Using CPU")
+        print("Using CPU")
     
     # Logging configuration
     log_to_file = args.log_to_file
@@ -1465,14 +1619,14 @@ def main():
     successful_experiments = 0
     failed_experiments = 0
     
-    print("\n🚀 Starting experiment execution...")
+    print("\nStarting experiment execution...")
     print("="*80)
     
     # Run parameter sweep
     parameter_combinations = parameter_sweep.get_parameter_combinations()
     
     for param_idx, (coupling, temperature, frequency) in enumerate(parameter_combinations):
-        print(f"\n📋 Parameter Set {param_idx + 1}/{len(parameter_combinations)}")
+        print(f"\nParameter Set {param_idx + 1}/{len(parameter_combinations)}")
         print(f"   Coupling: {coupling}")
         print(f"   Temperature: {temperature}K")
         print(f"   Frequency: {frequency}cm⁻¹")
@@ -1481,7 +1635,7 @@ def main():
         for replica in replica_list:
             frame = replica  # Use replica as frame number
             
-            print(f"\n🔄 Running replica {replica}...")
+            print(f"\nRunning replica {replica}...")
             
             # Run experiment
             success = run_single_experiment_enhanced(
@@ -1510,7 +1664,7 @@ def main():
                 incavity=not args.no_cavity,
                 fixed_timestep=args.fixed_timestep,
                 timestep_fs=args.timestep,
-                enable_energy_tracking=args.enable_energy_tracker,
+                enable_energy_tracking=args.enable_energy_tracker or args.enable_comprehensive_energy,
                 checkpoint_interval=args.checkpoint_interval,
                 energy_output_period_ps=args.energy_output_period_ps,
                 fkt_output_period_ps=args.fkt_output_period_ps,
@@ -1520,32 +1674,32 @@ def main():
             
             if success:
                 successful_experiments += 1
-                print(f"✅ Replica {replica} completed successfully")
+                print(f"SUCCESS: Replica {replica} completed successfully")
             else:
                 failed_experiments += 1
-                print(f"❌ Replica {replica} failed")
+                print(f"ERROR: Replica {replica} failed")
     
     # Final summary
     end_time = time.time()
     total_wall_time = end_time - start_time
     
     print("\n" + "="*80)
-    print("🏁 Enhanced Experiment Runner Summary")
+    print("Enhanced Experiment Runner Summary")
     print("="*80)
     print(f"Total experiments: {total_experiments}")
     print(f"Successful: {successful_experiments}")
     print(f"Failed: {failed_experiments}")
-    print(f"Success rate: {successful_experiments/total_experiments*100:.1f}%")
-    print(f"Total wall time: {total_wall_time:.1f} seconds")
-    print(f"Average time per experiment: {total_wall_time/total_experiments:.1f} seconds")
-    
-    print(f"📄 Summary report displayed above")
+    print(f"Wall time: {total_wall_time:.2f} seconds")
     
     if failed_experiments > 0:
-        print(f"\n⚠️  {failed_experiments} experiments failed - check individual logs for details")
+        print(f"\nSummary report displayed above")
+        print("Failed experiments: check individual logs for details")
+        
+    if failed_experiments > 0:
+        print(f"\nWARNING: {failed_experiments} experiments failed - check individual logs for details")
         return 1
     else:
-        print("\n🎉 All experiments completed successfully!")
+        print("\nAll experiments completed successfully!")
         return 0
 
 if __name__ == '__main__':

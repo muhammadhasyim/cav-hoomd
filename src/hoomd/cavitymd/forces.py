@@ -207,6 +207,11 @@ class CavityForce(hoomd.md.force.Force):
         return self.harmonic_energy + self.coupling_energy + self.dipole_self_energy
     
     @property
+    def energy(self):
+        """Override HOOMD's base Force.energy property to return sum of components instead of per-particle energies"""
+        return self.total_cavity_energy
+    
+    @property
     def forces(self):
         """Get forces array (for HOOMD compatibility)"""
         if hasattr(self._force_impl, 'forces'):

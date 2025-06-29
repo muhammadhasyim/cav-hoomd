@@ -177,8 +177,9 @@ void CavityForceCompute::computeForces(uint64_t timestep)
     
     Scalar total_cavity_energy = m_harmonic_energy + m_coupling_energy + m_dipole_self_energy;
     
-    // Assign potential energy to photon particle
-    h_force.data[photon_idx].w = total_cavity_energy;
+    // DO NOT assign energy to particle potential energy - prevents double-counting
+    // Energy is accessed directly through force object methods
+    h_force.data[photon_idx].w = 0.0;
     
     // Compute forces on molecular particles
     vec3<Scalar> Dq = q_photon_xy + (m_params.couplstr / m_params.K) * dipole_xy;
@@ -202,6 +203,7 @@ void CavityForceCompute::computeForces(uint64_t timestep)
     
     // Force on photon particle
     vec3<Scalar> photon_force = -m_params.K * q_photon - m_params.couplstr * dipole_xy;
+    
     h_force.data[photon_idx].x = photon_force.x;
     h_force.data[photon_idx].y = photon_force.y;
     h_force.data[photon_idx].z = photon_force.z;

@@ -13,7 +13,7 @@ class AdaptiveTimestepUpdater(hoomd.custom.Action):
     
     def __init__(self, state, integrator, error_tolerance, time_constant_ps=50.0, 
                  initial_fraction=0.01, adaptiveerror=True, cavity_damping_factor=1.0, 
-                 molecular_thermostat_tau=5.0, cavity_thermostat_tau=5.0):
+                 molecular_thermostat_tau=5.0, cavity_thermostat_tau=5.0, time_tracker=None):
         super().__init__()
         print("Performing error tolerance ramping with time constant", time_constant_ps, "ps")
         self.state = state
@@ -22,12 +22,13 @@ class AdaptiveTimestepUpdater(hoomd.custom.Action):
         self.initial_error_tolerance = error_tolerance * initial_fraction
         self.current_error_tolerance = self.initial_error_tolerance
         self.time_constant_ps = time_constant_ps
-        self.accumulated_time_ps = 0.0
+        self.accumulated_time_ps = 0.0  # Fallback for backward compatibility
         self.last_timestep = 0  # Will be set correctly in first act() call
         self.adaptiveerror = adaptiveerror
         self.cavity_damping_factor = cavity_damping_factor
         self.molecular_thermostat_tau = molecular_thermostat_tau
         self.cavity_thermostat_tau = cavity_thermostat_tau
+        self.time_tracker = time_tracker  # Reference to ElapsedTimeTracker for accurate timing
 
     def act(self, timestep):
         """
@@ -40,17 +41,23 @@ class AdaptiveTimestepUpdater(hoomd.custom.Action):
         if self.last_timestep == 0:
             self.last_timestep = timestep
         
-        # Update accumulated simulation time
+        # Update accumulated simulation time (fallback method for backward compatibility)
         if timestep > self.last_timestep:
             # Convert dt to picoseconds using correct conversion
             dt_ps = PhysicalConstants.atomic_units_to_ps(self.integrator.dt)
             self.accumulated_time_ps += (timestep - self.last_timestep) * dt_ps
         self.last_timestep = timestep
         
+        # Get accurate elapsed time for error tolerance ramping
+        if self.time_tracker is not None:
+            current_elapsed_time_ps = self.time_tracker.elapsed_time
+        else:
+            current_elapsed_time_ps = self.accumulated_time_ps
+        
         # Update error tolerance based on exponential approach
         # formula: current = target - (target - initial) * exp(-t/tau)
         if self.adaptiveerror:
-            exp_factor = np.exp(-self.accumulated_time_ps / self.time_constant_ps)
+            exp_factor = np.exp(-current_elapsed_time_ps / self.time_constant_ps)
             self.current_error_tolerance = self.target_error_tolerance - \
                                           (self.target_error_tolerance - self.initial_error_tolerance) * exp_factor
         else:
@@ -129,4 +136,8 @@ class AdaptiveTimestepUpdater(hoomd.custom.Action):
     @hoomd.logging.log
     def elapsed_time_ps(self):
         """Log the elapsed simulation time in picoseconds."""
-        return self.accumulated_time_ps
+        # Use accurate time from time_tracker if available, otherwise fallback
+        if self.time_tracker is not None:
+            return self.time_tracker.elapsed_time
+        else:
+            return self.accumulated_time_ps
