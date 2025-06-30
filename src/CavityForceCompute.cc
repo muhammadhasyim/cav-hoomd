@@ -175,8 +175,6 @@ void CavityForceCompute::computeForces(uint64_t timestep)
     m_coupling_energy = m_params.couplstr * dot(dipole_xy, q_photon_xy);
     m_dipole_self_energy = Scalar(0.5) * (m_params.couplstr * m_params.couplstr / m_params.K) * dot(dipole_xy, dipole_xy);
     
-    Scalar total_cavity_energy = m_harmonic_energy + m_coupling_energy + m_dipole_self_energy;
-    
     // DO NOT assign energy to particle potential energy - prevents double-counting
     // Energy is accessed directly through force object methods
     h_force.data[photon_idx].w = 0.0;

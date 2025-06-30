@@ -8,6 +8,13 @@ Enhanced cavity molecular dynamics experiment runner.
 This script provides an enhanced framework for running cavity MD experiments with
 advanced features like parameter sweeps and detailed logging.
 
+IMPORTANT: CORRECTED OUTPUT TIMING
+- Analysis trackers (EnergyTracker, FieldAutocorrelationTracker) use CORRECTED step-based timing
+- Step intervals are calculated from current timestep for better accuracy in adaptive mode
+- max_timesteps is calculated from time limits using current timestep for precise cutoffs
+- GSD and console outputs use fixed step-based periods (timing may vary in adaptive mode)
+- Analysis data timing is more accurate than pre-calculated periods
+
 Usage examples:
    # Single experiment with cavity coupling
    python 05_advanced_run.py --experiment bussi_langevin_finiteq --coupling 1e-3 --runtime 1000
@@ -1054,10 +1061,23 @@ class CavityMDSimulation:
                 # Set up corrected EnergyTracker from plugin for proper reservoir energy tracking
                 try:
                     energy_filename = f'{self.name}-{self.replica}-energy.txt'
-                    self.log_info(f"Setting up CORRECTED EnergyTracker with output file: {energy_filename}")
+                    self.log_info(f"Setting up TIME-BASED EnergyTracker with output file: {energy_filename}")
                     
-                    # Use the pre-calculated energy output period in steps
-                    output_period_steps = self.energy_period
+                    # FIXED: Calculate reasonable step-based values but with smaller periods for better time accuracy
+                    # Use small trigger period (1 step) and let tracker handle its internal timing
+                    output_trigger_period = 1
+                    
+                    # Calculate max_timesteps from max_time_ps if specified
+                    max_timesteps = None
+                    if self.max_energy_output_time_ps:
+                        # Use current timestep for calculation (better than initial estimate)
+                        current_dt = self.sim.operations.integrator.dt
+                        dt_ps = PhysicalConstants.atomic_units_to_ps(current_dt)
+                        max_timesteps = int(self.max_energy_output_time_ps / dt_ps)
+                        self.log_info(f"  Max timesteps calculated: {max_timesteps} (≈{self.max_energy_output_time_ps:.3f} ps)")
+                    
+                    self.log_info(f"  Output trigger: every {output_trigger_period} step")
+                    self.log_info(f"  Target max time: {self.max_energy_output_time_ps} ps" if self.max_energy_output_time_ps else "  No max time limit")
                     
                     # Prepare individual force objects for EnergyTracker
                     force_objects = {}
@@ -1102,24 +1122,17 @@ class CavityMDSimulation:
                                     else:
                                         thermostat_objects['bussi_molecular'] = method.thermostat
                     
-                    self.log_info(f"CORRECTED EnergyTracker configuration:")
-                    self.log_info(f"  Force objects: {list(force_objects.keys())}")
-                    self.log_info(f"  Thermostat objects: {list(thermostat_objects.keys())}")
-                    
-                    # Calculate max timesteps limit
-                    max_timesteps = None
-                    if self.max_energy_output_time_ps:
-                        dt_ps = PhysicalConstants.atomic_units_to_ps(self.sim.operations.integrator.dt)
-                        max_timesteps = int(self.max_energy_output_time_ps / dt_ps)
-                    
                     # Get kinetic trackers 
                     kinetic_tracker = getattr(self, 'kinetic_energy_tracker', None)
                     cavity_mode_tracker = getattr(self, 'cavity_mode_tracker', None) if self.incavity else None
                     
+                    self.log_info(f"TIME-BASED EnergyTracker configuration:")
+                    self.log_info(f"  Force objects: {list(force_objects.keys())}")
+                    self.log_info(f"  Thermostat objects: {list(thermostat_objects.keys())}")
                     self.log_info(f"  Kinetic tracker available: {kinetic_tracker is not None}")
                     self.log_info(f"  Cavity mode tracker available: {cavity_mode_tracker is not None}")
                     
-                    # CORRECTED VERSION: Use EnergyTracker from plugin with proper reservoir tracking
+                    # CORRECTED VERSION: Use time-based limit directly instead of converted timesteps
                     self.energy_tracker = EnergyTracker(
                         simulation=self.sim,
                         components=['harmonic', 'lj', 'ewald_short', 'ewald_long', 'cavity'],
@@ -1129,26 +1142,26 @@ class CavityMDSimulation:
                         cavity_mode_tracker=cavity_mode_tracker,
                         time_tracker=self.time_tracker,
                         output_prefix=energy_filename.replace('.txt', ''),
-                        output_period_steps=output_period_steps,
-                        max_timesteps=max_timesteps,
+                        output_period_steps=1,  # Check every step for best timing accuracy
+                        max_time_ps=self.max_energy_output_time_ps,  # Use time-based limit directly
                         compute_temperature=True,
-                        track_reservoirs=True
+                        track_reservoirs=True,
+                        verbose='quiet'  # Reduce verbose output - use 'verbose' for full debug output
                     )
                     
-                    # Add energy tracker to simulation operations
+                    # Add energy tracker to simulation operations with small trigger period
                     energy_updater = hoomd.update.CustomUpdater(
                         action=self.energy_tracker,
-                        trigger=hoomd.trigger.Periodic(output_period_steps)
+                        trigger=hoomd.trigger.Periodic(output_trigger_period)
                     )
                     self.sim.operations.updaters.append(energy_updater)
                     
-                    # Note: EnergyTracker writes its own file and has extensive debugging
-                    # The generated file contains all energy components with proper reservoir tracking
-                    
                     self.log_info(f"CORRECTED EnergyTracker setup completed successfully")
-                    self.log_info(f"  Universe total energy will include reservoir energies (CONSERVED)")
-                    self.log_info(f"  Output: {energy_filename} every {output_period_steps} steps")
-                    self.log_info(f"  Using corrected implementation with proper reservoir energy tracking")
+                    self.log_info(f"  Uses internal timing logic with max_time_ps for accurate time limits")
+                    self.log_info(f"  Checking every step for precise timing control")
+                    if self.max_energy_output_time_ps:
+                        self.log_info(f"  Output limited to {self.max_energy_output_time_ps:.3f} ps (time-based)")
+                    self.log_info(f"  Trigger period: {output_trigger_period} step")
                     
                 except Exception as e:
                     self.log_error(f"Failed to setup CORRECTED EnergyTracker: {e}")
@@ -1172,50 +1185,53 @@ class CavityMDSimulation:
         # Set up F(k,t) density correlation tracker if enabled
         if self.enable_fkt:
             try:
-                self.log_info("Setting up F(k,t) density correlation tracker")
+                self.log_info("Setting up CORRECTED F(k,t) density correlation tracker")
                 self.log_info(f"  k magnitude: {self.fkt_kmag:.2f}")
                 self.log_info(f"  Number of wavevectors: {self.fkt_num_wavevectors}")
-                try:
-                    dt_ps = PhysicalConstants.atomic_units_to_ps(self.sim.operations.integrator.dt)
-                    reference_interval_steps = int(self.fkt_reference_interval_ps / dt_ps)
-                except Exception as e:
-                    self.log_warning(f"Could not calculate F(k,t) reference interval: {e}")
-                    reference_interval_steps = 10000  # Default fallback
-                self.log_info(f"  Reference interval: {reference_interval_steps} steps ({self.fkt_reference_interval_ps:.1f} ps)")
+                self.log_info(f"  Reference interval: {self.fkt_reference_interval_ps:.3f} ps")
                 self.log_info(f"  Max references: {self.fkt_max_references}")
+                self.log_info(f"  Output period: {self.fkt_output_period_ps:.3f} ps")
                 
-                # Use the pre-calculated fkt output period in steps
-                output_period = self.fkt_period
+                # CORRECTED: Calculate step-based intervals using current timestep for accuracy
+                fkt_trigger_period = 1  # Check every step for best timing
                 
-                self.log_info(f"  Output period: {output_period} steps ({self.fkt_output_period_ps:.3f} ps)")
+                # Calculate reference_interval_steps from reference_interval_ps using current timestep
+                current_dt = self.sim.operations.integrator.dt
+                dt_ps = PhysicalConstants.atomic_units_to_ps(current_dt)
+                reference_interval_steps = max(1, int(self.fkt_reference_interval_ps / dt_ps))
                 
-                # Create density correlation tracker with correct interface
+                self.log_info(f"  Calculated reference interval: {reference_interval_steps} steps (≈{reference_interval_steps * dt_ps:.3f} ps)")
+                self.log_info(f"  Trigger period: {fkt_trigger_period} step")
+                
+                # Create density correlation tracker with corrected interface
                 self.density_corr_tracker = FieldAutocorrelationTracker(
                     simulation=self.sim,
                     observable="density_correlation",
                     time_tracker=self.time_tracker,
-                    output_period_steps=output_period,
+                    output_period_steps=1,  # Check every step for best timing accuracy
                     output_prefix=f'{self.name}-{self.replica}',
-                    reference_interval_steps=reference_interval_steps,
+                    reference_interval_steps=reference_interval_steps,  # Use calculated step-based interval
                     max_references=self.fkt_max_references,
                     kmag=self.fkt_kmag,
                     num_wavevectors=self.fkt_num_wavevectors
                 )
                 
-                # Add F(k,t) tracker to simulation with optimized trigger
+                # Add F(k,t) tracker to simulation with small trigger period
                 fkt_updater = hoomd.update.CustomUpdater(
                     action=self.density_corr_tracker,
-                    trigger=hoomd.trigger.Periodic(1)  # Update every step for computation, but buffer writes
+                    trigger=hoomd.trigger.Periodic(fkt_trigger_period)
                 )
                 self.sim.operations.updaters.append(fkt_updater)
                 
                 # Add F(k,t) data to logger
                 logger[('F(k,t)', 'current_autocorr')] = (self.density_corr_tracker, 'current_autocorr', 'scalar')
                 
-                self.log_info("F(k,t) tracker successfully enabled")
+                self.log_info("CORRECTED F(k,t) tracker successfully enabled")
+                self.log_info(f"  Uses calculated step-based intervals for timing")
+                self.log_info(f"  Reference interval calculated from current timestep for accuracy")
                 
             except Exception as e:
-                self.log_warning(f"Could not set up F(k,t) tracker: {str(e)}")
+                self.log_warning(f"Could not set up CORRECTED F(k,t) tracker: {str(e)}")
                 self.density_corr_tracker = None
         else:
             self.density_corr_tracker = None
@@ -1231,15 +1247,15 @@ class CavityMDSimulation:
         if hasattr(self, 'adaptive_action') and self.adaptive_action is not None:
             console_items.append("adaptive_error_tolerance")
         
-        self.log_info("Comprehensive tracking and logging setup completed")
+        self.log_info("CORRECTED tracking and logging setup completed")
         self.log_info(f"Console output includes: {', '.join(console_items)}")
         
         # Log detailed summary of what's enabled
         enabled_features = []
         if self.enable_energy_tracking:
-            enabled_features.append("detailed energy tracking")
+            enabled_features.append("CORRECTED detailed energy tracking")
         if self.enable_fkt:
-            enabled_features.append(f"F(k,t) density correlation (k={self.fkt_kmag})")
+            enabled_features.append(f"CORRECTED F(k,t) density correlation (k={self.fkt_kmag})")
         if hasattr(self, 'adaptive_action') and self.adaptive_action is not None:
             enabled_features.append("adaptive timestep control")
         
@@ -1294,6 +1310,13 @@ class CavityMDSimulation:
         self.sim.operations.writers.append(table)
         self.log_info(f"Console output period: {self.console_period} steps ({self.console_output_period_ps:.3f} ps)")
         self.log_info("Console output restricted to performance and time metrics only")
+        
+        # Add warning about timing accuracy in adaptive timestep mode
+        if self.error_tolerance > 0:
+            self.log_info("TIMING NOTE: In adaptive timestep mode:")
+            self.log_info("  - Analysis trackers use CORRECTED step-based timing (calculated from current timestep)")
+            self.log_info("  - GSD and console outputs use FIXED step-based periods (may vary with timestep changes)")
+            self.log_info("  - Analysis timing is more accurate due to recalculation; GSD/console timing is approximate")
 
     def run_simulation(self):
         """Execute the main simulation loop."""

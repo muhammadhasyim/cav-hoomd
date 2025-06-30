@@ -173,7 +173,6 @@ __global__ void gpu_compute_forces_optimized(Scalar4* d_force,
         d_temp_energy[1] = coupling_energy;
         d_temp_energy[2] = dipole_self_energy;
         
-        Scalar total_energy = harmonic_energy + coupling_energy + dipole_self_energy;
         // DO NOT assign energy to particle potential energy - prevents double-counting
         d_force[photon_idx].w = 0.0;
     }
@@ -463,7 +462,6 @@ __global__ void gpu_compute_cavity_force_kernel(Scalar4* d_force,
             d_temp_energy[2] = dipole_self_energy;
             
             // DO NOT store energy in particle potential energy - prevents double-counting
-            Scalar total_energy = harmonic_energy + coupling_energy + dipole_self_energy;
             d_force[idx].w = 0.0;
         }
     }
