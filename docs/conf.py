@@ -19,7 +19,9 @@ sys.path.insert(0, str(project_root / 'examples'))
 # -- Mock imports for Read the Docs ------------------------------------------
 
 # -- Mock imports for Read the Docs ------------------------------------------
-# Using Sphinx's built-in autodoc_mock_imports (configured in autodoc section below)
+# Environment-aware mocking: only mock when actually needed (like on Read the Docs)
+
+import os
 
 # -- Project information -----------------------------------------------------
 
@@ -241,17 +243,24 @@ autodoc_default_options = {
 # Don't fail on import errors and handle mocked modules gracefully
 autodoc_preserve_defaults = True
 
-# Minimal mocking - only mock the specific external dependencies that cause issues
-autodoc_mock_imports = [
-    # Only the core external dependencies that cause import failures
-    'hoomd',
-    'freud', 
-    'gsd',
-    'mpi4py',
-    'cupy',
-    'numba',
-    'pycuda',
-]
+# Environment-aware mocking: only mock on Read the Docs or when dependencies missing
+if os.environ.get('READTHEDOCS') == 'True' or os.environ.get('RTD_ENV_NAME'):
+    # On Read the Docs - mock external dependencies that won't be available
+    # Note: This may show a warning about "mocked analysis" but the build will succeed
+    autodoc_mock_imports = [
+        'hoomd',  # Unfortunately needed to provide consistent import chain
+        'freud', 
+        'gsd',
+        'mpi4py',
+        'cupy',
+        'numba',
+        'pycuda',
+    ]
+    print("Read the Docs environment detected - enabling mocking for external dependencies")
+else:
+    # Local development - no mocking needed if dependencies are available
+    autodoc_mock_imports = []
+    print("Local environment - no mocking")
 
 # Suppress certain warnings related to mocked imports
 suppress_warnings = [

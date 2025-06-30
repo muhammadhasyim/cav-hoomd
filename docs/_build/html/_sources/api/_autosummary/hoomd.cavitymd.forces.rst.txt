@@ -1,6 +1,12 @@
 ﻿hoomd.cavitymd.forces
 =====================
 
-.. currentmodule:: hoomd.cavitymd
+.. automodule:: hoomd.cavitymd.forces
 
-.. autodata:: forces
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      CavityForce
+   

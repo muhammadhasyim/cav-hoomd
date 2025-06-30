@@ -392,7 +392,7 @@
 <h3>CavityForce<a class="headerlink" href="#cavityforce" title="Link to this heading">¶</a></h3>
 <dl class="py class">
 <dt class="sig sig-object py" id="hoomd.cavitymd.CavityForce">
-<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">hoomd.cavitymd.</span></span><span class="sig-name descname"><span class="pre">CavityForce</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">kvector</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">couplstr</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">omegac</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">phmass</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">force_python</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#hoomd.cavitymd.CavityForce" title="Link to this definition">¶</a></dt>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">hoomd.cavitymd.</span></span><span class="sig-name descname"><span class="pre">CavityForce</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">kvector</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">couplstr</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">omegac</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">phmass</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">force_python</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/hoomd/cavitymd/forces.html#CavityForce"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#hoomd.cavitymd.CavityForce" title="Link to this definition">¶</a></dt>
 <dd><p>Bases: <a class="reference external" href="https://hoomd-blue.readthedocs.io/en/stable/hoomd/md/force/force.html#hoomd.md.force.Force" title="(in HOOMD-blue v5.3.0)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Force</span></code></a></p>
 <p>Cavity force with automatic C++/Python fallback.</p>
 <p>Implements the cavity-molecule interaction force from the Hamiltonian:
@@ -417,20 +417,20 @@ g is the coupling strength, and K = phmass * omegac².</p>
 <div class="table-wrapper autosummary longtable docutils container">
 <table class="autosummary longtable docutils align-default">
 <tbody>
-<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">__init__</span></code></p></td>
-<td><p>Initialize self.</p></td>
-</tr>
-<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">harmonic_energy</span></code></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="#hoomd.cavitymd.CavityForce.__init__" title="hoomd.cavitymd.CavityForce.__init__"><code class="xref py py-obj docutils literal notranslate"><span class="pre">__init__</span></code></a></p></td>
 <td><p></p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">coupling_energy</span></code></p></td>
-<td><p></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="#hoomd.cavitymd.CavityForce.harmonic_energy" title="hoomd.cavitymd.CavityForce.harmonic_energy"><code class="xref py py-obj docutils literal notranslate"><span class="pre">harmonic_energy</span></code></a></p></td>
+<td><p>(1/2) * K * q²</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">dipole_self_energy</span></code></p></td>
-<td><p></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="#hoomd.cavitymd.CavityForce.coupling_energy" title="hoomd.cavitymd.CavityForce.coupling_energy"><code class="xref py py-obj docutils literal notranslate"><span class="pre">coupling_energy</span></code></a></p></td>
+<td><p>g * (q · d)</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">total_cavity_energy</span></code></p></td>
-<td><p></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="#hoomd.cavitymd.CavityForce.dipole_self_energy" title="hoomd.cavitymd.CavityForce.dipole_self_energy"><code class="xref py py-obj docutils literal notranslate"><span class="pre">dipole_self_energy</span></code></a></p></td>
+<td><p>(g²/2K) * d²</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#hoomd.cavitymd.CavityForce.total_cavity_energy" title="hoomd.cavitymd.CavityForce.total_cavity_energy"><code class="xref py py-obj docutils literal notranslate"><span class="pre">total_cavity_energy</span></code></a></p></td>
+<td><p>sum of all energy components</p></td>
 </tr>
 </tbody>
 </table>
@@ -439,21 +439,21 @@ g is the coupling strength, and K = phmass * omegac².</p>
 <div class="table-wrapper autosummary longtable docutils container">
 <table class="autosummary longtable docutils align-default">
 <tbody>
-<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">implementation</span></code></p></td>
-<td><p></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="#hoomd.cavitymd.CavityForce.implementation" title="hoomd.cavitymd.CavityForce.implementation"><code class="xref py py-obj docutils literal notranslate"><span class="pre">implementation</span></code></a></p></td>
+<td><p>Return the current implementation being used ('cpp', 'cuda', or 'python').</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">energy</span></code></p></td>
-<td><p></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="#hoomd.cavitymd.CavityForce.energy" title="hoomd.cavitymd.CavityForce.energy"><code class="xref py py-obj docutils literal notranslate"><span class="pre">energy</span></code></a></p></td>
+<td><p>Override HOOMD's base Force.energy property to return sum of components instead of per-particle energies</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">forces</span></code></p></td>
-<td><p></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="#hoomd.cavitymd.CavityForce.forces" title="hoomd.cavitymd.CavityForce.forces"><code class="xref py py-obj docutils literal notranslate"><span class="pre">forces</span></code></a></p></td>
+<td><p>Get forces array (for HOOMD compatibility)</p></td>
 </tr>
 </tbody>
 </table>
 </div>
 <dl class="py method">
 <dt class="sig sig-object py" id="hoomd.cavitymd.CavityForce.__init__">
-<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">kvector</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">couplstr</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">omegac</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">phmass</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">force_python</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#hoomd.cavitymd.CavityForce.__init__" title="Link to this definition">¶</a></dt>
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">kvector</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">couplstr</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">omegac</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">phmass</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">force_python</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/hoomd/cavitymd/forces.html#CavityForce.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#hoomd.cavitymd.CavityForce.__init__" title="Link to this definition">¶</a></dt>
 <dd></dd></dl>
 
 <dl class="py property">
@@ -753,7 +753,7 @@ integrator, on steps where a writer is triggered (such as
 
 <dl class="py method">
 <dt class="sig sig-object py" id="hoomd.cavitymd.CavityForce.set_forces">
-<span class="sig-name descname"><span class="pre">set_forces</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">timestep</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#hoomd.cavitymd.CavityForce.set_forces" title="Link to this definition">¶</a></dt>
+<span class="sig-name descname"><span class="pre">set_forces</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">timestep</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/hoomd/cavitymd/forces.html#CavityForce.set_forces"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#hoomd.cavitymd.CavityForce.set_forces" title="Link to this definition">¶</a></dt>
 <dd><p>For Python implementation compatibility</p>
 </dd></dl>
 

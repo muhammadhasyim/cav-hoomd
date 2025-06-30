@@ -383,12 +383,129 @@
           </label>
         </div>
         <article role="main" id="furo-main-content">
-          <section id="hoomd-cavitymd-utils">
-<h1>hoomd.cavitymd.utils<a class="headerlink" href="#hoomd-cavitymd-utils" title="Link to this heading">¶</a></h1>
-<dl class="py data">
-<dt class="sig sig-object py" id="hoomd.cavitymd.utils">
-<span class="sig-prename descclassname"><span class="pre">hoomd.cavitymd.</span></span><span class="sig-name descname"><span class="pre">utils</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">&lt;module</span> <span class="pre">'hoomd.cavitymd.utils'</span> <span class="pre">from</span> <span class="pre">'/home/mh7373/miniconda3/lib/python3.11/site-packages/hoomd/cavitymd/utils.py'&gt;</span></em><a class="headerlink" href="#hoomd.cavitymd.utils" title="Link to this definition">¶</a></dt>
-<dd><p>Utility functions and constants for cavity molecular dynamics simulations.</p>
+          <section id="module-hoomd.cavitymd.utils">
+<span id="hoomd-cavitymd-utils"></span><h1>hoomd.cavitymd.utils<a class="headerlink" href="#module-hoomd.cavitymd.utils" title="Link to this heading">¶</a></h1>
+<p>Utility functions and constants for cavity molecular dynamics simulations.</p>
+<p class="rubric">Functions</p>
+<div class="table-wrapper autosummary longtable docutils container">
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="#hoomd.cavitymd.utils.unwrap_positions" title="hoomd.cavitymd.utils.unwrap_positions"><code class="xref py py-obj docutils literal notranslate"><span class="pre">unwrap_positions</span></code></a>(positions, images, box_lengths)</p></td>
+<td><p>Unwrap particle positions across periodic boundaries.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p class="rubric">Classes</p>
+<div class="table-wrapper autosummary longtable docutils container">
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="#hoomd.cavitymd.utils.PhysicalConstants" title="hoomd.cavitymd.utils.PhysicalConstants"><code class="xref py py-obj docutils literal notranslate"><span class="pre">PhysicalConstants</span></code></a>()</p></td>
+<td><p>Physical constants and unit conversions for cavity MD simulations.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<dl class="py class">
+<dt class="sig sig-object py" id="hoomd.cavitymd.utils.PhysicalConstants">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">hoomd.cavitymd.utils.</span></span><span class="sig-name descname"><span class="pre">PhysicalConstants</span></span><a class="reference internal" href="../../_modules/hoomd/cavitymd/utils.html#PhysicalConstants"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#hoomd.cavitymd.utils.PhysicalConstants" title="Link to this definition">¶</a></dt>
+<dd><p>Physical constants and unit conversions for cavity MD simulations.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="hoomd.cavitymd.utils.PhysicalConstants.HARTREE_TO_CM_MINUS1">
+<span class="sig-name descname"><span class="pre">HARTREE_TO_CM_MINUS1</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">219474.63</span></em><a class="headerlink" href="#hoomd.cavitymd.utils.PhysicalConstants.HARTREE_TO_CM_MINUS1" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="hoomd.cavitymd.utils.PhysicalConstants.KB_HARTREE_PER_K">
+<span class="sig-name descname"><span class="pre">KB_HARTREE_PER_K</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">3.167e-06</span></em><a class="headerlink" href="#hoomd.cavitymd.utils.PhysicalConstants.KB_HARTREE_PER_K" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="hoomd.cavitymd.utils.PhysicalConstants.ENERGY_JOULES">
+<span class="sig-name descname"><span class="pre">ENERGY_JOULES</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">4.35974e-18</span></em><a class="headerlink" href="#hoomd.cavitymd.utils.PhysicalConstants.ENERGY_JOULES" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="hoomd.cavitymd.utils.PhysicalConstants.LENGTH_METERS">
+<span class="sig-name descname"><span class="pre">LENGTH_METERS</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">5.29177210544e-11</span></em><a class="headerlink" href="#hoomd.cavitymd.utils.PhysicalConstants.LENGTH_METERS" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="hoomd.cavitymd.utils.PhysicalConstants.MASS_KG">
+<span class="sig-name descname"><span class="pre">MASS_KG</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">9.1093837139e-31</span></em><a class="headerlink" href="#hoomd.cavitymd.utils.PhysicalConstants.MASS_KG" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="hoomd.cavitymd.utils.PhysicalConstants.TIME_SECONDS">
+<span class="sig-name descname"><span class="pre">TIME_SECONDS</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">2.418884e-17</span></em><a class="headerlink" href="#hoomd.cavitymd.utils.PhysicalConstants.TIME_SECONDS" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="hoomd.cavitymd.utils.PhysicalConstants.TIME_PS_CONVERSION">
+<span class="sig-name descname"><span class="pre">TIME_PS_CONVERSION</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">2.418884e-05</span></em><a class="headerlink" href="#hoomd.cavitymd.utils.PhysicalConstants.TIME_PS_CONVERSION" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="hoomd.cavitymd.utils.PhysicalConstants.ps_to_atomic_units">
+<em class="property"><span class="k"><span class="pre">classmethod</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">ps_to_atomic_units</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">time_ps</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/hoomd/cavitymd/utils.html#PhysicalConstants.ps_to_atomic_units"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#hoomd.cavitymd.utils.PhysicalConstants.ps_to_atomic_units" title="Link to this definition">¶</a></dt>
+<dd><p>Convert time from picoseconds to atomic units.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>time_ps</strong> – Time in picoseconds</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Time in atomic units</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="hoomd.cavitymd.utils.PhysicalConstants.atomic_units_to_ps">
+<em class="property"><span class="k"><span class="pre">classmethod</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">atomic_units_to_ps</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">time_au</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/hoomd/cavitymd/utils.html#PhysicalConstants.atomic_units_to_ps"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#hoomd.cavitymd.utils.PhysicalConstants.atomic_units_to_ps" title="Link to this definition">¶</a></dt>
+<dd><p>Convert time from atomic units to picoseconds.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>time_au</strong> – Time in atomic units</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Time in picoseconds</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="hoomd.cavitymd.utils.PhysicalConstants.gamma_from_tau_ps">
+<em class="property"><span class="k"><span class="pre">classmethod</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">gamma_from_tau_ps</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tau_ps</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/hoomd/cavitymd/utils.html#PhysicalConstants.gamma_from_tau_ps"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#hoomd.cavitymd.utils.PhysicalConstants.gamma_from_tau_ps" title="Link to this definition">¶</a></dt>
+<dd><p>Calculate gamma (damping coefficient) from time constant in picoseconds.
+For Langevin dynamics: gamma = 1/tau</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>tau_ps</strong> – Time constant in picoseconds</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Gamma in atomic units (inverse time)</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="hoomd.cavitymd.utils.unwrap_positions">
+<span class="sig-prename descclassname"><span class="pre">hoomd.cavitymd.utils.</span></span><span class="sig-name descname"><span class="pre">unwrap_positions</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">positions</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">images</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">box_lengths</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/hoomd/cavitymd/utils.html#unwrap_positions"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#hoomd.cavitymd.utils.unwrap_positions" title="Link to this definition">¶</a></dt>
+<dd><p>Unwrap particle positions across periodic boundaries.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>positions</strong> – Array of wrapped positions (N x 3)</p></li>
+<li><p><strong>images</strong> – Array of image flags (N x 3)</p></li>
+<li><p><strong>box_lengths</strong> – Array of box dimensions (3,)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Array of unwrapped positions (N x 3)</p>
+</dd>
+</dl>
 </dd></dl>
 
 </section>
@@ -449,7 +566,20 @@
           <div class="toc-tree">
             <ul>
 <li><a class="reference internal" href="#">hoomd.cavitymd.utils</a><ul>
-<li><a class="reference internal" href="#hoomd.cavitymd.utils"><code class="docutils literal notranslate"><span class="pre">utils</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.utils.PhysicalConstants"><code class="docutils literal notranslate"><span class="pre">PhysicalConstants</span></code></a><ul>
+<li><a class="reference internal" href="#hoomd.cavitymd.utils.PhysicalConstants.HARTREE_TO_CM_MINUS1"><code class="docutils literal notranslate"><span class="pre">PhysicalConstants.HARTREE_TO_CM_MINUS1</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.utils.PhysicalConstants.KB_HARTREE_PER_K"><code class="docutils literal notranslate"><span class="pre">PhysicalConstants.KB_HARTREE_PER_K</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.utils.PhysicalConstants.ENERGY_JOULES"><code class="docutils literal notranslate"><span class="pre">PhysicalConstants.ENERGY_JOULES</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.utils.PhysicalConstants.LENGTH_METERS"><code class="docutils literal notranslate"><span class="pre">PhysicalConstants.LENGTH_METERS</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.utils.PhysicalConstants.MASS_KG"><code class="docutils literal notranslate"><span class="pre">PhysicalConstants.MASS_KG</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.utils.PhysicalConstants.TIME_SECONDS"><code class="docutils literal notranslate"><span class="pre">PhysicalConstants.TIME_SECONDS</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.utils.PhysicalConstants.TIME_PS_CONVERSION"><code class="docutils literal notranslate"><span class="pre">PhysicalConstants.TIME_PS_CONVERSION</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.utils.PhysicalConstants.ps_to_atomic_units"><code class="docutils literal notranslate"><span class="pre">PhysicalConstants.ps_to_atomic_units()</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.utils.PhysicalConstants.atomic_units_to_ps"><code class="docutils literal notranslate"><span class="pre">PhysicalConstants.atomic_units_to_ps()</span></code></a></li>
+<li><a class="reference internal" href="#hoomd.cavitymd.utils.PhysicalConstants.gamma_from_tau_ps"><code class="docutils literal notranslate"><span class="pre">PhysicalConstants.gamma_from_tau_ps()</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#hoomd.cavitymd.utils.unwrap_positions"><code class="docutils literal notranslate"><span class="pre">unwrap_positions()</span></code></a></li>
 </ul>
 </li>
 </ul>

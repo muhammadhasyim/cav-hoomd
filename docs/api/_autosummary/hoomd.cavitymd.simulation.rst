@@ -1,6 +1,12 @@
 ﻿hoomd.cavitymd.simulation
 =========================
 
-.. currentmodule:: hoomd.cavitymd
+.. automodule:: hoomd.cavitymd.simulation
 
-.. autodata:: simulation
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      AdaptiveTimestepUpdater
+   
