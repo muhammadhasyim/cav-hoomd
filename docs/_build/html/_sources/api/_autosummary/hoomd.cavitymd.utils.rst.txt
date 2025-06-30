@@ -1,18 +1,6 @@
 ﻿hoomd.cavitymd.utils
 ====================
 
-.. automodule:: hoomd.cavitymd.utils
+.. currentmodule:: hoomd.cavitymd
 
-   
-   .. rubric:: Functions
-
-   .. autosummary::
-   
-      unwrap_positions
-   
-   .. rubric:: Classes
-
-   .. autosummary::
-   
-      PhysicalConstants
-   
+.. autodata:: utils

@@ -6,6 +6,7 @@
 import os
 import sys
 from pathlib import Path
+from unittest.mock import MagicMock
 
 # -- Path setup --------------------------------------------------------------
 
@@ -14,6 +15,11 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 sys.path.insert(0, str(project_root / 'src'))
 sys.path.insert(0, str(project_root / 'examples'))
+
+# -- Mock imports for Read the Docs ------------------------------------------
+
+# -- Mock imports for Read the Docs ------------------------------------------
+# Using Sphinx's built-in autodoc_mock_imports (configured in autodoc section below)
 
 # -- Project information -----------------------------------------------------
 
@@ -41,7 +47,7 @@ extensions = [
     'sphinx.ext.viewcode',
     'sphinx.ext.napoleon',
     'sphinx.ext.githubpages',
-    'sphinx_autodoc_typehints',
+    # 'sphinx_autodoc_typehints', # Temporarily disabled due to conflict with mocking
     'myst_parser',
     'sphinx_copybutton',
     'sphinxcontrib.bibtex',
@@ -229,8 +235,28 @@ autodoc_default_options = {
     'exclude-members': '__weakref__'
 }
 
-autodoc_typehints = 'description'
-autodoc_typehints_description_target = 'documented'
+# autodoc_typehints = 'description'  # Disabled with sphinx_autodoc_typehints extension
+# autodoc_typehints_description_target = 'documented'
+
+# Don't fail on import errors and handle mocked modules gracefully
+autodoc_preserve_defaults = True
+
+# Minimal mocking - only mock the specific external dependencies that cause issues
+autodoc_mock_imports = [
+    # Only the core external dependencies that cause import failures
+    'hoomd',
+    'freud', 
+    'gsd',
+    'mpi4py',
+    'cupy',
+    'numba',
+    'pycuda',
+]
+
+# Suppress certain warnings related to mocked imports
+suppress_warnings = [
+    'autodoc.import_object',
+]
 
 # -- Options for autosummary extension --------------------------------------
 
