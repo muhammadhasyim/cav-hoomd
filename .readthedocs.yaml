@@ -8,17 +8,11 @@ build:
   os: ubuntu-22.04
   tools:
     python: "3.11"
-    # You can also specify other tools here
-
-# Build documentation in the "docs/" directory with Sphinx
-sphinx:
-  configuration: docs/conf.py
-  fail_on_warning: false
-
-# Explicitly configure Python installation to prevent automatic package detection
-python:
-  install:
-    - requirements: docs/requirements.txt
+  commands:
+    # Install requirements
+    - pip install -r docs/requirements.txt
+    # Build documentation from docs/ directory
+    - cd docs && sphinx-build -b html . $READTHEDOCS_OUTPUT/html
 
 # Optional but recommended, serve docs from a specific directory
 formats:
