@@ -15,11 +15,9 @@ Installation
 
 .. code-block:: bash
 
-   git clone https://github.com/yourusername/cavity-hoomd.git
-   cd cavity-hoomd
-   cmake -B build -S .
-   cmake --build build
-   cmake --install build
+   git clone https://github.com/muhammadhasyim/cav-hoomd.git
+   cd cav-hoomd
+   ./build_install.sh
 
 **Installation Options**
 
@@ -27,17 +25,22 @@ With GPU support (default):
 
 .. code-block:: bash
 
-   cmake -B build -S . -DENABLE_GPU=ON
-   cmake --build build
-   cmake --install build
+   ./build_install.sh
 
 CPU only:
 
 .. code-block:: bash
 
-   cmake -B build -S . -DENABLE_GPU=OFF
-   cmake --build build
-   cmake --install build
+   ./build_install.sh --no-gpu
+
+Uninstall
+=========
+
+To remove the installed plugins:
+
+.. code-block:: bash
+
+   ./uninstall.sh
 
 Verify Installation
 ===================
@@ -66,9 +69,9 @@ Troubleshooting
 - Check that the build completed without errors
 
 **GPU issues:**
-- Try CPU-only build: ``cmake -B build -S . -DENABLE_GPU=OFF``
+- Try CPU-only build: ``./build_install.sh --no-gpu``
 - Verify CUDA installation: ``nvcc --version``
 
 **Need help?**
 - Check build logs for error messages
-- Post an issue: https://github.com/yourusername/cavity-hoomd/issues 
+- Post an issue: https://github.com/muhammadhasyim/cav-hoomd/issues 

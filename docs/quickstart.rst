@@ -9,11 +9,9 @@ Installation
 
 .. code-block:: bash
 
-   git clone https://github.com/yourusername/cavity-hoomd.git
-   cd cavity-hoomd
-   cmake -B build -S .
-   cmake --build build
-   cmake --install build
+   git clone https://github.com/muhammadhasyim/cav-hoomd.git
+   cd cav-hoomd
+   ./build_install.sh
 
 **Verify Installation**
 
@@ -44,7 +42,7 @@ The simulation creates files like:
 
 .. code-block:: text
 
-   coupling_1e-03/
+   cavity_coupling_1e-03/
    ├── prod-1.gsd              # Trajectory file
    ├── prod-1-energy.txt       # Energy tracking data
    ├── prod-1-cavity_mode.txt  # Cavity mode properties  
@@ -75,16 +73,6 @@ Common Usage Examples
    # Strong coupling
    python examples/05_advanced_run.py --coupling 1e-2 --runtime 1000
 
-**Parameter Sweeps**
-
-.. code-block:: bash
-
-   # Sweep over coupling strengths
-   python examples/05_advanced_run.py --coupling 1e-3,1e-4,1e-5 --runtime 500
-
-   # Sweep over temperatures
-   python examples/05_advanced_run.py --coupling 1e-3 --temperature 100,200,300 --runtime 500
-
 **Multiple Replicas**
 
 .. code-block:: bash
@@ -103,6 +91,10 @@ Common Usage Examples
    # Use GPU acceleration
    python examples/05_advanced_run.py --coupling 1e-3 --runtime 1000 --device GPU
 
+   # Different thermostat combinations
+   python examples/05_advanced_run.py --molecular-bath bussi --cavity-bath langevin \
+       --coupling 1e-3 --runtime 1000
+
 Key Options
 ===========
 
@@ -112,6 +104,11 @@ Key Options
 - ``--frequency`` - Cavity frequency in cm⁻¹ (default: 2000)
 - ``--runtime`` - Simulation time in ps (default: 500)
 - ``--no-cavity`` - Run without cavity (control simulation)
+
+**Thermostat Options:**
+- ``--molecular-bath`` - Molecular thermostat: bussi, langevin, none (default: bussi)
+- ``--cavity-bath`` - Cavity thermostat: bussi, langevin, none (default: langevin)
+- ``--finite-q`` - Enable finite-q cavity mode
 
 **Advanced:**
 - ``--replicas`` - Run multiple replicas (e.g., "1-5")
@@ -141,7 +138,7 @@ Quick Analysis
    import matplotlib.pyplot as plt
 
    # Read energy data
-   data = pd.read_csv('coupling_1e-03/prod-1-energy.txt', delimiter='\t')
+   data = pd.read_csv('cavity_coupling_1e-03/prod-1-energy.txt', delimiter='\t')
 
    # Plot energy over time
    plt.plot(data['time_ps'], data['total_energy'])
@@ -161,8 +158,8 @@ Quick Analysis
 Next Steps
 ==========
 
-- Try different parameter combinations
-- Run parameter sweeps to explore coupling strength effects
+- Try different thermostat combinations
+- Run multiple replicas to explore system behavior
 - Compare cavity vs no-cavity simulations
 - Use the Jupyter notebook for interactive analysis
 - Check ``python examples/05_advanced_run.py --help`` for all options 
