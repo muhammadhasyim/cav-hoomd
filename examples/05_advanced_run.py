@@ -74,58 +74,6 @@ from hoomd.cavitymd import (
     CavityModeTracker, EnergyTracker
 )
 
-# Import kinetic energy tracker from main cavitymd module
-# The plugin's trackers work correctly, use EnergyTracker from plugin
-import sys
-sys.path.append('..')  # Add parent directory to path
-from cavitymd import KineticEnergyTracker
-
-# Simple local kinetic energy tracker (to avoid duplication from main module)
-class SimpleKineticEnergyTracker(hoomd.custom.Action):
-    """Simple kinetic energy tracker without file output to avoid duplication."""
-    
-    def __init__(self, simulation, time_tracker=None):
-        super().__init__()
-        self.simulation = simulation
-        self.time_tracker = time_tracker
-        self.current_kinetic_energy = 0.0
-        self.current_temperature = 0.0
-        self.current_timestep = -1
-    
-    def compute_kinetic_energy(self):
-        """Compute kinetic energy of molecular particles only."""
-        with self.simulation.state.cpu_local_snapshot as snap:
-            # Filter to molecular particles only (exclude cavity particle type 'L')
-            molecular_mask = snap.particles.typeid != 2  # Type 2 is 'L' (cavity)
-            velocities = snap.particles.velocity[molecular_mask]
-            masses = snap.particles.mass[molecular_mask]
-            
-            # Compute kinetic energy: KE = 0.5 * sum(m_i * v_i^2)
-            kinetic_energy = 0.5 * np.sum(masses[:, np.newaxis] * velocities**2)
-            
-            # Compute temperature: T = (2/3) * KE / (N * k_B)
-            N_dof = 3 * len(masses)  # 3 degrees of freedom per particle
-            temperature = (2.0/3.0) * kinetic_energy / (N_dof * PhysicalConstants.KB_HARTREE_PER_K)
-            
-            return kinetic_energy, temperature
-    
-    def act(self, timestep):
-        """Update kinetic energy and temperature."""
-        kinetic_energy, temperature = self.compute_kinetic_energy()
-        self.current_kinetic_energy = kinetic_energy
-        self.current_temperature = temperature
-        self.current_timestep = timestep
-    
-    @hoomd.logging.log
-    def kinetic_energy(self):
-        """Return current kinetic energy for logging."""
-        return self.current_kinetic_energy
-    
-    @hoomd.logging.log
-    def temperature(self):
-        """Return current temperature for logging."""
-        return self.current_temperature
-
 def unwrap_positions(positions, images, box_lengths):
     """Unwrap particle positions across periodic boundaries."""
     pos = np.asarray(positions)
@@ -774,7 +722,7 @@ class CavityMDSimulation:
                     # Calculate expected kinetic energy and temperature
                     expected_ke = 0.5 * 1.0 * np.sum(cavity_velocity**2)  # KE = (1/2) * m * v²
                     expected_temp = (2.0/3.0) * expected_ke / self.kB  # T = (2/3) * KE / kB for 3D
-                
+
                     self.log_info(f"Cavity particle thermalization:")
                     self.log_info(f"  Target temperature: {self.temperature:.1f} K")
                     self.log_info(f"  kT = {kT:.6f} a.u.")
@@ -1003,21 +951,6 @@ class CavityMDSimulation:
                 
                 self.log_info(f"Energy tracking setup completed: {method_count} methods, {force_count} forces")
                 
-                # Set up kinetic energy tracking for molecular particles
-                # Set up kinetic energy tracking for molecular particles (using local class to avoid file duplication)
-                self.kinetic_energy_tracker = SimpleKineticEnergyTracker(
-                    simulation=self.sim,
-                    time_tracker=self.time_tracker
-                )
-                
-                # Add kinetic energy tracker as updater
-                kinetic_energy_updater = hoomd.update.CustomUpdater(
-                    action=self.kinetic_energy_tracker,
-                    trigger=hoomd.trigger.Periodic(1)
-                )
-                self.sim.operations.updaters.append(kinetic_energy_updater)
-                self.log_info("SimpleKineticEnergyTracker created and added to simulation (no duplicate file output)")
-                
                 # Set up cavity mode tracking if in cavity simulation
                 if self.incavity:
                     # Find the cavity force object to pass to CavityModeTracker
@@ -1052,8 +985,10 @@ class CavityMDSimulation:
 
                 # Set up energy tracker from plugin for proper reservoir energy tracking
                 try:
-                    energy_filename = f'{self.name}-{self.replica}-energy.txt'
-                    self.log_info(f"Setting up energy tracker with output file: {energy_filename}")
+                    # Fix duplicate "energy" in filename - EnergyTracker adds "_energy_tracker.txt" automatically
+                    output_prefix = f'{self.name}-{self.replica}'
+                    actual_energy_filename = f'{output_prefix}_energy_tracker.txt'
+                    self.log_info(f"Setting up energy tracker with output file: {actual_energy_filename}")
                     
                     # FIXED: Calculate reasonable step-based values but with smaller periods for better time accuracy
                     # Use small trigger period (1 step) and let tracker handle its internal timing
@@ -1115,25 +1050,25 @@ class CavityMDSimulation:
                                         thermostat_objects['bussi_molecular'] = method.thermostat
                     
                     # Get kinetic trackers 
-                    kinetic_tracker = getattr(self, 'kinetic_energy_tracker', None)
+                    kinetic_tracker = None  # Use internal kinetic computation
                     cavity_mode_tracker = getattr(self, 'cavity_mode_tracker', None) if self.incavity else None
                     
                     self.log_info(f"Energy tracker configuration:")
                     self.log_info(f"  Force objects: {list(force_objects.keys())}")
                     self.log_info(f"  Thermostat objects: {list(thermostat_objects.keys())}")
-                    self.log_info(f"  Kinetic tracker available: {kinetic_tracker is not None}")
+                    self.log_info(f"  Using internal kinetic computation (no external tracker needed)")
                     self.log_info(f"  Cavity mode tracker available: {cavity_mode_tracker is not None}")
                     
                     # Use time-based limit directly instead of converted timesteps
                     self.energy_tracker = EnergyTracker(
                         simulation=self.sim,
-                        components=['harmonic', 'lj', 'ewald_short', 'ewald_long', 'cavity'],
+                        components=['kinetic', 'harmonic', 'lj', 'ewald_short', 'ewald_long', 'cavity'],
                         force_objects=force_objects,
                         thermostat_objects=thermostat_objects,
-                        kinetic_tracker=kinetic_tracker,
+                        kinetic_tracker=kinetic_tracker,  # Use internal kinetic computation
                         cavity_mode_tracker=cavity_mode_tracker,
                         time_tracker=self.time_tracker,
-                        output_prefix=energy_filename.replace('.txt', ''),
+                        output_prefix=output_prefix,
                         output_period_steps=1,  # Check every step for best timing accuracy
                         max_time_ps=self.max_energy_output_time_ps,  # Use time-based limit directly
                         compute_temperature=True,
@@ -1141,7 +1076,7 @@ class CavityMDSimulation:
                         verbose='quiet'  # Reduce verbose output - use 'verbose' for full debug output
                     )
                     
-                    # Add energy tracker to simulation operations with small trigger period
+                    # Add energy tracker to simulation with small trigger period
                     energy_updater = hoomd.update.CustomUpdater(
                         action=self.energy_tracker,
                         trigger=hoomd.trigger.Periodic(output_trigger_period)

@@ -401,36 +401,37 @@ class EnergyTracker(BaseTracker):
     """
     Energy tracking that exactly follows the working EnergyContributionTracker pattern.
     
-    **KEY FIXES to match working code:**
+    **REFACTORED VERSION**: Now supports internal kinetic energy computation.
     
-    1. **Direct Force Energy Access**: Use direct `.energy` access like working code,
-       no complex force computation initialization
+    **KEY IMPROVEMENTS:**
     
-    2. **Separate Kinetic Trackers**: Use separate kinetic energy trackers instead 
-       of computing from snapshot (matches working code architecture)
+    1. **Internal Kinetic Computation**: Can compute kinetic energy internally when 
+       'kinetic' is in components and kinetic_tracker=None
     
-    3. **Simple Error Handling**: Use simple AttributeError/DataAccessError handling
-       like working code, not complex initialization
+    2. **Backward Compatibility**: Still accepts kinetic_tracker parameter for compatibility
     
-    4. **Exact Universe Total Calculation**: Follow working code's exact calculation:
-       universe_total = system_total + total_thermostat_energy
+    3. **Standard Component**: 'kinetic' is now a standard component like 'harmonic', 'lj', etc.
     
-    5. **Extensive Debug Output**: Add comprehensive debugging to identify issues
+    4. **Eliminates Redundancy**: No need for separate SimpleKineticEnergyTracker when 
+       using internal computation
     """
     
     def __init__(self, simulation, components, force_objects=None, thermostat_objects=None, 
                  kinetic_tracker=None, cavity_mode_tracker=None,
                  time_tracker=None, output_prefix='energy', output_period_steps=1000, 
                  max_timesteps=None, max_time_ps=None, compute_temperature=True, track_reservoirs=True, verbose='normal'):
-        """Initialize corrected energy tracker following working code pattern.
+        """Initialize energy tracker with internal kinetic computation capability.
         
         Args:
             simulation: HOOMD simulation object
             components: List of energy components to track
+                       ['kinetic', 'harmonic', 'lj', 'ewald_short', 'ewald_long', 'cavity']
+                       NOTE: 'kinetic' is now a standard component!
             force_objects: Dictionary of force objects (harmonic, lj, ewald_short, ewald_long, cavity)
             thermostat_objects: Dictionary of thermostat/method objects for reservoir energy
-            kinetic_tracker: KineticEnergyTracker object (like working code)
-            cavity_mode_tracker: CavityModeTracker object (like working code)  
+            kinetic_tracker: [DEPRECATED] KineticEnergyTracker object (use internal computation instead)
+                           If None and 'kinetic' in components, will compute kinetic energy internally
+            cavity_mode_tracker: CavityModeTracker object for cavity kinetic energy
             time_tracker: ElapsedTimeTracker for accurate timing
             output_prefix: Prefix for output files
             output_period_steps: Output frequency in simulation steps
@@ -439,15 +440,12 @@ class EnergyTracker(BaseTracker):
             compute_temperature: Whether to compute temperature
             track_reservoirs: Whether to track reservoir energies
             verbose: Verbosity level ('quiet', 'normal', 'verbose')
-                    - 'quiet': No debug output, only essential messages
-                    - 'normal': Minimal output, setup info and errors
-                    - 'verbose': Full debug output (original behavior)
         """
         # Store configuration exactly like working code
         self.force_objects = force_objects or {}
         self.thermostat_objects = thermostat_objects or {}
-        self.kinetic_tracker = kinetic_tracker  # Like working code
-        self.cavity_mode_tracker = cavity_mode_tracker  # Like working code
+        self.kinetic_tracker = kinetic_tracker  # Keep for backward compatibility
+        self.cavity_mode_tracker = cavity_mode_tracker
         self.track_reservoirs = track_reservoirs
         self.max_timesteps = max_timesteps
         self.max_time_ps = max_time_ps
@@ -459,22 +457,34 @@ class EnergyTracker(BaseTracker):
         if self.verbose not in ['quiet', 'normal', 'verbose']:
             self.verbose = 'normal'
         
-        # Validate components
+        # Validate components and check for internal kinetic computation
         self.components = components
+        self.use_internal_kinetic = ('kinetic' in components and kinetic_tracker is None)
+        
+        # Warn about deprecated kinetic_tracker usage
+        if kinetic_tracker is not None and 'kinetic' in components:
+            if self.verbose != 'quiet':
+                print("WARNING: Both kinetic_tracker and 'kinetic' component specified.")
+                print("  Using external kinetic_tracker for backward compatibility.")
+                print("  Consider removing kinetic_tracker and using internal computation.")
         
         super().__init__(simulation, time_tracker, output_prefix, output_period_steps)
         
         # Fix file naming to match working code
         self.output_file_path = f'{self.output_prefix}_energy_tracker.txt'
         
-        # Only print setup info if not quiet
+        # Print setup info
         if self.verbose != 'quiet':
-            print(f"CORRECTED EnergyTracker (following working code pattern):")
+            print(f"REFACTORED EnergyTracker (Phase 1 - Backward Compatible):")
             print(f"  Output file: {self.output_file_path}")
             print(f"  Components: {self.components}")
+            print(f"  Internal kinetic computation: {self.use_internal_kinetic}")
+            if self.use_internal_kinetic:
+                print("  → Kinetic energy will be computed internally (no external tracker needed)")
+            elif self.kinetic_tracker is not None:
+                print("  → Using external kinetic_tracker (deprecated)")
             print(f"  Force objects: {list(self.force_objects.keys())}")
             print(f"  Thermostat objects: {list(self.thermostat_objects.keys())}")
-            print(f"  Kinetic tracker: {self.kinetic_tracker is not None}")
             print(f"  Cavity mode tracker: {self.cavity_mode_tracker is not None}")
             print(f"  Track reservoirs: {self.track_reservoirs}")
             print(f"  Output period: {self.output_period_steps} steps")
@@ -487,6 +497,79 @@ class EnergyTracker(BaseTracker):
         # Initialize output file
         self._initialize_output_file()
     
+    def _compute_molecular_kinetic_energy(self):
+        """
+        Compute kinetic energy of molecular particles internally.
+        
+        This replaces the need for external SimpleKineticEnergyTracker.
+        
+        Returns:
+            tuple: (kinetic_energy, temperature) in atomic units and Kelvin
+        """
+        try:
+            with self.sim.state.cpu_local_snapshot as snap:
+                # Filter to molecular particles only (exclude cavity particle type 'L')
+                molecular_mask = snap.particles.typeid != 2  # Type 2 is 'L' (cavity)
+                
+                if not np.any(molecular_mask):
+                    return 0.0, 0.0
+                
+                velocities = snap.particles.velocity[molecular_mask]
+                masses = snap.particles.mass[molecular_mask]
+                
+                # Compute kinetic energy: KE = 0.5 * sum(m_i * v_i^2)
+                kinetic_energy = 0.5 * np.sum(masses[:, np.newaxis] * velocities**2)
+                
+                # Compute temperature: T = (2/3) * KE / (N * k_B)
+                N_dof = 3 * len(masses)  # 3 degrees of freedom per particle
+                temperature = (2.0/3.0) * kinetic_energy / (N_dof * PhysicalConstants.KB_HARTREE_PER_K)
+                
+                return kinetic_energy, temperature
+                
+        except Exception as e:
+            if self.verbose in ['normal', 'verbose']:
+                print(f"Error computing molecular kinetic energy internally: {e}")
+            return 0.0, 0.0
+    
+    def _compute_cavity_kinetic_energy(self):
+        """
+        Compute cavity kinetic energy internally.
+        
+        Can use cavity_mode_tracker if available for consistency,
+        or compute directly from simulation state.
+        
+        Returns:
+            float: cavity kinetic energy in atomic units
+        """
+        # First try cavity_mode_tracker if available (for consistency)
+        if self.cavity_mode_tracker is not None:
+            try:
+                return self.cavity_mode_tracker.cavity_kinetic_energy
+            except AttributeError:
+                pass
+        
+        # Compute directly from simulation state
+        try:
+            with self.sim.state.cpu_local_snapshot as snap:
+                # Find cavity particle (type 'L', typeid 2)
+                cavity_mask = snap.particles.typeid == 2
+                
+                if not np.any(cavity_mask):
+                    return 0.0
+                
+                cavity_velocity = snap.particles.velocity[cavity_mask][0]
+                cavity_mass = snap.particles.mass[cavity_mask][0]
+                
+                # Compute cavity kinetic energy: KE = 0.5 * m * v^2
+                kinetic_energy = 0.5 * cavity_mass * np.sum(cavity_velocity**2)
+                
+                return kinetic_energy
+                
+        except Exception as e:
+            if self.verbose in ['normal', 'verbose']:
+                print(f"Error computing cavity kinetic energy internally: {e}")
+            return 0.0
+
     def _initialize_logging_values(self):
         """Initialize energy values for logging."""
         # Current energy components
@@ -514,7 +597,7 @@ class EnergyTracker(BaseTracker):
         self.current_system_total_energy = 0.0
         self.current_universe_total_energy = 0.0
         self.current_temperature = 0.0
-    
+
     def _initialize_output_file(self):
         """Initialize output file with headers matching working code."""
         try:
@@ -569,7 +652,7 @@ class EnergyTracker(BaseTracker):
             print(f"EnergyTracker ERROR: Failed to create output file {self.output_file_path}: {e}")
     
     def act(self, timestep):
-        """Main energy computation method following working code pattern exactly."""
+        """Main energy computation method with internal kinetic computation capability."""
         # Check if output has been stopped due to time or timestep limit
         if self.output_stopped:
             return
@@ -609,8 +692,9 @@ class EnergyTracker(BaseTracker):
             if self.verbose == 'verbose':
                 print(f"\n=== ENERGY TRACKER DEBUG - Timestep {timestep} ===")
                 print(f"Current time: {current_time:.6f} ps")
+                print(f"Internal kinetic computation: {self.use_internal_kinetic}")
             
-            # === 1. GET POTENTIAL ENERGY COMPONENTS (exactly like working code) ===
+            # === 1. GET POTENTIAL ENERGY COMPONENTS ===
             if self.verbose == 'verbose':
                 print("=== POTENTIAL ENERGY COMPONENTS ===")
             
@@ -657,7 +741,7 @@ class EnergyTracker(BaseTracker):
             if self.verbose == 'verbose':
                 print(f"Molecular potential energy (harmonic + lj + ewald): {molecular_potential_energy:.6f} Hartree")
             
-            # Get cavity potential energy components if present (exactly like working code)
+            # Get cavity potential energy components if present
             self.current_cavity_harmonic_energy = 0.0
             self.current_cavity_coupling_energy = 0.0
             self.current_cavity_dipole_self_energy = 0.0
@@ -668,7 +752,6 @@ class EnergyTracker(BaseTracker):
                 if self.verbose == 'verbose':
                     print("=== CAVITY ENERGY COMPONENTS ===")
                 try:
-                    # Use exact same pattern as working code
                     self.current_cavity_harmonic_energy = getattr(cavityforce, 'harmonic_energy', 0.0)
                     self.current_cavity_coupling_energy = getattr(cavityforce, 'coupling_energy', 0.0)
                     self.current_cavity_dipole_self_energy = getattr(cavityforce, 'dipole_self_energy', 0.0)
@@ -678,7 +761,7 @@ class EnergyTracker(BaseTracker):
                         print(f"Cavity coupling energy: {self.current_cavity_coupling_energy:.6f} Hartree")
                         print(f"Cavity dipole self energy: {self.current_cavity_dipole_self_energy:.6f} Hartree")
                     
-                    # For total energy, try .energy property first, then sum components (exactly like working code)
+                    # For total energy, try .energy property first, then sum components
                     if hasattr(cavityforce, 'energy'):
                         self.current_cavity_total_potential_energy = cavityforce.energy
                         if self.verbose == 'verbose':
@@ -690,7 +773,6 @@ class EnergyTracker(BaseTracker):
                         if self.verbose == 'verbose':
                             print(f"Cavity total energy (sum components): {self.current_cavity_total_potential_energy:.6f} Hartree")
                 except Exception as e:
-                    # If any error occurs, set all to zero and continue (exactly like working code)
                     self.current_cavity_harmonic_energy = 0.0
                     self.current_cavity_coupling_energy = 0.0
                     self.current_cavity_dipole_self_energy = 0.0
@@ -701,55 +783,86 @@ class EnergyTracker(BaseTracker):
                 if self.verbose == 'verbose':
                     print("No cavity force object - cavity energies set to zero")
             
-            # Calculate total potential energy (exactly like working code)
+            # Calculate total potential energy
             self.current_total_potential_energy = molecular_potential_energy + self.current_cavity_total_potential_energy
             if self.verbose == 'verbose':
                 print(f"TOTAL POTENTIAL ENERGY: {self.current_total_potential_energy:.6f} Hartree")
             
-            # === 2. GET KINETIC ENERGY COMPONENTS (exactly like working code) ===  
+            # === 2. GET KINETIC ENERGY COMPONENTS (NEW: Internal vs External) ===  
             if self.verbose == 'verbose':
                 print("=== KINETIC ENERGY COMPONENTS ===")
             
-            # Get molecular kinetic energy from kinetic tracker (exactly like working code)
+            # Get molecular kinetic energy - either internal or external
             self.current_molecular_kinetic_energy = 0.0
-            if self.kinetic_tracker is not None:
-                try:
-                    self.current_molecular_kinetic_energy = self.kinetic_tracker.kinetic_energy
-                    if self.verbose == 'verbose':
-                        print(f"Molecular kinetic energy (from tracker): {self.current_molecular_kinetic_energy:.6f} Hartree")
-                except AttributeError as e:
-                    self.current_molecular_kinetic_energy = 0.0
-                    if self.verbose in ['normal', 'verbose']:
-                        print(f"Molecular kinetic energy ERROR: {e}")
-            else:
-                if self.verbose == 'verbose':
-                    print("No kinetic tracker - molecular kinetic energy set to zero")
             
-            # Get cavity kinetic energy from cavity mode tracker (exactly like working code)
+            if self.use_internal_kinetic:
+                # NEW: Compute kinetic energy internally
+                if self.verbose == 'verbose':
+                    print("Using INTERNAL kinetic energy computation")
+                
+                if 'kinetic' in self.components:
+                    molecular_ke, molecular_temp = self._compute_molecular_kinetic_energy()
+                    self.current_molecular_kinetic_energy = molecular_ke
+                    
+                    if self.verbose == 'verbose':
+                        print(f"Molecular kinetic energy (internal): {molecular_ke:.6f} Hartree")
+                        print(f"Molecular temperature (internal): {molecular_temp:.2f} K")
+                    
+                    # Store temperature for later use
+                    self._internal_molecular_temperature = molecular_temp
+                        
+            else:
+                # BACKWARD COMPATIBILITY: Use external kinetic tracker
+                if self.verbose == 'verbose':
+                    print("Using EXTERNAL kinetic energy tracker (deprecated)")
+                
+                if self.kinetic_tracker is not None:
+                    try:
+                        self.current_molecular_kinetic_energy = self.kinetic_tracker.kinetic_energy
+                        if self.verbose == 'verbose':
+                            print(f"Molecular kinetic energy (external tracker): {self.current_molecular_kinetic_energy:.6f} Hartree")
+                    except AttributeError as e:
+                        self.current_molecular_kinetic_energy = 0.0
+                        if self.verbose in ['normal', 'verbose']:
+                            print(f"Molecular kinetic energy ERROR: {e}")
+                else:
+                    if self.verbose == 'verbose':
+                        print("No kinetic tracker - molecular kinetic energy set to zero")
+            
+            # Get cavity kinetic energy
             self.current_cavity_kinetic_energy = 0.0
-            if self.cavity_mode_tracker is not None:
-                try:
-                    self.current_cavity_kinetic_energy = self.cavity_mode_tracker.cavity_kinetic_energy
-                    if self.verbose == 'verbose':
-                        print(f"Cavity kinetic energy (from tracker): {self.current_cavity_kinetic_energy:.6f} Hartree")
-                except AttributeError as e:
-                    self.current_cavity_kinetic_energy = 0.0
-                    if self.verbose in ['normal', 'verbose']:
-                        print(f"Cavity kinetic energy ERROR: {e}")
-            else:
-                if self.verbose == 'verbose':
-                    print("No cavity mode tracker - cavity kinetic energy set to zero")
             
-            # Calculate total kinetic energy (exactly like working code)
+            if self.use_internal_kinetic and 'kinetic' in self.components:
+                # NEW: Compute cavity kinetic energy internally
+                cavity_ke = self._compute_cavity_kinetic_energy()
+                self.current_cavity_kinetic_energy = cavity_ke
+                if self.verbose == 'verbose':
+                    print(f"Cavity kinetic energy (internal): {cavity_ke:.6f} Hartree")
+            else:
+                # Use cavity mode tracker if available
+                if self.cavity_mode_tracker is not None:
+                    try:
+                        self.current_cavity_kinetic_energy = self.cavity_mode_tracker.cavity_kinetic_energy
+                        if self.verbose == 'verbose':
+                            print(f"Cavity kinetic energy (from tracker): {self.current_cavity_kinetic_energy:.6f} Hartree")
+                    except AttributeError as e:
+                        self.current_cavity_kinetic_energy = 0.0
+                        if self.verbose in ['normal', 'verbose']:
+                            print(f"Cavity kinetic energy ERROR: {e}")
+                else:
+                    if self.verbose == 'verbose':
+                        print("No cavity mode tracker - cavity kinetic energy set to zero")
+            
+            # Calculate total kinetic energy
             self.current_total_kinetic_energy = self.current_molecular_kinetic_energy + self.current_cavity_kinetic_energy
             if self.verbose == 'verbose':
                 print(f"TOTAL KINETIC ENERGY: {self.current_total_kinetic_energy:.6f} Hartree")
             
-            # === 3. GET RESERVOIR ENERGIES (exactly like working code) ===
+            # === 3. GET RESERVOIR ENERGIES ===
             if self.verbose == 'verbose':
                 print("=== RESERVOIR ENERGY COMPONENTS ===")
             
-            # Get molecular reservoir energy if available (exactly like working code)
+            # Get molecular reservoir energy if available
             self.current_molecular_reservoir_energy = 0.0
             
             # Check for molecular Langevin method
@@ -774,7 +887,7 @@ class EnergyTracker(BaseTracker):
                     if self.verbose == 'verbose':
                         print("Molecular Bussi reservoir energy not available yet")
             
-            # Get cavity reservoir energy if available (exactly like working code)
+            # Get cavity reservoir energy if available
             self.current_cavity_reservoir_energy = 0.0
             
             # Check for cavity Langevin method
@@ -799,22 +912,21 @@ class EnergyTracker(BaseTracker):
                     if self.verbose == 'verbose':
                         print("Cavity Bussi reservoir energy not available yet")
             
-            # Calculate total reservoir energy (exactly like working code)
+            # Calculate total reservoir energy
             self.current_total_reservoir_energy = self.current_molecular_reservoir_energy + self.current_cavity_reservoir_energy
             if self.verbose == 'verbose':
                 print(f"TOTAL RESERVOIR ENERGY: {self.current_total_reservoir_energy:.6f} Hartree")
             
-            # === 4. CALCULATE TOTAL ENERGIES (exactly like working code) ===
+            # === 4. CALCULATE TOTAL ENERGIES ===
             if self.verbose == 'verbose':
                 print("=== TOTAL ENERGY CALCULATIONS ===")
             
-            # Calculate system total energy (exactly like working code)
+            # Calculate system total energy
             self.current_system_total_energy = self.current_total_potential_energy + self.current_total_kinetic_energy
             if self.verbose == 'verbose':
                 print(f"SYSTEM TOTAL ENERGY (KE + PE): {self.current_system_total_energy:.6f} Hartree")
             
-            # Calculate universe total energy (exactly like working code)
-            # This is the conserved quantity: system energy + reservoir energy
+            # Calculate universe total energy
             self.current_universe_total_energy = self.current_system_total_energy + self.current_total_reservoir_energy
             if self.verbose == 'verbose':
                 print(f"UNIVERSE TOTAL ENERGY (system + reservoir): {self.current_universe_total_energy:.6f} Hartree")
@@ -822,21 +934,25 @@ class EnergyTracker(BaseTracker):
             
             # Calculate temperature if requested
             if self.compute_temperature:
-                # Use kinetic energy from trackers to compute temperature
-                total_particles = 0
-                if self.kinetic_tracker is not None:
+                if self.use_internal_kinetic and hasattr(self, '_internal_molecular_temperature'):
+                    # Use temperature from internal computation
+                    self.current_temperature = self._internal_molecular_temperature
+                    if self.verbose == 'verbose':
+                        print(f"Temperature (from internal computation): {self.current_temperature:.2f} K")
+                elif self.kinetic_tracker is not None:
+                    # Use temperature from external tracker
                     try:
                         self.current_temperature = self.kinetic_tracker.temperature
                         if self.verbose == 'verbose':
-                            print(f"Temperature (from kinetic tracker): {self.current_temperature:.2f} K")
+                            print(f"Temperature (from external tracker): {self.current_temperature:.2f} K")
                     except AttributeError:
                         self.current_temperature = 0.0
                         if self.verbose == 'verbose':
-                            print("Temperature not available from kinetic tracker")
+                            print("Temperature not available from external tracker")
                 else:
                     self.current_temperature = 0.0
                     if self.verbose == 'verbose':
-                        print("No kinetic tracker - temperature set to zero")
+                        print("No kinetic computation - temperature set to zero")
             
             # === 5. WRITE OUTPUT DATA ===
             if self.verbose == 'verbose':
