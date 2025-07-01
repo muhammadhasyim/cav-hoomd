@@ -226,7 +226,9 @@ autodoc_default_options = {
     'member-order': 'bysource',
     'special-members': '__init__',
     'undoc-members': True,
-    'exclude-members': '__weakref__'
+    'exclude-members': '__weakref__',
+    'inherited-members': True,
+    'show-inheritance': True,
 }
 
 autodoc_typehints = 'description'
@@ -234,6 +236,11 @@ autodoc_typehints_description_target = 'documented'
 
 # Don't fail on import errors and handle gracefully
 autodoc_preserve_defaults = True
+
+# Additional autodoc configuration for better documentation
+autodoc_member_order = 'bysource'
+autodoc_class_signature = 'mixed'
+autodoc_type_aliases = {}
 
 # Only mock imports that are truly unavailable (like C++ extensions that need compilation)
 # Most dependencies should now be available via conda
@@ -254,9 +261,26 @@ suppress_warnings = [
 autosummary_generate = True
 autosummary_generate_overwrite = True
 
-# Configure autosummary to avoid duplicate documentation warnings
+# Configure autosummary to include inherited members and show full documentation
 autosummary_mock_imports = []
 autosummary_imported_members = True
+
+# Template for autosummary - use detailed templates
+autosummary_context = {
+    'inherited_members': True,
+}
+
+# Enable autodoc to document inherited members from parent classes
+autodoc_inherit_docstrings = True
+
+# Include more special methods in documentation
+autodoc_default_options['special-members'] = '__init__, __call__, __getitem__, __setitem__'
+
+# Ensure property decorators are properly handled
+autodoc_docstring_signature = True
+
+# Show both the signature and the docstring
+napoleon_include_special_with_doc = True
 
 # -- Options for intersphinx extension --------------------------------------
 
@@ -274,7 +298,6 @@ napoleon_google_docstring = True
 napoleon_numpy_docstring = True
 napoleon_include_init_with_doc = False
 napoleon_include_private_with_doc = False
-napoleon_include_special_with_doc = True
 napoleon_use_admonition_for_examples = False
 napoleon_use_admonition_for_notes = False
 napoleon_use_admonition_for_references = False

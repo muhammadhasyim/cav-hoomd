@@ -14,6 +14,7 @@ Forces
 
 .. autosummary::
    :toctree: _autosummary
+   :template: class.rst
 
    CavityForce
 
@@ -24,6 +25,7 @@ Analysis and Tracking
 
 .. autosummary::
    :toctree: _autosummary
+   :template: class.rst
 
    Status
    ElapsedTimeTracker
@@ -41,6 +43,7 @@ Simulation Utilities
 
 .. autosummary::
    :toctree: _autosummary
+   :template: class.rst
 
    AdaptiveTimestepUpdater
 
@@ -65,5 +68,6 @@ Thermostats
 
 .. autosummary::
    :toctree: _autosummary
+   :template: class.rst
 
    BussiReservoir 
