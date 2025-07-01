@@ -162,7 +162,7 @@ If you use this software in your research, please cite:
   title={Cavity HOOMD: Molecular Dynamics with Optical Cavity Coupling},
   author={Development Team},
   year={2025},
-  url={https://github.com/yourusername/cavity-hoomd}
+  url={https://github.com/muhammadhasyim/cav-hoomd}
 }
 ```
 

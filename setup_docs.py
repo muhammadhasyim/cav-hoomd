@@ -31,8 +31,8 @@ class DocumentationSetup:
     
     def __init__(self, deploy_method='github-pages', github_repo=None, rtd_project=None):
         self.deploy_method = deploy_method
-        self.github_repo = github_repo or 'yourusername/cavity-hoomd'
-        self.rtd_project = rtd_project or 'cavity-hoomd'
+        self.github_repo = github_repo or 'muhammadhasyim/cav-hoomd'
+        self.rtd_project = rtd_project or 'cav-hoomd'
         self.docs_dir = Path('docs')
         self.project_root = Path('.')
         

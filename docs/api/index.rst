@@ -18,7 +18,7 @@ Forces
    CavityForce
 
 Analysis and Tracking
---------------------
+---------------------
 
 .. autosummary::
    :toctree: _autosummary
@@ -33,7 +33,7 @@ Analysis and Tracking
    DipoleAutocorrelation
 
 Simulation Utilities
--------------------
+--------------------
 
 .. autosummary::
    :toctree: _autosummary
@@ -50,7 +50,7 @@ Utilities
    unwrap_positions
 
 Bussi Reservoir Module (``hoomd.bussi_reservoir``)
-=================================================
+===================================================
 
 Thermostats
 -----------
