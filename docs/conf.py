@@ -70,10 +70,22 @@ def create_mock_cavitymd_module():
     
     # Mock functions
     def unwrap_positions(*args, **kwargs):
-        """Unwrap particle positions."""
+        """Unwrap particle positions.
+        
+        Parameters
+        ----------
+        positions : array_like
+            Particle positions to unwrap
+            
+        Returns
+        -------
+        array_like
+            Unwrapped positions
+        """
         pass
     unwrap_positions.__module__ = 'hoomd.cavitymd'
     unwrap_positions.__qualname__ = 'unwrap_positions'
+    unwrap_positions.__name__ = 'unwrap_positions'
     
     # Set up the mock module
     for name, cls in mock_classes.items():

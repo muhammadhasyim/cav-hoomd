@@ -20,6 +20,8 @@ Forces
 Analysis and Tracking
 ---------------------
 
+.. currentmodule:: hoomd.cavitymd
+
 .. autosummary::
    :toctree: _autosummary
 
@@ -35,6 +37,8 @@ Analysis and Tracking
 Simulation Utilities
 --------------------
 
+.. currentmodule:: hoomd.cavitymd
+
 .. autosummary::
    :toctree: _autosummary
 
@@ -42,6 +46,8 @@ Simulation Utilities
 
 Utilities
 ---------
+
+.. currentmodule:: hoomd.cavitymd
 
 .. autosummary::
    :toctree: _autosummary
