@@ -15,6 +15,53 @@ sys.path.insert(0, str(project_root))
 sys.path.insert(0, str(project_root / 'src'))
 sys.path.insert(0, str(project_root / 'examples'))
 
+# -- Mock compiled extensions for Read the Docs ------------------------------------------
+
+# Check if we're running on Read the Docs (where C++ compilation isn't available)
+on_rtd = (os.environ.get('READTHEDOCS') == 'True' or 
+          os.environ.get('RTD_ENV_NAME') is not None or
+          'readthedocs' in os.environ.get('HOSTNAME', '').lower())
+
+print(f"Environment check: READTHEDOCS={os.environ.get('READTHEDOCS')}, RTD_ENV_NAME={os.environ.get('RTD_ENV_NAME')}")
+print(f"On RTD: {on_rtd}")
+
+if on_rtd:
+    print("Setting up HOOMD plugin mocking for Read the Docs...")
+    
+    # Mock the compiled C++ extensions that won't be available
+    from unittest.mock import MagicMock
+    
+    # Mock the C++ compiled modules BEFORE any imports
+    sys.modules['hoomd.cavitymd._cavitymd'] = MagicMock()
+    sys.modules['hoomd.bussi_reservoir._bussi_reservoir'] = MagicMock()
+    print("Mocked C++ extensions: _cavitymd, _bussi_reservoir")
+    
+    # Set up the plugin module paths so Python modules can be imported
+    # Add the src directory to allow 'import hoomd.cavitymd' to work
+    src_path = project_root / 'src'
+    if src_path.exists():
+        if str(src_path) not in sys.path:
+            sys.path.insert(0, str(src_path))
+        print(f"Added plugin source path: {src_path}")
+        
+        # Verify the plugin directories exist
+        cavitymd_path = src_path / 'hoomd' / 'cavitymd'
+        bussi_path = src_path / 'hoomd' / 'bussi_reservoir'
+        
+        print(f"  Cavity MD path exists: {cavitymd_path.exists()}")
+        print(f"  Bussi Reservoir path exists: {bussi_path.exists()}")
+        
+        if cavitymd_path.exists():
+            print(f"  Cavity MD files: {list(cavitymd_path.glob('*.py'))}")
+        if bussi_path.exists():
+            print(f"  Bussi Reservoir files: {list(bussi_path.glob('*.py'))}")
+    else:
+        print(f"Warning: Plugin source path not found: {src_path}")
+    
+    print("Plugin mocking setup complete")
+else:
+    print("Local environment detected - no mocking needed")
+
 # -- Project information -----------------------------------------------------
 
 project = 'Cavity HOOMD'
