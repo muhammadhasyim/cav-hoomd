@@ -8,6 +8,21 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
+class MockModule(MagicMock):
+    """A more sophisticated mock that handles module imports better."""
+    @classmethod
+    def __getattr__(cls, name):
+        return MagicMock()
+
+# Setup sys.modules for modules that can't be imported on RTD
+def mock_modules():
+    mock_modules_list = [
+        'hoomd.md._md',
+        'hoomd.bussi_reservoir._bussi_reservoir',
+    ]
+    for module in mock_modules_list:
+        sys.modules[module] = MockModule()
+
 # -- Path setup --------------------------------------------------------------
 
 # Add the project root to the Python path
@@ -247,8 +262,18 @@ autodoc_preserve_defaults = True
 if os.environ.get('READTHEDOCS') == 'True' or os.environ.get('RTD_ENV_NAME'):
     # On Read the Docs - mock external dependencies that won't be available
     # Note: This may show a warning about "mocked analysis" but the build will succeed
+    mock_modules()  # Setup sophisticated mocking for C++ extensions
     autodoc_mock_imports = [
         'hoomd',  # Unfortunately needed to provide consistent import chain
+        'hoomd.md',
+        'hoomd.md._md',
+        'hoomd.md.methods',
+        'hoomd.md.methods.thermostats',
+        'hoomd.operation',
+        'hoomd.data',
+        'hoomd.data.parameterdicts',
+        'hoomd.variant',
+        'hoomd.logging',
         'freud', 
         'gsd',
         'mpi4py',
