@@ -73,12 +73,14 @@ def create_mock_cavitymd_module():
         """Unwrap particle positions."""
         pass
     unwrap_positions.__module__ = 'hoomd.cavitymd'
+    unwrap_positions.__qualname__ = 'unwrap_positions'
     
     # Set up the mock module
     for name, cls in mock_classes.items():
         setattr(mock_module, name, cls)
     
     mock_module.unwrap_positions = unwrap_positions
+    mock_module.__all__ = list(mock_classes.keys()) + ['unwrap_positions']
     mock_module.__file__ = '/mock/hoomd/cavitymd/__init__.py'
     mock_module.__path__ = ['/mock/hoomd/cavitymd']
     
@@ -95,6 +97,7 @@ def create_mock_bussi_module():
     })
     
     mock_module.BussiReservoir = BussiReservoir
+    mock_module.__all__ = ['BussiReservoir']
     mock_module.__file__ = '/mock/hoomd/bussi_reservoir/__init__.py'
     mock_module.__path__ = ['/mock/hoomd/bussi_reservoir']
     
