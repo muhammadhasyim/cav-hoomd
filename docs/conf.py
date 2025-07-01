@@ -14,14 +14,106 @@ class MockModule(MagicMock):
     def __getattr__(cls, name):
         return MagicMock()
 
+# Create mock classes for documentation
+def create_mock_cavitymd_module():
+    """Create a mock hoomd.cavitymd module with the expected classes."""
+    mock_module = MagicMock()
+    
+    # Mock classes with basic structure for autosummary
+    mock_classes = {
+        'CavityForce': type('CavityForce', (), {
+            '__doc__': 'Cavity force with automatic C++/Python fallback.',
+            '__module__': 'hoomd.cavitymd',
+            '__init__': lambda self, *args, **kwargs: None,
+        }),
+        'Status': type('Status', (), {
+            '__doc__': 'Status tracking for cavity simulations.',
+            '__module__': 'hoomd.cavitymd',
+        }),
+        'ElapsedTimeTracker': type('ElapsedTimeTracker', (), {
+            '__doc__': 'Track elapsed time during simulation.',
+            '__module__': 'hoomd.cavitymd',
+        }),
+        'TimestepFormatter': type('TimestepFormatter', (), {
+            '__doc__': 'Format timestep information.',
+            '__module__': 'hoomd.cavitymd',
+        }),
+        'CavityModeTracker': type('CavityModeTracker', (), {
+            '__doc__': 'Track cavity mode properties.',
+            '__module__': 'hoomd.cavitymd',
+        }),
+        'AutocorrelationTracker': type('AutocorrelationTracker', (), {
+            '__doc__': 'Track autocorrelation functions.',
+            '__module__': 'hoomd.cavitymd',
+        }),
+        'FieldAutocorrelationTracker': type('FieldAutocorrelationTracker', (), {
+            '__doc__': 'Track field autocorrelation functions.',
+            '__module__': 'hoomd.cavitymd',
+        }),
+        'EnergyTracker': type('EnergyTracker', (), {
+            '__doc__': 'Track energy components.',
+            '__module__': 'hoomd.cavitymd',
+        }),
+        'DipoleAutocorrelation': type('DipoleAutocorrelation', (), {
+            '__doc__': 'Track dipole autocorrelation.',
+            '__module__': 'hoomd.cavitymd',
+        }),
+        'AdaptiveTimestepUpdater': type('AdaptiveTimestepUpdater', (), {
+            '__doc__': 'Adaptive timestep updater.',
+            '__module__': 'hoomd.cavitymd',
+        }),
+        'PhysicalConstants': type('PhysicalConstants', (), {
+            '__doc__': 'Physical constants for cavity MD.',
+            '__module__': 'hoomd.cavitymd',
+        }),
+    }
+    
+    # Mock functions
+    def unwrap_positions(*args, **kwargs):
+        """Unwrap particle positions."""
+        pass
+    unwrap_positions.__module__ = 'hoomd.cavitymd'
+    
+    # Set up the mock module
+    for name, cls in mock_classes.items():
+        setattr(mock_module, name, cls)
+    
+    mock_module.unwrap_positions = unwrap_positions
+    mock_module.__file__ = '/mock/hoomd/cavitymd/__init__.py'
+    mock_module.__path__ = ['/mock/hoomd/cavitymd']
+    
+    return mock_module
+
+def create_mock_bussi_module():
+    """Create a mock hoomd.bussi_reservoir module."""
+    mock_module = MagicMock()
+    
+    BussiReservoir = type('BussiReservoir', (), {
+        '__doc__': 'Extended Bussi thermostat with reservoir energy tracking.',
+        '__module__': 'hoomd.bussi_reservoir',
+        '__init__': lambda self, *args, **kwargs: None,
+    })
+    
+    mock_module.BussiReservoir = BussiReservoir
+    mock_module.__file__ = '/mock/hoomd/bussi_reservoir/__init__.py'
+    mock_module.__path__ = ['/mock/hoomd/bussi_reservoir']
+    
+    return mock_module
+
 # Setup sys.modules for modules that can't be imported on RTD
 def mock_modules():
+    """Set up comprehensive mocking for Read the Docs."""
+    # Basic C++ extension mocks
     mock_modules_list = [
         'hoomd.md._md',
         'hoomd.bussi_reservoir._bussi_reservoir',
     ]
     for module in mock_modules_list:
         sys.modules[module] = MockModule()
+    
+    # Create comprehensive module mocks
+    sys.modules['hoomd.cavitymd'] = create_mock_cavitymd_module()
+    sys.modules['hoomd.bussi_reservoir'] = create_mock_bussi_module()
 
 # -- Path setup --------------------------------------------------------------
 
@@ -274,8 +366,6 @@ if os.environ.get('READTHEDOCS') == 'True' or os.environ.get('RTD_ENV_NAME'):
         'hoomd.data.parameterdicts',
         'hoomd.variant',
         'hoomd.logging',
-        'hoomd.cavitymd',  # Mock the entire cavitymd module
-        'hoomd.bussi_reservoir',  # Mock the entire bussi_reservoir module
         'freud', 
         'gsd',
         'mpi4py',
@@ -296,14 +386,8 @@ suppress_warnings = [
 
 # -- Options for autosummary extension --------------------------------------
 
-# Disable autosummary on Read the Docs to avoid import issues
-if os.environ.get('READTHEDOCS') == 'True' or os.environ.get('RTD_ENV_NAME'):
-    autosummary_generate = False
-    autosummary_generate_overwrite = False
-    print("Read the Docs: Autosummary generation disabled")
-else:
-    autosummary_generate = True
-    autosummary_generate_overwrite = True
+autosummary_generate = True
+autosummary_generate_overwrite = True
 
 # Configure autosummary to avoid duplicate documentation warnings
 autosummary_mock_imports = []

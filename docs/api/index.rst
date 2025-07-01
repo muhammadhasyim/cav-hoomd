@@ -49,20 +49,15 @@ Utilities
    PhysicalConstants
    unwrap_positions
 
-.. Bussi Reservoir Module (``hoomd.bussi_reservoir``)
-.. ===================================================
-.. 
-.. Thermostats
-.. -----------
-.. 
-.. .. currentmodule:: hoomd.bussi_reservoir
-.. 
-.. .. autosummary::
-..    :toctree: _autosummary
-.. 
-..    BussiReservoir
+Bussi Reservoir Module (``hoomd.bussi_reservoir``)
+===================================================
 
-.. note::
-   
-   The Bussi Reservoir documentation is temporarily disabled while resolving
-   Read the Docs build issues. For local builds, uncomment the section above. 
+Thermostats
+-----------
+
+.. currentmodule:: hoomd.bussi_reservoir
+
+.. autosummary::
+   :toctree: _autosummary
+
+   BussiReservoir 
