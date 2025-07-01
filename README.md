@@ -10,9 +10,10 @@ A HOOMD-blue plugin for cavity-coupled molecular dynamics simulations. Study how
 
 ```bash
 # Build and install
-cmake -B build -S .
-cmake --build build
-cmake --install build
+./build_install.sh
+
+# Or for CPU-only build
+./build_install.sh --no-gpu
 ```
 
 ### Run Your First Simulation
@@ -53,12 +54,14 @@ python examples/05_advanced_run.py \
     --frequency 2000 \
     --runtime 1000
 
-# Parameter sweep over coupling strengths  
+# Different thermostat combinations
 python examples/05_advanced_run.py \
-    --coupling 1e-3,1e-4,1e-5 \
-    --runtime 500
+    --molecular-bath bussi \
+    --cavity-bath langevin \
+    --coupling 1e-3 \
+    --runtime 1000
 
-# Multiple independent replicas
+# Multiple independent replicas (same parameters, different random seeds)
 python examples/05_advanced_run.py \
     --coupling 1e-3 \
     --replicas 1-5 \
@@ -73,6 +76,11 @@ python examples/05_advanced_run.py \
 - `--frequency` - Cavity frequency in cm⁻¹ (default: 2000)  
 - `--runtime` - Simulation time in ps (default: 500)
 - `--no-cavity` - Run without cavity (control simulation)
+
+**Thermostat Options:**
+- `--molecular-bath` - Molecular thermostat: bussi, langevin, none (default: bussi)
+- `--cavity-bath` - Cavity thermostat: bussi, langevin, none (default: langevin)
+- `--finite-q` - Enable finite-q cavity mode
 
 **Advanced:**
 - `--replicas` - Run multiple replicas (e.g., "1-5" or "1,3,5")
@@ -134,16 +142,17 @@ sim.run(10000)
 
 **With GPU support (default):**
 ```bash
-cmake -B build -S . -DENABLE_GPU=ON
-cmake --build build
-cmake --install build
+./build_install.sh
 ```
 
 **CPU only:**
 ```bash
-cmake -B build -S . -DENABLE_GPU=OFF  
-cmake --build build
-cmake --install build
+./build_install.sh --no-gpu
+```
+
+**Uninstall:**
+```bash
+./uninstall.sh
 ```
 
 ## Requirements
