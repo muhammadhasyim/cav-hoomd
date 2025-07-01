@@ -23,16 +23,22 @@ That's it! See the :doc:`installation` and :doc:`quickstart` guides for more det
 What It Does
 ============
 
-Cavity HOOMD implements cavity-molecule coupling through the Hamiltonian:
+Cavity HOOMD implements cavity-molecule coupling through the single-mode Hamiltonian:
 
 .. math::
 
-   H = \frac{1}{2} K q^2 + g \vec{q} \cdot \vec{d} + \frac{g^2}{2K} d^2
+   H = \frac{1}{2} K_\lambda \tilde{q}_{0,\lambda}^2 + \tilde{\varepsilon}_{0,\lambda} \tilde{q}_{0,\lambda} \sum_{n=1}^{N_{\text{sub}}} d_{ng,\lambda} + \frac{\tilde{\varepsilon}_{0,\lambda}^2}{2K_\lambda} \left(\sum_{n=1}^{N_{\text{sub}}} d_{ng,\lambda}\right)^2
 
-Where :math:`q` is the cavity mode position, :math:`d` is the molecular dipole moment, 
-:math:`g` is the coupling strength, and :math:`K` is the cavity spring constant.
+Where:
 
-For theoretical background, see :doc:`theory`.
+- :math:`\tilde{q}_{0,\lambda}` is the normalized cavity mode coordinate for polarization λ (x,y)
+- :math:`d_{ng,\lambda}` is the dipole moment component of molecule n in direction λ  
+- :math:`\tilde{\varepsilon}_{0,\lambda}` is the effective coupling strength for the fundamental mode
+- :math:`K_\lambda = m_{0,\lambda}\omega_{0,\lambda}^2` is the cavity spring constant
+
+This implements the single-mode approximation (κ = 0) with transverse polarizations.
+
+For complete theoretical background, see :doc:`theory`.
 
 Features
 ========

@@ -64,7 +64,7 @@ The photonic mode equation reduces to:
    
    - The general (k,λ) indices reduce to (0,λ)
    - Only the fundamental cavity mode (κ = 0) is retained
-   - The k-vector points along z-axis: **k⃗ = k_z ẑ**
+   - The k-vector points along z-axis: :math:`\vec{k} = k_z \hat{z}`
 
 2. **Polarization Summation**
    
@@ -73,7 +73,7 @@ The photonic mode equation reduces to:
    - **λ = x**: Electric field polarized in x-direction
    - **λ = y**: Electric field polarized in y-direction
    
-   The summation ∑_λ effectively becomes ∑_{λ=x,y}, representing the two transverse polarization modes.
+   The summation :math:`\sum_\lambda` effectively becomes :math:`\sum_{\lambda=x,y}`, representing the two transverse polarization modes.
 
 3. **Coupling Strength Simplification**
    
@@ -85,8 +85,8 @@ The photonic mode equation reduces to:
 
 4. **Physical Interpretation**
    
-   - **q̃_{0,λ}**: Normalized coordinate for the single cavity mode with polarization λ
-   - **d_{ng,λ}**: Dipole moment component of molecule n in direction λ (x or y)
+   - :math:`\tilde{q}_{0,\lambda}`: Normalized coordinate for the single cavity mode with polarization λ
+   - :math:`d_{ng,\lambda}`: Dipole moment component of molecule n in direction λ (x or y)
    - The coupling now involves only the transverse components of the molecular dipole moments
 
 **Resulting Dynamics**

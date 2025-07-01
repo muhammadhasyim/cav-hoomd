@@ -274,6 +274,8 @@ if os.environ.get('READTHEDOCS') == 'True' or os.environ.get('RTD_ENV_NAME'):
         'hoomd.data.parameterdicts',
         'hoomd.variant',
         'hoomd.logging',
+        'hoomd.cavitymd',  # Mock the entire cavitymd module
+        'hoomd.bussi_reservoir',  # Mock the entire bussi_reservoir module
         'freud', 
         'gsd',
         'mpi4py',
@@ -294,8 +296,14 @@ suppress_warnings = [
 
 # -- Options for autosummary extension --------------------------------------
 
-autosummary_generate = True
-autosummary_generate_overwrite = True
+# Disable autosummary on Read the Docs to avoid import issues
+if os.environ.get('READTHEDOCS') == 'True' or os.environ.get('RTD_ENV_NAME'):
+    autosummary_generate = False
+    autosummary_generate_overwrite = False
+    print("Read the Docs: Autosummary generation disabled")
+else:
+    autosummary_generate = True
+    autosummary_generate_overwrite = True
 
 # Configure autosummary to avoid duplicate documentation warnings
 autosummary_mock_imports = []
