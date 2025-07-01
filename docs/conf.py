@@ -225,9 +225,9 @@ autodoc_default_options = {
     'members': True,
     'member-order': 'bysource',
     'special-members': '__init__',
-    'undoc-members': True,
-    'exclude-members': '__weakref__',
-    'inherited-members': True,
+    'undoc-members': False,
+    'exclude-members': '__weakref__, Flags, to_bytes, from_bytes',
+    'inherited-members': False,
     'show-inheritance': True,
 }
 
@@ -254,6 +254,10 @@ autodoc_mock_imports = [
 # Suppress certain warnings related to mocked imports
 suppress_warnings = [
     'autodoc.import_object',
+    'autosummary',
+    'ref.any',
+    'ref.python',
+    'docutils',
 ]
 
 # -- Options for autosummary extension --------------------------------------

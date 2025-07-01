@@ -68,6 +68,6 @@ Thermostats
 
 .. autosummary::
    :toctree: _autosummary
-   :template: class.rst
+   :template: bussi_class.rst
 
    BussiReservoir 
