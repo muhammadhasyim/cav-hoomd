@@ -2,273 +2,299 @@
 Basic Usage
 ===========
 
-Getting Started
-===============
-
-This guide covers the fundamental usage patterns for Cavity HOOMD. We'll walk through setting up your first cavity-coupled molecular dynamics simulation.
+This guide covers the essential usage patterns for **05_advanced_run.py**, the main script for running cavity MD simulations.
 
 Prerequisites
 =============
 
 Before starting, ensure you have:
 
-* Cavity HOOMD installed (:doc:`../installation`)
-* Basic familiarity with HOOMD-blue
-* A molecular system prepared as a GSD file
+* Cavity HOOMD installed
+* An initial GSD file (usually ``init-0.gsd``)
+* Basic familiarity with command-line interfaces
 
-Your First Simulation
-=====================
-
-Here's a minimal example to get you started:
-
-.. code-block:: python
-
-   import hoomd
-   from hoomd.cavitymd import CavityForce
-
-   # Initialize HOOMD simulation
-   device = hoomd.device.CPU()  # or hoomd.device.GPU()
-   sim = hoomd.Simulation(device=device)
-
-   # Load your molecular system
-   sim.create_state_from_gsd("molecular_system.gsd")
-
-   # Set up molecular forces (example for Lennard-Jones)
-   cell = hoomd.md.nlist.Cell(buffer=0.4)
-   lj = hoomd.md.pair.LJ(nlist=cell)
-   lj.params[('A', 'A')] = dict(epsilon=1.0, sigma=1.0)
-   lj.r_cut[('A', 'A')] = 2.5
-
-   # Add cavity coupling
-   cavity_force = CavityForce(
-       kvector=[0, 0, 1],     # Cavity wave vector
-       couplstr=0.001,        # Coupling strength
-       omegac=0.1             # Cavity frequency (atomic units)
-   )
-
-   # Set up integrator
-   integrator = hoomd.md.Integrator(dt=0.005)
-   integrator.forces = [lj, cavity_force]
-
-   # Add thermostats
-   nve = hoomd.md.methods.ConstantVolume(filter=hoomd.filter.All())
-   integrator.methods = [nve]
-   sim.operations.integrator = integrator
-
-   # Run simulation
-   sim.run(10000)
-
-Understanding the Components
-============================
-
-CavityForce
------------
-
-The :class:`~hoomd.cavitymd.CavityForce` is the core component that couples your molecular system to a cavity mode:
-
-.. code-block:: python
-
-   from hoomd.cavitymd import CavityForce
-
-   cavity_force = CavityForce(
-       kvector=[0, 0, 1],     # Direction of cavity mode
-       couplstr=0.001,        # Light-matter coupling strength  
-       omegac=0.1             # Cavity frequency in atomic units
-   )
-
-**Parameters:**
-
-* ``kvector``: Direction vector for the cavity electric field
-* ``couplstr``: Coupling strength parameter (typical values: 1e-4 to 1e-2)
-* ``omegac``: Cavity frequency in atomic units
-
-Physical Constants
-------------------
-
-Use the built-in physical constants for unit conversions:
-
-.. code-block:: python
-
-   from hoomd.cavitymd import PhysicalConstants
-
-   # Convert cavity frequency from cm⁻¹ to atomic units
-   freq_cm = 2000.0  # cm⁻¹
-   freq_au = freq_cm / PhysicalConstants.HARTREE_TO_CM_MINUS1
-
-   # Convert time from ps to atomic units  
-   time_ps = 1.0  # ps
-   time_au = PhysicalConstants.ps_to_atomic_units(time_ps)
-
-Setting Up Thermostats
+Command-Line Interface
 ======================
 
-Molecular Thermostat
---------------------
+The script provides a comprehensive command-line interface:
 
-For the molecular degrees of freedom:
+.. code-block:: bash
 
-.. code-block:: python
+   python 05_advanced_run.py [OPTIONS]
 
-   # Langevin thermostat
-   molecular_thermostat = hoomd.md.methods.Langevin(
-       filter=hoomd.filter.Type(['A', 'B']),  # Apply to molecular particles
-       kT=1.0,          # Temperature
-       default_gamma=1.0 # Friction coefficient
-   )
+**View all options:**
 
-   # Or Bussi thermostat (requires separate installation)
-   from hoomd.bussi_reservoir.thermostats import BussiReservoir
-   bussi = BussiReservoir(kT=1.0, tau=10.0)
-   molecular_thermostat = hoomd.md.methods.ConstantVolume(
-       filter=hoomd.filter.Type(['A', 'B']),
-       thermostat=bussi
-   )
+.. code-block:: bash
 
-Cavity Thermostat
------------------
+   python 05_advanced_run.py --help
 
-For the cavity mode (if you add a cavity particle):
+Essential Options
+================
 
-.. code-block:: python
+**Required Parameters**
 
-   # Langevin thermostat for cavity particle
-   cavity_thermostat = hoomd.md.methods.Langevin(
-       filter=hoomd.filter.Type(['L']),  # Cavity particle type
-       kT=1.0,
-       default_gamma=0.1  # Lower friction for cavity mode
-   )
+.. code-block:: bash
 
-Output and Analysis
-===================
+   --experiment EXPERIMENT_TYPE    # Choose experiment type (required)
 
-GSD Output
-----------
+**Basic Parameters**
 
-Save trajectory data:
+.. code-block:: bash
 
-.. code-block:: python
+   --coupling COUPLING            # Coupling strength (e.g., 1e-3)
+   --temperature TEMPERATURE      # Temperature in K (default: 100)
+   --frequency FREQUENCY          # Cavity frequency in cm⁻¹ (default: 2000)
+   --runtime RUNTIME             # Simulation time in ps (default: 500)
 
-   # Create GSD writer
-   gsd_writer = hoomd.write.GSD(
-       filename="trajectory.gsd",
-       trigger=hoomd.trigger.Periodic(1000),  # Every 1000 steps
-       mode='wb'
-   )
-   sim.operations.writers.append(gsd_writer)
+**Control Options**
 
-Logging
--------
+.. code-block:: bash
 
-Monitor simulation progress:
+   --no-cavity                   # Disable cavity (molecular-only simulation)
+   --replicas "1-5"              # Run multiple replicas
+   --device GPU                  # Use GPU acceleration
 
-.. code-block:: python
+Experiment Types
+================
 
-   # Create logger
-   logger = hoomd.logging.Logger()
-   logger.add(sim, quantities=['timestep', 'tps'])
+Choose from four pre-configured experiment types:
 
-   # Add cavity force energy (if available)
-   logger.add(cavity_force, quantities=['energy'])
+**bussi_langevin_finiteq** (Recommended)
 
-   # Create table writer
-   table = hoomd.write.Table(
-       trigger=hoomd.trigger.Periodic(100),
-       logger=logger
-   )
-   sim.operations.writers.append(table)
+.. code-block:: bash
 
-Common Patterns
-===============
+   python 05_advanced_run.py --experiment bussi_langevin_finiteq --coupling 1e-3 --runtime 1000
 
-Parameter Scanning
-------------------
+- Bussi thermostat for molecules (deterministic)
+- Langevin thermostat for cavity (stochastic)
+- Finite-q cavity mode (allows momentum)
 
-.. code-block:: python
+**bussi_langevin_no_finiteq**
 
-   import numpy as np
+.. code-block:: bash
 
-   coupling_values = np.logspace(-4, -2, 10)  # 10 coupling strengths
+   python 05_advanced_run.py --experiment bussi_langevin_no_finiteq --coupling 1e-3 --runtime 1000
 
-   for i, coupling in enumerate(coupling_values):
-       # Create new simulation for each parameter
-       sim = setup_simulation(coupling_strength=coupling)
-       
-       # Set unique output filename
-       gsd_writer = hoomd.write.GSD(
-           filename=f"traj_coupling_{coupling:.1e}.gsd",
-           trigger=hoomd.trigger.Periodic(1000)
-       )
-       sim.operations.writers.append(gsd_writer)
-       
-       # Run simulation
-       sim.run(50000)
+- Same as above but q=0 cavity mode
+- Good for comparison studies
 
-Energy Conservation
--------------------
+**langevin_langevin**
 
-Monitor total energy:
+.. code-block:: bash
 
-.. code-block:: python
+   python 05_advanced_run.py --experiment langevin_langevin --coupling 1e-3 --runtime 1000
 
-   # Add thermodynamic compute
-   thermo = hoomd.md.compute.ThermodynamicQuantities(
-       filter=hoomd.filter.All()
-   )
-   sim.operations.computes.append(thermo)
+- Langevin thermostat for both molecules and cavity
+- Fully stochastic dynamics
 
-   # Log energies
-   logger = hoomd.logging.Logger()
-   logger.add(thermo, quantities=['kinetic_energy', 'potential_energy'])
-   logger.add(cavity_force, quantities=['energy'])
+**bussi_bussi**
+
+.. code-block:: bash
+
+   python 05_advanced_run.py --experiment bussi_bussi --coupling 1e-3 --runtime 1000
+
+- Bussi thermostat for both molecules and cavity
+- Deterministic temperature control
+
+Basic Simulation Examples
+=========================
+
+**Your First Simulation**
+
+.. code-block:: bash
+
+   # Simple cavity simulation
+   python 05_advanced_run.py --experiment bussi_langevin_finiteq --coupling 1e-3 --runtime 1000
+
+**Control Simulation**
+
+.. code-block:: bash
+
+   # Same parameters but without cavity
+   python 05_advanced_run.py --experiment bussi_langevin_finiteq --no-cavity --runtime 1000
+
+**Different Coupling Strengths**
+
+.. code-block:: bash
+
+   # Weak coupling
+   python 05_advanced_run.py --experiment bussi_langevin_finiteq --coupling 1e-4 --runtime 1000
+
+   # Strong coupling  
+   python 05_advanced_run.py --experiment bussi_langevin_finiteq --coupling 1e-2 --runtime 1000
+
+**Temperature Studies**
+
+.. code-block:: bash
+
+   # Low temperature
+   python 05_advanced_run.py --experiment bussi_langevin_finiteq --coupling 1e-3 --temperature 50 --runtime 1000
+
+   # High temperature
+   python 05_advanced_run.py --experiment bussi_langevin_finiteq --coupling 1e-3 --temperature 300 --runtime 1000
+
+**Frequency Studies**
+
+.. code-block:: bash
+
+   # Low frequency
+   python 05_advanced_run.py --experiment bussi_langevin_finiteq --coupling 1e-3 --frequency 1500 --runtime 1000
+
+   # High frequency
+   python 05_advanced_run.py --experiment bussi_langevin_finiteq --coupling 1e-3 --frequency 3000 --runtime 1000
+
+Advanced Features
+=================
+
+**Energy Tracking**
+
+.. code-block:: bash
+
+   # Enable detailed energy tracking
+   python 05_advanced_run.py --experiment bussi_langevin_finiteq --coupling 1e-3 --runtime 1000 \
+       --enable-energy-tracker
+
+**F(k,t) Correlation Analysis**
+
+.. code-block:: bash
+
+   # Enable F(k,t) correlation tracking
+   python 05_advanced_run.py --experiment bussi_langevin_finiteq --coupling 1e-3 --runtime 1000 \
+       --enable-fkt --fkt-kmag 1.0
+
+**Fixed Timestep**
+
+.. code-block:: bash
+
+   # Use fixed timestep instead of adaptive
+   python 05_advanced_run.py --experiment bussi_langevin_finiteq --coupling 1e-3 --runtime 1000 \
+       --fixed-timestep --timestep 1.0
+
+**GPU Acceleration**
+
+.. code-block:: bash
+
+   # Use GPU acceleration
+   python 05_advanced_run.py --experiment bussi_langevin_finiteq --coupling 1e-3 --runtime 1000 \
+       --device GPU --gpu-id 0
+
+Output Control
+==============
+
+**Output Periods**
+
+.. code-block:: bash
+
+   # Control output frequencies (all in ps)
+   python 05_advanced_run.py --experiment bussi_langevin_finiteq --coupling 1e-3 --runtime 1000 \
+       --energy-output-period-ps 0.1 \
+       --gsd-output-period-ps 50.0 \
+       --console-output-period-ps 1.0
+
+**Logging Options**
+
+.. code-block:: bash
+
+   # Enable file and console logging
+   python 05_advanced_run.py --experiment bussi_langevin_finiteq --coupling 1e-3 --runtime 1000 \
+       --log-to-file --log-to-console
+
+Understanding Output Files
+==========================
+
+Each simulation creates a directory with output files:
+
+.. code-block:: text
+
+   bussi_langevin_finiteq_coupling_1e-03/
+   ├── prod-1.gsd              # Trajectory file
+   ├── prod-1-energy.txt       # Energy tracking data
+   ├── prod-1-cavity_mode.txt  # Cavity mode properties
+   ├── prod-1-fkt.txt          # F(k,t) correlation data (if enabled)
+   └── prod-1.log              # Simulation log
+
+**Key Output Files:**
+
+- **prod-1.gsd**: Trajectory data for visualization and analysis
+- **prod-1-energy.txt**: Energy conservation monitoring
+- **prod-1-cavity_mode.txt**: Cavity amplitude and phase evolution
+- **prod-1.log**: Detailed simulation log with performance metrics
+
+Thermostat Parameters
+====================
+
+**Thermostat Time Constants**
+
+.. code-block:: bash
+
+   # Adjust thermostat coupling times (in ps)
+   python 05_advanced_run.py --experiment bussi_langevin_finiteq --coupling 1e-3 --runtime 1000 \
+       --molecular-tau 5.0 --cavity-tau 1.0
+
+**Typical Values:**
+
+- **Molecular tau**: 5-10 ps (moderate coupling to heat bath)
+- **Cavity tau**: 1-5 ps (faster coupling for cavity mode)
 
 Best Practices
 ==============
 
-Timestep Selection
-------------------
+**Coupling Strength Guidelines**
 
-* Start with small timesteps (dt = 0.001 - 0.005 atomic units)
-* Monitor energy conservation
-* Use adaptive timestep control for long simulations
+- **Weak coupling**: 1e-4 to 1e-3 (linear response regime)
+- **Strong coupling**: 1e-3 to 1e-2 (nonlinear effects)
+- **Very strong**: > 1e-2 (may require shorter timesteps)
 
-Coupling Strength
------------------
+**Runtime Guidelines**
 
-* Weak coupling: 1e-4 to 1e-3
-* Strong coupling: 1e-3 to 1e-2  
-* Very strong coupling: > 1e-2 (may require smaller timesteps)
+- **Test runs**: 100-500 ps
+- **Production runs**: 1000-10000 ps  
+- **Long dynamics**: 10000+ ps
 
-System Size
------------
+**Temperature Guidelines**
 
-* Larger systems show more pronounced collective effects
-* Minimum ~100-1000 particles for meaningful cavity effects
-* Consider periodic boundary conditions
+- **Low temperature**: 50-100 K (reduced thermal motion)
+- **Room temperature**: 200-300 K (realistic conditions)
+- **High temperature**: 300+ K (enhanced dynamics)
 
-Troubleshooting
+**Frequency Guidelines**
+
+- **Infrared**: 1000-2000 cm⁻¹
+- **Mid-infrared**: 2000-3000 cm⁻¹
+- **Near-infrared**: 3000+ cm⁻¹
+
+Common Patterns
 ===============
 
-Common Issues
--------------
+**Systematic Study**
 
-**Energy not conserved**
-   - Reduce timestep
-   - Check force implementations
-   - Verify cavity particle setup
+.. code-block:: bash
 
-**Simulation crashes**
-   - Check particle overlaps in initial configuration
-   - Reduce coupling strength initially
-   - Verify all force parameters
+   # Study different coupling strengths
+   python 05_advanced_run.py --experiment bussi_langevin_finiteq --coupling 1e-4 --runtime 1000
+   python 05_advanced_run.py --experiment bussi_langevin_finiteq --coupling 1e-3 --runtime 1000
+   python 05_advanced_run.py --experiment bussi_langevin_finiteq --coupling 1e-2 --runtime 1000
 
-**No cavity effects observed**
-   - Increase coupling strength
-   - Check cavity frequency matches molecular resonances
-   - Ensure sufficient simulation time
+**Comparing Thermostats**
+
+.. code-block:: bash
+
+   # Compare different thermostat combinations
+   python 05_advanced_run.py --experiment bussi_langevin_finiteq --coupling 1e-3 --runtime 1000
+   python 05_advanced_run.py --experiment langevin_langevin --coupling 1e-3 --runtime 1000
+   python 05_advanced_run.py --experiment bussi_bussi --coupling 1e-3 --runtime 1000
+
+**Cavity vs Control**
+
+.. code-block:: bash
+
+   # Compare cavity vs no-cavity
+   python 05_advanced_run.py --experiment bussi_langevin_finiteq --coupling 1e-3 --runtime 1000
+   python 05_advanced_run.py --experiment bussi_langevin_finiteq --no-cavity --runtime 1000
 
 Next Steps
 ==========
 
-* Learn about :doc:`advanced_features` for sophisticated simulations
-* Explore :doc:`parameter_sweeps` for systematic studies  
-* Check out :doc:`analysis` for post-processing tools 
+* Learn about :doc:`parameter_sweeps` for automated parameter exploration
+* Explore :doc:`analysis` for understanding output files
+* Check :doc:`troubleshooting` for common issues and solutions 

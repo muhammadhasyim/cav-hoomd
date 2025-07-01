@@ -3,27 +3,53 @@
 # Part of HOOMD-blue, released under the BSD 3-Clause License.
 
 """
-Enhanced cavity molecular dynamics experiment runner.
+Advanced Cavity Molecular Dynamics Experiment Runner
 
-This script provides an enhanced framework for running cavity MD experiments with
-advanced features like parameter sweeps and detailed logging.
+This script provides a comprehensive framework for running cavity MD simulations
+with various thermostat combinations and advanced analysis features.
 
-IMPORTANT: CORRECTED OUTPUT TIMING
-- Analysis trackers (EnergyTracker, FieldAutocorrelationTracker) use CORRECTED step-based timing
-- Step intervals are calculated from current timestep for better accuracy in adaptive mode
-- max_timesteps is calculated from time limits using current timestep for precise cutoffs
-- GSD and console outputs use fixed step-based periods (timing may vary in adaptive mode)
-- Analysis data timing is more accurate than pre-calculated periods
+FEATURES:
+- Multiple thermostat combinations (Bussi, Langevin)
+- Advanced analysis trackers (energy, F(k,t), cavity modes)
+- Adaptive or fixed timestep control
+- GPU and CPU support
+- Comprehensive logging and output control
+- SLURM array job support and local multi-replica execution
 
-Usage examples:
-   # Single experiment with cavity coupling
-   python 05_advanced_run.py --experiment bussi_langevin_finiteq --coupling 1e-3 --runtime 1000
+BASIC USAGE:
+   # Run a single experiment with cavity coupling
+   python 05_advanced_run.py --molecular-bath bussi --cavity-bath langevin --coupling 1e-3 --runtime 1000
    
-   # Parameter sweep
-   python 05_advanced_run.py --experiment bussi_langevin_finiteq --coupling 1e-3,1e-4 --temperature 100,200
+   # Run without cavity (molecular-only simulation)
+   python 05_advanced_run.py --molecular-bath bussi --no-cavity --runtime 1000
    
-   # No cavity simulation
-   python 05_advanced_run.py --experiment bussi_langevin_finiteq --no-cavity --runtime 1000
+   # Run multiple replicas locally
+   python 05_advanced_run.py --molecular-bath bussi --cavity-bath langevin --coupling 1e-3 --replicas 1-5 --runtime 500
+   
+   # Run with finite-q cavity mode
+   python 05_advanced_run.py --molecular-bath bussi --cavity-bath langevin --finite-q --coupling 1e-3 --runtime 1000
+
+THERMOSTAT OPTIONS:
+- --molecular-bath: bussi, langevin, none (thermostat for molecular particles)
+- --cavity-bath: bussi, langevin, none (thermostat for cavity particle)
+- --finite-q: Enable finite-q cavity mode (default: q=0 mode)
+
+REPLICA EXECUTION:
+- Local execution: --replicas 1-5 or --replicas 1,2,3,4,5
+- SLURM array jobs: Automatically detects SLURM_ARRAY_TASK_ID
+
+ADVANCED FEATURES:
+- --enable-energy-tracker: Detailed energy component tracking
+- --enable-fkt: F(k,t) density correlation functions
+- --fixed-timestep: Use fixed timestep instead of adaptive
+- --device GPU: Run on GPU instead of CPU
+
+OUTPUT CONTROL:
+- Separate output periods for different observables (energy, F(k,t), trajectories, console)
+- Organized directory structure
+- Comprehensive logging with timestamps
+
+See --help for all available options.
 """
 
 import hoomd
@@ -36,7 +62,6 @@ import os
 import argparse
 import time
 from pathlib import Path
-from itertools import product
 import datetime
 
 # Import the CavityForce from the installed plugin
@@ -49,7 +74,7 @@ from hoomd.cavitymd import (
     CavityModeTracker, EnergyTracker
 )
 
-# CRITICAL FIX: Import working kinetic energy tracker from main cavitymd module
+# Import kinetic energy tracker from main cavitymd module
 # The plugin's trackers work correctly, use EnergyTracker from plugin
 import sys
 sys.path.append('..')  # Add parent directory to path
@@ -107,14 +132,6 @@ def unwrap_positions(positions, images, box_lengths):
     img = np.asarray(images)
     box = np.asarray(box_lengths)
     return pos + img * box[None, :]
-
-# Available bussi_langevin experiments: (name, molecular_thermostat, cavity_thermostat, finite_q)
-BUSSI_LANGEVIN_EXPERIMENTS = [
-    ("bussi_langevin_finiteq", "bussi", "langevin", True),
-    ("bussi_langevin_no_finiteq", "bussi", "langevin", False),
-    ("langevin_langevin", "langevin", "langevin", True),
-    ("bussi_bussi", "bussi", "bussi", True),
-]
 
 # =============================================================================
 # CUSTOM PERFORMANCE TRACKER FOR CONSOLE OUTPUT
@@ -187,7 +204,7 @@ class CavityMDSimulation:
                  temperature=100.0, molecular_thermostat='bussi', cavity_thermostat='langevin',
                  cavity_damping_factor=1.0, use_brownian_overdamped=True, add_cavity_particle=True,
                  finite_q=False, molecular_thermostat_tau=5.0, cavity_thermostat_tau=5.0,
-                 log_to_file=True, log_to_console=True, log_level='INFO', custom_log_file=None,
+                 log_level='INFO', custom_log_file=None,
                  enable_fkt=True, fkt_kmag=1.0, fkt_num_wavevectors=50, fkt_reference_interval_ps=1.0, fkt_max_references=10,
                  max_energy_output_time_ps=None, enable_energy_tracking=False, dt_fs=None, device='CPU', gpu_id=0,
                  energy_output_period_ps=0.1, fkt_output_period_ps=1.0, gsd_output_period_ps=50.0, console_output_period_ps=1.0,
@@ -213,9 +230,7 @@ class CavityMDSimulation:
         self.molecular_thermostat_tau = molecular_thermostat_tau
         self.cavity_thermostat_tau = cavity_thermostat_tau
         
-        # Logging parameters
-        self.log_to_file = log_to_file
-        self.log_to_console = log_to_console
+        # Logging parameters - simplified to console only
         self.log_level = log_level
         self.custom_log_file = custom_log_file
         
@@ -255,7 +270,7 @@ class CavityMDSimulation:
         self.logger = None
 
     def setup_logging(self):
-        """Set up logging configuration for the simulation."""
+        """Set up simplified logging configuration for the simulation."""
         # Create a custom logger for this simulation
         logger_name = f"CavityMD_{self.name}_{self.replica}"
         self.logger = logging.getLogger(logger_name)
@@ -270,34 +285,11 @@ class CavityMDSimulation:
             datefmt='%Y-%m-%d %H:%M:%S'
         )
         
-        # Set up file logging if requested
-        if self.log_to_file:
-            if self.custom_log_file:
-                log_filename = self.custom_log_file
-            else:
-                # Auto-generate log filename based on simulation parameters
-                cavity_suffix = "_cavity" if self.incavity else "_no_cavity"
-                thermostat_suffix = f"_{self.molecular_thermostat}_{self.cavity_thermostat}" if self.incavity else f"_{self.molecular_thermostat}"
-                device_suffix = f"_{self.device.lower()}"
-                if self.device == 'GPU':
-                    device_suffix += f"{self.gpu_id}"
-                log_filename = f"{self.name}-{self.replica}{cavity_suffix}{thermostat_suffix}_{self.temperature}K{device_suffix}.log"
-            
-            # Create file handler
-            file_handler = logging.FileHandler(log_filename, mode='w')
-            file_handler.setLevel(getattr(logging, self.log_level.upper()))
-            file_handler.setFormatter(formatter)
-            self.logger.addHandler(file_handler)
-            
-            # Store log filename for reference
-            self.log_filename = log_filename
-        
-        # Set up console logging if requested
-        if self.log_to_console:
-            console_handler = logging.StreamHandler(sys.stdout)
-            console_handler.setLevel(getattr(logging, self.log_level.upper()))
-            console_handler.setFormatter(formatter)
-            self.logger.addHandler(console_handler)
+        # Always set up console logging (simplified)
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setLevel(getattr(logging, self.log_level.upper()))
+        console_handler.setFormatter(formatter)
+        self.logger.addHandler(console_handler)
         
         # Log initial setup information
         self.log_info("="*60)
@@ -1011,7 +1003,7 @@ class CavityMDSimulation:
                 
                 self.log_info(f"Energy tracking setup completed: {method_count} methods, {force_count} forces")
                 
-                # === CRITICAL FIX: Create kinetic energy trackers like working code ===
+                # Set up kinetic energy tracking for molecular particles
                 # Set up kinetic energy tracking for molecular particles (using local class to avoid file duplication)
                 self.kinetic_energy_tracker = SimpleKineticEnergyTracker(
                     simulation=self.sim,
@@ -1058,10 +1050,10 @@ class CavityMDSimulation:
                     self.cavity_mode_tracker = None
                     self.log_info("No cavity simulation - cavity mode tracker not created")
 
-                # Set up corrected EnergyTracker from plugin for proper reservoir energy tracking
+                # Set up energy tracker from plugin for proper reservoir energy tracking
                 try:
                     energy_filename = f'{self.name}-{self.replica}-energy.txt'
-                    self.log_info(f"Setting up TIME-BASED EnergyTracker with output file: {energy_filename}")
+                    self.log_info(f"Setting up energy tracker with output file: {energy_filename}")
                     
                     # FIXED: Calculate reasonable step-based values but with smaller periods for better time accuracy
                     # Use small trigger period (1 step) and let tracker handle its internal timing
@@ -1126,13 +1118,13 @@ class CavityMDSimulation:
                     kinetic_tracker = getattr(self, 'kinetic_energy_tracker', None)
                     cavity_mode_tracker = getattr(self, 'cavity_mode_tracker', None) if self.incavity else None
                     
-                    self.log_info(f"TIME-BASED EnergyTracker configuration:")
+                    self.log_info(f"Energy tracker configuration:")
                     self.log_info(f"  Force objects: {list(force_objects.keys())}")
                     self.log_info(f"  Thermostat objects: {list(thermostat_objects.keys())}")
                     self.log_info(f"  Kinetic tracker available: {kinetic_tracker is not None}")
                     self.log_info(f"  Cavity mode tracker available: {cavity_mode_tracker is not None}")
                     
-                    # CORRECTED VERSION: Use time-based limit directly instead of converted timesteps
+                    # Use time-based limit directly instead of converted timesteps
                     self.energy_tracker = EnergyTracker(
                         simulation=self.sim,
                         components=['harmonic', 'lj', 'ewald_short', 'ewald_long', 'cavity'],
@@ -1156,7 +1148,7 @@ class CavityMDSimulation:
                     )
                     self.sim.operations.updaters.append(energy_updater)
                     
-                    self.log_info(f"CORRECTED EnergyTracker setup completed successfully")
+                    self.log_info(f"Energy tracker setup completed successfully")
                     self.log_info(f"  Uses internal timing logic with max_time_ps for accurate time limits")
                     self.log_info(f"  Checking every step for precise timing control")
                     if self.max_energy_output_time_ps:
@@ -1164,7 +1156,7 @@ class CavityMDSimulation:
                     self.log_info(f"  Trigger period: {output_trigger_period} step")
                     
                 except Exception as e:
-                    self.log_error(f"Failed to setup CORRECTED EnergyTracker: {e}")
+                    self.log_error(f"Failed to setup energy tracker: {e}")
                     import traceback
                     self.log_error("Full traceback:")
                     for line in traceback.format_exc().split('\n'):
@@ -1185,14 +1177,14 @@ class CavityMDSimulation:
         # Set up F(k,t) density correlation tracker if enabled
         if self.enable_fkt:
             try:
-                self.log_info("Setting up CORRECTED F(k,t) density correlation tracker")
+                self.log_info("Setting up F(k,t) density correlation tracker")
                 self.log_info(f"  k magnitude: {self.fkt_kmag:.2f}")
                 self.log_info(f"  Number of wavevectors: {self.fkt_num_wavevectors}")
                 self.log_info(f"  Reference interval: {self.fkt_reference_interval_ps:.3f} ps")
                 self.log_info(f"  Max references: {self.fkt_max_references}")
                 self.log_info(f"  Output period: {self.fkt_output_period_ps:.3f} ps")
                 
-                # CORRECTED: Calculate step-based intervals using current timestep for accuracy
+                # Calculate step-based intervals using current timestep for accuracy
                 fkt_trigger_period = 1  # Check every step for best timing
                 
                 # Calculate reference_interval_steps from reference_interval_ps using current timestep
@@ -1203,7 +1195,7 @@ class CavityMDSimulation:
                 self.log_info(f"  Calculated reference interval: {reference_interval_steps} steps (≈{reference_interval_steps * dt_ps:.3f} ps)")
                 self.log_info(f"  Trigger period: {fkt_trigger_period} step")
                 
-                # Create density correlation tracker with corrected interface
+                # Create density correlation tracker
                 self.density_corr_tracker = FieldAutocorrelationTracker(
                     simulation=self.sim,
                     observable="density_correlation",
@@ -1226,12 +1218,12 @@ class CavityMDSimulation:
                 # Add F(k,t) data to logger
                 logger[('F(k,t)', 'current_autocorr')] = (self.density_corr_tracker, 'current_autocorr', 'scalar')
                 
-                self.log_info("CORRECTED F(k,t) tracker successfully enabled")
+                self.log_info("F(k,t) tracker successfully enabled")
                 self.log_info(f"  Uses calculated step-based intervals for timing")
                 self.log_info(f"  Reference interval calculated from current timestep for accuracy")
                 
             except Exception as e:
-                self.log_warning(f"Could not set up CORRECTED F(k,t) tracker: {str(e)}")
+                self.log_warning(f"Could not set up F(k,t) tracker: {str(e)}")
                 self.density_corr_tracker = None
         else:
             self.density_corr_tracker = None
@@ -1253,9 +1245,9 @@ class CavityMDSimulation:
         # Log detailed summary of what's enabled
         enabled_features = []
         if self.enable_energy_tracking:
-            enabled_features.append("CORRECTED detailed energy tracking")
+            enabled_features.append("detailed energy tracking")
         if self.enable_fkt:
-            enabled_features.append(f"CORRECTED F(k,t) density correlation (k={self.fkt_kmag})")
+            enabled_features.append(f"F(k,t) density correlation (k={self.fkt_kmag})")
         if hasattr(self, 'adaptive_action') and self.adaptive_action is not None:
             enabled_features.append("adaptive timestep control")
         
@@ -1313,10 +1305,9 @@ class CavityMDSimulation:
         
         # Add warning about timing accuracy in adaptive timestep mode
         if self.error_tolerance > 0:
-            self.log_info("TIMING NOTE: In adaptive timestep mode:")
-            self.log_info("  - Analysis trackers use CORRECTED step-based timing (calculated from current timestep)")
-            self.log_info("  - GSD and console outputs use FIXED step-based periods (may vary with timestep changes)")
-            self.log_info("  - Analysis timing is more accurate due to recalculation; GSD/console timing is approximate")
+            self.log_info("Note: Using adaptive timestep mode")
+            self.log_info("  Analysis trackers use precise timing based on current timestep")
+            self.log_info("  GSD and console outputs use fixed step intervals")
 
     def run_simulation(self):
         """Execute the main simulation loop."""
@@ -1360,35 +1351,21 @@ class CavityMDSimulation:
         
         self.log_info("Cleanup completed")
 
-# =============================================================================
-# ENHANCED EXPERIMENT RUNNER CLASSES AND FUNCTIONS
-# =============================================================================
-
-class ParameterSweep:
-    """Handle parameter sweeps for comprehensive experiment coverage."""
+def get_slurm_info():
+    """Get SLURM job information from environment variables."""
+    task_id = os.environ.get('SLURM_ARRAY_TASK_ID')
+    job_id = os.environ.get('SLURM_JOB_ID', 'unknown')
     
-    def __init__(self, args):
-        # Parse sweep parameters from command line arguments
-        self.coupling_values = self._parse_sweep_parameter(args.coupling, 1e-3)
-        self.temperature_values = self._parse_sweep_parameter(args.temperature, 100.0)
-        self.frequency_values = self._parse_sweep_parameter(args.frequency, 2000.0)
-    
-    def _parse_sweep_parameter(self, sweep_str, default_value):
-        """Parse comma-separated parameter values."""
-        if not sweep_str:
-            return [default_value]
-        return [float(x.strip()) for x in sweep_str.split(',')]
-    
-    def get_parameter_combinations(self):
-        """Get all combinations of parameters for sweep."""
-        return list(product(self.coupling_values, self.temperature_values, self.frequency_values))
-    
-    def get_total_experiments(self, replica_list):
-        """Calculate total number of experiments across all parameters and replicas."""
-        return len(self.get_parameter_combinations()) * len(replica_list)
+    if task_id is None:
+        return None, job_id
+    else:
+        return int(task_id), job_id
 
 def parse_replicas(replicas_str):
     """Parse replica specification string into list of integers."""
+    if not replicas_str:
+        return [1]  # Default single replica
+    
     replicas = []
     parts = replicas_str.split(',')
     for part in parts:
@@ -1401,50 +1378,16 @@ def parse_replicas(replicas_str):
             replicas.append(int(part))
     return sorted(list(set(replicas)))
 
-def get_slurm_info():
-    """Get SLURM job information from environment variables."""
-    task_id = os.environ.get('SLURM_ARRAY_TASK_ID')
-    job_id = os.environ.get('SLURM_JOB_ID', 'unknown')
-    
-    if task_id is None:
-        return None, None, job_id
-    else:
-        replica = int(task_id)
-        frame = int(task_id)
-        return replica, frame, job_id
-
-def create_organized_output_directory(exp_name, coupling, temperature, frequency, incavity):
-    """Create organized output directory structure."""
-    base_name = exp_name
-    if incavity:
-        coupling_str = f"{coupling:.0e}".replace("-", "neg").replace("+", "pos")
-        temp_str = f"{temperature:.0f}K"
-        freq_str = f"{frequency:.0f}cm"
-        exp_dir = Path(f"{base_name}_c{coupling_str}_T{temp_str}_f{freq_str}")
-    else:
-        temp_str = f"{temperature:.0f}K"
-        exp_dir = Path(f"{base_name}_no_cavity_T{temp_str}")
-    
-    exp_dir.mkdir(exist_ok=True)
-    return exp_dir
-
-def run_single_experiment_enhanced(exp_name, molecular_thermo, cavity_thermo, finite_q, 
-                                   coupling, temperature, frequency, replica, frame, 
-                                   runtime_ps, molecular_tau, cavity_tau, log_to_file, 
-                                   log_to_console, enable_fkt, fkt_kmag, fkt_wavevectors, 
-                                   fkt_ref_interval, fkt_max_refs, max_energy_output_time=None, 
-                                   device='CPU', gpu_id=0, incavity=True, fixed_timestep=False, 
-                                   timestep_fs=1.0, enable_energy_tracking=False, 
-                                   checkpoint_interval=None, energy_output_period_ps=0.1,
-                                   fkt_output_period_ps=1.0, gsd_output_period_ps=50.0,
-                                   console_output_period_ps=1.0):
+def run_single_experiment(molecular_thermo, cavity_thermo, finite_q, 
+                         coupling, temperature, frequency, replica, frame, 
+                         runtime_ps, molecular_tau, cavity_tau, enable_fkt, fkt_kmag, fkt_wavevectors, 
+                         fkt_ref_interval, fkt_max_refs, max_energy_output_time=None, 
+                         device='CPU', gpu_id=0, incavity=True, fixed_timestep=False, 
+                         timestep_fs=1.0, enable_energy_tracking=False, 
+                         energy_output_period_ps=0.1, fkt_output_period_ps=1.0, 
+                         gsd_output_period_ps=50.0, console_output_period_ps=1.0):
     """
-    Run a single enhanced experiment using the consolidated CavityMDSimulation class.
-    
-    This function follows the simple pattern from run_cavity_experiments.py:
-    1. Create experiment directory
-    2. Create CavityMDSimulation object with appropriate parameters
-    3. Call sim.run() and return the exit code
+    Run a single experiment using the CavityMDSimulation class.
     """
     
     try:
@@ -1452,19 +1395,24 @@ def run_single_experiment_enhanced(exp_name, molecular_thermo, cavity_thermo, fi
         if incavity:
             # For cavity simulations, include coupling strength in directory name
             coupling_str = f"{coupling:.0e}".replace("-", "neg").replace("+", "pos")
-            exp_dir = Path(f"{exp_name}_coupling_{coupling_str}")
+            exp_dir = Path(f"cavity_coupling_{coupling_str}")
         else:
-            # For non-cavity simulations, coupling doesn't matter - use simple naming
-            exp_dir = Path(f"{exp_name}_no_cavity")
+            # For non-cavity simulations
+            exp_dir = Path("no_cavity")
         exp_dir.mkdir(exist_ok=True)
         
-        print(f"Running experiment: {exp_name}")
-        print(f"Cavity coupling: {'Enabled' if incavity else 'Disabled'}")
+        print(f"Running experiment:")
+        print(f"  Cavity coupling: {'Enabled' if incavity else 'Disabled'}")
         if incavity:
-            print(f"Coupling strength: {coupling}")
-        print(f"Replica: {replica}")
-        print(f"Frame: {frame}")
-        print(f"Output directory: {exp_dir}")
+            print(f"  Coupling strength: {coupling}")
+            print(f"  Molecular thermostat: {molecular_thermo}")
+            print(f"  Cavity thermostat: {cavity_thermo}")
+            print(f"  Finite-q mode: {finite_q}")
+        else:
+            print(f"  Molecular thermostat: {molecular_thermo}")
+        print(f"  Replica: {replica}")
+        print(f"  Frame: {frame}")
+        print(f"  Output directory: {exp_dir}")
         
         # Set error tolerance based on timestepping mode
         error_tolerance = 0.0 if fixed_timestep else 1.0
@@ -1472,7 +1420,7 @@ def run_single_experiment_enhanced(exp_name, molecular_thermo, cavity_thermo, fi
         # Set timestep based on user preference (only used if fixed_timestep is True)
         dt_fs = timestep_fs if fixed_timestep else None
         
-        # Create and run CavityMDSimulation - following run_cavity_experiments.py pattern
+        # Create and run CavityMDSimulation
         sim = CavityMDSimulation(
             job_dir=str(exp_dir),
             replica=replica,
@@ -1490,8 +1438,8 @@ def run_single_experiment_enhanced(exp_name, molecular_thermo, cavity_thermo, fi
             finite_q=finite_q,
             molecular_thermostat_tau=molecular_tau,
             cavity_thermostat_tau=cavity_tau,
-            log_to_file=log_to_file,
-            log_to_console=log_to_console,
+            log_level='INFO',
+            custom_log_file=None,
             enable_fkt=enable_fkt,
             fkt_kmag=fkt_kmag,
             fkt_num_wavevectors=fkt_wavevectors,
@@ -1511,218 +1459,198 @@ def run_single_experiment_enhanced(exp_name, molecular_thermo, cavity_thermo, fi
         )
         
         # Run the simulation
-        return sim.run()
+        return sim.run() == 0  # Return True for success (exit code 0)
         
     except Exception as e:
         print(f"ERROR: Experiment failed: {e}")
         return False
 
 def main():
-    """Enhanced main function with parameter sweeps."""
+    """Simplified main function for cavity MD experiments."""
     parser = argparse.ArgumentParser(
-        description='Enhanced Cavity MD Experiment Runner',
+        description='Advanced Cavity MD Experiment Runner',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__
     )
     
     # Basic simulation parameters
-    parser.add_argument('--experiment', type=str, default='bussi_langevin_finiteq',
-                        choices=[exp[0] for exp in BUSSI_LANGEVIN_EXPERIMENTS],
-                        help='Experiment type')
-    parser.add_argument('--coupling', type=str, help='Cavity coupling strength (comma-separated for sweep)')
-    parser.add_argument('--temperature', type=str, help='Temperature in K (comma-separated for sweep)')
-    parser.add_argument('--frequency', type=str, help='Cavity frequency in cm⁻¹ (comma-separated for sweep)')
-    parser.add_argument('--runtime', type=float, default=500.0, help='Runtime in ps')
-    parser.add_argument('--no-cavity', action='store_true', help='Disable cavity coupling')
+    parser.add_argument('--molecular-bath', type=str, default='bussi', choices=['bussi', 'langevin', 'none'], 
+                       help='Molecular thermostat type (default: bussi)')
+    parser.add_argument('--cavity-bath', type=str, default='langevin', choices=['bussi', 'langevin', 'none'], 
+                       help='Cavity thermostat type (default: langevin)')
+    parser.add_argument('--finite-q', action='store_true', 
+                       help='Use finite-q cavity mode (default: q=0 mode)')
+    parser.add_argument('--coupling', type=float, default=1e-3, 
+                       help='Cavity coupling strength (default: 1e-3)')
+    parser.add_argument('--temperature', type=float, default=100.0, 
+                       help='Temperature in K (default: 100.0)')
+    parser.add_argument('--frequency', type=float, default=2000.0, 
+                       help='Cavity frequency in cm⁻¹ (default: 2000.0)')
+    parser.add_argument('--runtime', type=float, default=500.0, 
+                       help='Runtime in ps (default: 500.0)')
+    parser.add_argument('--no-cavity', action='store_true', 
+                       help='Disable cavity coupling (molecular-only simulation)')
     
     # Replica control
-    parser.add_argument('--replicas', type=str, help='Replica specification (e.g., "1,2,3" or "1-5")')
-    parser.add_argument('--start-replica', type=int, help='Start replica number')
-    parser.add_argument('--end-replica', type=int, help='End replica number')
+    parser.add_argument('--replicas', type=str, 
+                       help='Replica specification (e.g., "1,2,3" or "1-5")')
     
     # Thermostat parameters
-    parser.add_argument('--molecular-tau', type=float, default=5.0, help='Molecular thermostat tau (ps)')
-    parser.add_argument('--cavity-tau', type=float, default=5.0, help='Cavity thermostat tau (ps)')
+    parser.add_argument('--molecular-tau', type=float, default=5.0, 
+                       help='Molecular thermostat tau in ps (default: 5.0)')
+    parser.add_argument('--cavity-tau', type=float, default=5.0, 
+                       help='Cavity thermostat tau in ps (default: 5.0)')
     
     # Timestep control
-    parser.add_argument('--fixed-timestep', action='store_true', help='Use fixed timestep')
-    parser.add_argument('--timestep', type=float, default=1.0, help='Fixed timestep in fs')
+    parser.add_argument('--fixed-timestep', action='store_true', 
+                       help='Use fixed timestep instead of adaptive')
+    parser.add_argument('--timestep', type=float, default=1.0, 
+                       help='Fixed timestep in fs (default: 1.0)')
     
     # Energy tracking
-    parser.add_argument('--enable-energy-tracker', action='store_true', help='Enable comprehensive energy tracking')
-    parser.add_argument('--enable-comprehensive-energy', action='store_true', help='Enable comprehensive energy tracking (alias for --enable-energy-tracker)')
-    
-    # Logging options
-    parser.add_argument('--log-to-file', action='store_true', help='Log to files')
-    parser.add_argument('--log-to-console', action='store_true', help='Log to console')
+    parser.add_argument('--enable-energy-tracker', action='store_true', 
+                       help='Enable comprehensive energy tracking')
     
     # Output control options - separate periods for different observables
-    parser.add_argument('--energy-output-period-ps', type=float, default=0.1, help='Energy tracker output period in ps (default: 0.1)')
-    parser.add_argument('--fkt-output-period-ps', type=float, default=1.0, help='F(k,t) tracker output period in ps (default: 1.0)')
-    parser.add_argument('--gsd-output-period-ps', type=float, default=50.0, help='GSD trajectory output period in ps (default: 50.0)')
-    parser.add_argument('--console-output-period-ps', type=float, default=1.0, help='Console output period in ps (default: 1.0)')
-    parser.add_argument('--enable-text-output', action='store_true', help='Enable text file output of logged quantities')
-    parser.add_argument('--text-output-file', type=str, help='Custom text output filename (auto-generated if not specified)')
+    parser.add_argument('--energy-output-period-ps', type=float, default=0.1, 
+                       help='Energy tracker output period in ps (default: 0.1)')
+    parser.add_argument('--fkt-output-period-ps', type=float, default=1.0, 
+                       help='F(k,t) tracker output period in ps (default: 1.0)')
+    parser.add_argument('--gsd-output-period-ps', type=float, default=50.0, 
+                       help='GSD trajectory output period in ps (default: 50.0)')
+    parser.add_argument('--console-output-period-ps', type=float, default=1.0, 
+                       help='Console output period in ps (default: 1.0)')
     
     # F(k,t) options
-    parser.add_argument('--enable-fkt', action='store_true', help='Enable F(k,t) calculation')
-    parser.add_argument('--fkt-kmag', type=float, default=1.0, help='F(k,t) k magnitude')
-    parser.add_argument('--fkt-wavevectors', type=int, default=50, help='F(k,t) wavevectors')
-    parser.add_argument('--fkt-ref-interval', type=float, default=1.0, help='F(k,t) reference interval (ps)')
-    parser.add_argument('--fkt-max-refs', type=int, default=10, help='F(k,t) max references')
-    parser.add_argument('--max-energy-output-time', type=float, help='Max energy output time (ps)')
+    parser.add_argument('--enable-fkt', action='store_true', 
+                       help='Enable F(k,t) density correlation calculation')
+    parser.add_argument('--fkt-kmag', type=float, default=1.0, 
+                       help='F(k,t) k magnitude (default: 1.0)')
+    parser.add_argument('--fkt-wavevectors', type=int, default=50, 
+                       help='F(k,t) number of wavevectors (default: 50)')
+    parser.add_argument('--fkt-ref-interval', type=float, default=1.0, 
+                       help='F(k,t) reference interval in ps (default: 1.0)')
+    parser.add_argument('--fkt-max-refs', type=int, default=10, 
+                       help='F(k,t) maximum references (default: 10)')
+    parser.add_argument('--max-energy-output-time', type=float, 
+                       help='Maximum energy output time in ps (default: no limit)')
     
     # Device options
-    parser.add_argument('--device', type=str, default='CPU', choices=['CPU', 'GPU'], help='Device')
-    parser.add_argument('--gpu-id', type=int, default=0, help='GPU ID')
-    
-    # Enhanced features
-    parser.add_argument('--checkpoint-interval', type=int, help='Checkpoint interval (steps)')
+    parser.add_argument('--device', type=str, default='CPU', choices=['CPU', 'GPU'], 
+                       help='Compute device (default: CPU)')
+    parser.add_argument('--gpu-id', type=int, default=0, 
+                       help='GPU ID when using GPU device (default: 0)')
     
     args = parser.parse_args()
     
-    print("Enhanced Cavity MD Experiment Runner")
-    print("   Using hoomd.cavitymd plugin for all tracker classes")
-    print("   Only CavityMDSimulation defined locally")
-    
-    # Initialize enhanced features
-    parameter_sweep = ParameterSweep(args)
+    print("Advanced Cavity MD Experiment Runner")
+    print("="*50)
     
     # Determine replica list
-    if args.replicas:
-        replica_list = parse_replicas(args.replicas)
-    elif args.start_replica is not None and args.end_replica is not None:
-        replica_list = list(range(args.start_replica, args.end_replica + 1))
+    task_id, job_id = get_slurm_info()
+    
+    if task_id is not None:
+        # Running under SLURM array job
+        replica_list = [task_id]
+        print(f"SLURM array job detected: Task {task_id} (Job {job_id})")
     else:
-        # Check if running under SLURM
-        replica, frame, job_id = get_slurm_info()
-        if replica is not None:
-            replica_list = [replica]
-            print(f"Running under SLURM: Task {replica} (Job {job_id})")
-        else:
-            replica_list = [1]  # Default single replica
-            print("WARNING: No replica specification - running single replica (1)")
+        # Local execution - parse replicas
+        replica_list = parse_replicas(args.replicas)
+        print(f"Local execution: Replicas {replica_list}")
     
-    print(f"Replicas to run: {replica_list}")
+    # Set up simulation parameters
+    incavity = not args.no_cavity
+    molecular_thermo = args.molecular_bath
+    cavity_thermo = args.cavity_bath if incavity else 'none'
+    finite_q = args.finite_q
     
-    # Get experiment configuration
-    exp_config = None
-    for name, mol_thermo, cav_thermo, finite_q in BUSSI_LANGEVIN_EXPERIMENTS:
-        if name == args.experiment:
-            exp_config = (name, mol_thermo, cav_thermo, finite_q)
-            break
-    
-    if not exp_config:
-        print(f"ERROR: Unknown experiment: {args.experiment}")
-        return 1
-    
-    exp_name, molecular_thermo, cavity_thermo, finite_q = exp_config
-    print(f"Experiment: {exp_name}")
-    print(f"   Molecular thermostat: {molecular_thermo}")
-    print(f"   Cavity thermostat: {cavity_thermo}")
-    print(f"   Finite Q: {finite_q}")
-    
-    # Calculate total experiments
-    total_experiments = parameter_sweep.get_total_experiments(replica_list)
-    print(f"Total experiments: {total_experiments}")
+    print(f"\nSimulation Configuration:")
+    print(f"  Cavity coupling: {'Enabled' if incavity else 'Disabled'}")
+    if incavity:
+        print(f"    Coupling strength: {args.coupling}")
+        print(f"    Frequency: {args.frequency} cm⁻¹")
+        print(f"    Finite-q mode: {finite_q}")
+        print(f"    Cavity thermostat: {cavity_thermo}")
+    print(f"  Molecular thermostat: {molecular_thermo}")
+    print(f"  Temperature: {args.temperature} K")
+    print(f"  Runtime: {args.runtime} ps")
+    print(f"  Device: {args.device}")
+    if args.device == 'GPU':
+        print(f"    GPU ID: {args.gpu_id}")
     
     # Set up device configuration
     device = args.device.upper()
-    if device == 'GPU':
-        print(f"Using GPU {args.gpu_id}")
-    else:
-        print("Using CPU")
-    
-    # Logging configuration
-    log_to_file = args.log_to_file
-    log_to_console = args.log_to_console or not args.log_to_file  # Default to console if no file logging
     
     # Performance tracking
     start_time = time.time()
     successful_experiments = 0
     failed_experiments = 0
     
-    print("\nStarting experiment execution...")
-    print("="*80)
+    print(f"\nStarting execution for {len(replica_list)} replica(s)...")
+    print("="*50)
     
-    # Run parameter sweep
-    parameter_combinations = parameter_sweep.get_parameter_combinations()
-    
-    for param_idx, (coupling, temperature, frequency) in enumerate(parameter_combinations):
-        print(f"\nParameter Set {param_idx + 1}/{len(parameter_combinations)}")
-        print(f"   Coupling: {coupling}")
-        print(f"   Temperature: {temperature}K")
-        print(f"   Frequency: {frequency}cm⁻¹")
+    # Run replicas
+    for replica in replica_list:
+        frame = replica  # Use replica as frame number
         
-        # Run replicas for this parameter set
-        for replica in replica_list:
-            frame = replica  # Use replica as frame number
-            
-            print(f"\nRunning replica {replica}...")
-            
-            # Run experiment
-            success = run_single_experiment_enhanced(
-                exp_name=exp_name,
-                molecular_thermo=molecular_thermo,
-                cavity_thermo=cavity_thermo,
-                finite_q=finite_q,
-                coupling=coupling,
-                temperature=temperature,
-                frequency=frequency,
-                replica=replica,
-                frame=frame,
-                runtime_ps=args.runtime,
-                molecular_tau=args.molecular_tau,
-                cavity_tau=args.cavity_tau,
-                log_to_file=log_to_file,
-                log_to_console=log_to_console,
-                enable_fkt=args.enable_fkt,
-                fkt_kmag=args.fkt_kmag,
-                fkt_wavevectors=args.fkt_wavevectors,
-                fkt_ref_interval=args.fkt_ref_interval,
-                fkt_max_refs=args.fkt_max_refs,
-                max_energy_output_time=args.max_energy_output_time,
-                device=device,
-                gpu_id=args.gpu_id,
-                incavity=not args.no_cavity,
-                fixed_timestep=args.fixed_timestep,
-                timestep_fs=args.timestep,
-                enable_energy_tracking=args.enable_energy_tracker or args.enable_comprehensive_energy,
-                checkpoint_interval=args.checkpoint_interval,
-                energy_output_period_ps=args.energy_output_period_ps,
-                fkt_output_period_ps=args.fkt_output_period_ps,
-                gsd_output_period_ps=args.gsd_output_period_ps,
-                console_output_period_ps=args.console_output_period_ps
-            )
-            
-            if success:
-                successful_experiments += 1
-                print(f"SUCCESS: Replica {replica} completed successfully")
-            else:
-                failed_experiments += 1
-                print(f"ERROR: Replica {replica} failed")
+        print(f"\nRunning replica {replica}...")
+        
+        # Run experiment
+        success = run_single_experiment(
+            molecular_thermo=molecular_thermo,
+            cavity_thermo=cavity_thermo,
+            finite_q=finite_q,
+            coupling=args.coupling,
+            temperature=args.temperature,
+            frequency=args.frequency,
+            replica=replica,
+            frame=frame,
+            runtime_ps=args.runtime,
+            molecular_tau=args.molecular_tau,
+            cavity_tau=args.cavity_tau,
+            enable_fkt=args.enable_fkt,
+            fkt_kmag=args.fkt_kmag,
+            fkt_wavevectors=args.fkt_wavevectors,
+            fkt_ref_interval=args.fkt_ref_interval,
+            fkt_max_refs=args.fkt_max_refs,
+            max_energy_output_time=args.max_energy_output_time,
+            device=device,
+            gpu_id=args.gpu_id,
+            incavity=incavity,
+            fixed_timestep=args.fixed_timestep,
+            timestep_fs=args.timestep,
+            enable_energy_tracking=args.enable_energy_tracker,
+            energy_output_period_ps=args.energy_output_period_ps,
+            fkt_output_period_ps=args.fkt_output_period_ps,
+            gsd_output_period_ps=args.gsd_output_period_ps,
+            console_output_period_ps=args.console_output_period_ps
+        )
+        
+        if success:
+            successful_experiments += 1
+            print(f"SUCCESS: Replica {replica} completed successfully")
+        else:
+            failed_experiments += 1
+            print(f"ERROR: Replica {replica} failed")
     
     # Final summary
     end_time = time.time()
     total_wall_time = end_time - start_time
+    total_experiments = len(replica_list)
     
-    print("\n" + "="*80)
-    print("Enhanced Experiment Runner Summary")
-    print("="*80)
-    print(f"Total experiments: {total_experiments}")
+    print("\n" + "="*50)
+    print("Execution Summary")
+    print("="*50)
+    print(f"Total replicas: {total_experiments}")
     print(f"Successful: {successful_experiments}")
     print(f"Failed: {failed_experiments}")
     print(f"Wall time: {total_wall_time:.2f} seconds")
     
     if failed_experiments > 0:
-        print(f"\nSummary report displayed above")
-        print("Failed experiments: check individual logs for details")
-        
-    if failed_experiments > 0:
-        print(f"\nWARNING: {failed_experiments} experiments failed - check individual logs for details")
+        print(f"\nWARNING: {failed_experiments} replicas failed - check individual logs for details")
         return 1
     else:
-        print("\nAll experiments completed successfully!")
+        print("\nAll replicas completed successfully!")
         return 0
 
 if __name__ == '__main__':

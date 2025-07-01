@@ -2,248 +2,251 @@
 Quick Start
 ===========
 
-Get up and running with Cavity HOOMD in just a few minutes! This guide will walk you through installation and your first cavity-coupled simulation.
+This guide will get you running cavity-coupled molecular dynamics simulations using the **05_advanced_run.py** script in just a few minutes.
 
 Installation
 ============
 
-**Option 1: Install from PyPI (Recommended)**
-
 .. code-block:: bash
 
-   pip install cavity-hoomd
-
-**Option 2: Install from Source**
-
-.. code-block:: bash
-
+   # Install from source
    git clone https://github.com/yourusername/cavity-hoomd.git
    cd cavity-hoomd
    pip install -e .
 
 **Verify Installation**
 
-.. code-block:: python
+.. code-block:: bash
 
-   import hoomd
-   from hoomd.cavitymd import CavityForce, CavityMDSimulation
-   print("Cavity HOOMD installed successfully!")
+   python 05_advanced_run.py --help
+
+If the help message appears, you're ready to go!
 
 Your First Simulation
 =====================
 
-Let's run a simple cavity-coupled molecular dynamics simulation:
+The easiest way to run a cavity simulation is using the command line:
 
-.. code-block:: python
+.. code-block:: bash
 
-   from hoomd.cavitymd import CavityMDSimulation
-   
-   # Create a cavity MD simulation
-   sim = CavityMDSimulation(
-       job_dir="./my_first_sim",
-       replica=1,
-       freq=2000.0,        # Cavity frequency in cm⁻¹
-       couplstr=1e-3,      # Coupling strength
-       incavity=True,      # Enable cavity coupling
-       runtime_ps=100.0,   # Short runtime for quick test
-       temperature=300.0,  # Temperature in K
-       molecular_thermostat='bussi',
-       cavity_thermostat='langevin',
-       input_gsd='init.gsd'  # You'll need an initial structure
-   )
-   
-   # Run the simulation
-   exit_code = sim.run()
-   
-   if exit_code == 0:
-       print("Simulation completed successfully!")
-   else:
-       print("Simulation failed - check the logs")
+   # Run a basic cavity simulation
+   python 05_advanced_run.py --experiment bussi_langevin_finiteq --coupling 1e-3 --runtime 1000
 
-.. note::
+This command will:
+- Use Bussi thermostat for molecules, Langevin for cavity
+- Set cavity coupling strength to 1e-3
+- Run for 1000 ps
+- Use default temperature (100 K) and frequency (2000 cm⁻¹)
 
-   You'll need an initial GSD file containing your molecular system. See :doc:`user_guide/basic_usage` for details on preparing initial structures.
+**Expected Output**
 
-Understanding the Output
-========================
-
-Your simulation will generate several output files:
+The simulation creates an output directory and generates several files:
 
 .. code-block:: text
 
-   my_first_sim/
+   bussi_langevin_finiteq_coupling_1e-03/
    ├── prod-1.gsd              # Trajectory file
    ├── prod-1-energy.txt       # Energy tracking data
-   ├── prod-1-cavity_mode.txt  # Cavity mode properties
-   ├── prod-1-fkt.txt          # F(k,t) correlation data
-   └── prod-1.log              # Simulation log
+   ├── prod-1-cavity_mode.txt  # Cavity mode properties  
+   ├── prod-1.log              # Simulation log
 
-**Quick Analysis**
+Available Experiments
+=====================
+
+The script provides four pre-configured experiment types:
+
+.. code-block:: bash
+
+   # Bussi (molecules) + Langevin (cavity) with finite-q mode
+   python 05_advanced_run.py --experiment bussi_langevin_finiteq --coupling 1e-3 --runtime 1000
+
+   # Same but with q=0 mode
+   python 05_advanced_run.py --experiment bussi_langevin_no_finiteq --coupling 1e-3 --runtime 1000
+
+   # Langevin for both molecules and cavity
+   python 05_advanced_run.py --experiment langevin_langevin --coupling 1e-3 --runtime 1000
+
+   # Bussi for both molecules and cavity
+   python 05_advanced_run.py --experiment bussi_bussi --coupling 1e-3 --runtime 1000
+
+Control Simulations (No Cavity)
+================================
+
+Run without cavity coupling for comparison:
+
+.. code-block:: bash
+
+   # Molecular-only simulation (no cavity)
+   python 05_advanced_run.py --experiment bussi_langevin_finiteq --no-cavity --runtime 1000
+
+Parameter Sweeps
+================
+
+Explore multiple parameter values in one command:
+
+.. code-block:: bash
+
+   # Sweep over coupling strengths
+   python 05_advanced_run.py --experiment bussi_langevin_finiteq \
+       --coupling 1e-3,1e-4,1e-5 --runtime 500
+
+   # Sweep over temperatures
+   python 05_advanced_run.py --experiment bussi_langevin_finiteq \
+       --coupling 1e-3 --temperature 100,200,300 --runtime 500
+
+   # Sweep over frequencies
+   python 05_advanced_run.py --experiment bussi_langevin_finiteq \
+       --coupling 1e-3 --frequency 1800,2000,2200 --runtime 500
+
+Multiple Replicas
+=================
+
+Run multiple independent replicas:
+
+.. code-block:: bash
+
+   # Run replicas 1-5
+   python 05_advanced_run.py --experiment bussi_langevin_finiteq \
+       --coupling 1e-3 --replicas "1-5" --runtime 1000
+
+   # Run specific replicas
+   python 05_advanced_run.py --experiment bussi_langevin_finiteq \
+       --coupling 1e-3 --replicas "1,3,5,7" --runtime 1000
+
+Common Options
+==============
+
+**Basic Parameters**
+
+.. code-block:: bash
+
+   --experiment          # Experiment type (required)
+   --coupling           # Coupling strength(s)
+   --temperature        # Temperature in K (default: 100)
+   --frequency          # Cavity frequency in cm⁻¹ (default: 2000)
+   --runtime            # Simulation time in ps (default: 500)
+   --no-cavity          # Disable cavity (control simulation)
+
+**Advanced Features**
+
+.. code-block:: bash
+
+   --enable-energy-tracker    # Detailed energy tracking
+   --enable-fkt              # F(k,t) correlation analysis
+   --fixed-timestep          # Use fixed timestep instead of adaptive
+   --device GPU              # Use GPU acceleration
+
+**Output Control**
+
+.. code-block:: bash
+
+   --energy-output-period-ps 0.1     # Energy output frequency
+   --gsd-output-period-ps 50.0       # Trajectory output frequency
+   --console-output-period-ps 1.0    # Console update frequency
+
+Quick Analysis
+==============
+
+**Check Energy Conservation**
 
 .. code-block:: python
 
    import pandas as pd
    import matplotlib.pyplot as plt
-   
+
    # Read energy data
-   energy_data = pd.read_csv('my_first_sim/prod-1-energy.txt', delimiter='\t')
-   
-   # Plot total energy conservation
+   data = pd.read_csv('bussi_langevin_finiteq_coupling_1e-03/prod-1-energy.txt', delimiter='\t')
+
+   # Plot total energy
    plt.figure(figsize=(10, 6))
-   plt.plot(energy_data['time_ps'], energy_data['total_energy'])
+   plt.plot(data['time_ps'], data['total_energy'])
    plt.xlabel('Time (ps)')
    plt.ylabel('Total Energy (Hartree)')
    plt.title('Energy Conservation')
    plt.show()
-   
-   # Check energy drift
-   energy_drift = (energy_data['total_energy'].iloc[-1] - 
-                   energy_data['total_energy'].iloc[0]) / energy_data['total_energy'].iloc[0]
-   print(f"Relative energy drift: {energy_drift:.2e}")
 
-Key Parameters Explained
-========================
+   # Calculate energy drift
+   drift = (data['total_energy'].iloc[-1] - data['total_energy'].iloc[0]) / data['total_energy'].iloc[0]
+   print(f"Relative energy drift: {drift:.2e}")
 
-**Cavity Parameters**
-
-- **freq**: Cavity frequency in cm⁻¹ (typical range: 1000-4000)
-- **couplstr**: Coupling strength (typical range: 1e-5 to 1e-2)
-- **incavity**: Whether to enable cavity coupling (True/False)
-
-**Simulation Parameters**
-
-- **runtime_ps**: Simulation time in picoseconds
-- **temperature**: Temperature in Kelvin
-- **molecular_thermostat**: Thermostat for molecules ('bussi', 'langevin', 'none')
-- **cavity_thermostat**: Thermostat for cavity ('bussi', 'langevin', 'none')
-
-**Common Combinations**
-
-.. tabs::
-
-   .. tab:: Weak Coupling Study
-
-      .. code-block:: python
-
-         sim = CavityMDSimulation(
-             # ... other parameters ...
-             freq=2000.0,
-             couplstr=1e-4,          # Weak coupling
-             molecular_thermostat='bussi',
-             cavity_thermostat='langevin'
-         )
-
-   .. tab:: Strong Coupling Study
-
-      .. code-block:: python
-
-         sim = CavityMDSimulation(
-             # ... other parameters ...
-             freq=1800.0,
-             couplstr=1e-2,          # Strong coupling
-             molecular_thermostat='bussi',
-             cavity_thermostat='bussi'
-         )
-
-   .. tab:: Control (No Cavity)
-
-      .. code-block:: python
-
-         sim = CavityMDSimulation(
-             # ... other parameters ...
-             incavity=False,         # Disable cavity
-             molecular_thermostat='bussi'
-         )
-
-Common First-Time Issues
-========================
-
-**Issue: "No GSD file found"**
+**Analyze Cavity Mode**
 
 .. code-block:: python
 
-   # Solution: Create or specify correct path to initial structure
-   sim = CavityMDSimulation(
-       # ... other parameters ...
-       input_gsd='path/to/your/initial_structure.gsd'
-   )
+   # Read cavity mode data
+   cavity_data = pd.read_csv('bussi_langevin_finiteq_coupling_1e-03/prod-1-cavity_mode.txt', delimiter='\t')
 
-**Issue: "GPU not available"**
+   # Plot cavity amplitude
+   plt.figure(figsize=(10, 6))
+   plt.plot(cavity_data['time_ps'], cavity_data['amplitude'])
+   plt.xlabel('Time (ps)')
+   plt.ylabel('Cavity Amplitude')
+   plt.title('Cavity Mode Dynamics')
+   plt.show()
 
-.. code-block:: python
+HPC Usage (SLURM)
+=================
 
-   # Solution: Use CPU explicitly
-   sim = CavityMDSimulation(
-       # ... other parameters ...
-       device='CPU'
-   )
+The script automatically detects SLURM environments:
 
-**Issue: "Energy not conserved"**
+.. code-block:: bash
 
-.. code-block:: python
+   #!/bin/bash
+   #SBATCH --array=1-10
+   #SBATCH --time=24:00:00
 
-   # Solution: Enable adaptive timestep
-   sim = CavityMDSimulation(
-       # ... other parameters ...
-       error_tolerance=0.01,  # Enable adaptive timestep
-       enable_energy_tracking=True
-   )
+   # This will automatically use SLURM_ARRAY_TASK_ID as replica number
+   python 05_advanced_run.py --experiment bussi_langevin_finiteq --coupling 1e-3 --runtime 5000
+
+Common Issues & Solutions
+=========================
+
+**"No GSD file found"**
+
+The script looks for ``init-0.gsd`` in the parent directory. Make sure you have an initial structure file:
+
+.. code-block:: bash
+
+   # Check if file exists
+   ls ../init-0.gsd
+
+**"GPU not available"**
+
+Force CPU usage:
+
+.. code-block:: bash
+
+   python 05_advanced_run.py --experiment bussi_langevin_finiteq --device CPU --coupling 1e-3 --runtime 1000
+
+**Simulation runs too slowly**
+
+Use larger timesteps or reduce output frequency:
+
+.. code-block:: bash
+
+   python 05_advanced_run.py --experiment bussi_langevin_finiteq --coupling 1e-3 --runtime 1000 \
+       --fixed-timestep --timestep 2.0 --gsd-output-period-ps 100.0
 
 Next Steps
 ==========
 
 🎉 **Congratulations!** You've run your first cavity-coupled simulation.
 
-**What to do next:**
+**Learn More:**
 
-1. **Explore the Results**: Use the analysis examples above to understand your simulation output
+1. **Explore Parameters**: Try different coupling strengths, temperatures, and frequencies
+2. **Compare Experiments**: Run different thermostat combinations  
+3. **Analyze Results**: Use the generated data files for deeper analysis
+4. **Scale Up**: Run parameter sweeps and multiple replicas
 
-2. **Read the User Guide**: Check out :doc:`user_guide/basic_usage` for detailed explanations
+**Resources:**
 
-3. **Try Parameter Sweeps**: Learn how to explore parameter spaces systematically in :doc:`user_guide/parameter_sweeps`
+- :doc:`user_guide/index` - Complete usage guide
+- :doc:`theory` - Scientific background
+- `GitHub <https://github.com/yourusername/cavity-hoomd>`_ - Source code and issues
 
-4. **Understand the Theory**: Read :doc:`theory` for the scientific background
+**Need Help?**
 
-5. **Optimize Performance**: See :doc:`user_guide/performance` for getting the best performance
-
-**Useful Resources:**
-
-- :doc:`examples/index` - Complete working examples
-- :doc:`api/index` - Detailed API reference  
-- :doc:`user_guide/analysis` - Data analysis techniques
-- `GitHub Repository <https://github.com/yourusername/cavity-hoomd>`_ - Source code and issues
-
-**Having Problems?**
-
-- Check the :doc:`user_guide/index` for detailed troubleshooting
-- Look at the :doc:`examples/index` for working code
+- Check the :doc:`user_guide/troubleshooting` section
 - Post an issue on `GitHub <https://github.com/yourusername/cavity-hoomd/issues>`_
-
-Quick Reference
-===============
-
-**Most Common Commands**
-
-.. code-block:: python
-
-   # Basic simulation
-   from hoomd.cavitymd import CavityMDSimulation
-   sim = CavityMDSimulation(job_dir="./sim", replica=1, freq=2000, couplstr=1e-3, incavity=True, runtime_ps=1000, temperature=300)
-   sim.run()
-
-   # Parameter sweep
-   for coupling in [1e-4, 1e-3, 1e-2]:
-       sim = CavityMDSimulation(job_dir=f"./sweep_{coupling}", replica=1, couplstr=coupling, ...)
-       sim.run()
-
-   # Analysis
-   import pandas as pd
-   data = pd.read_csv('sim/prod-1-energy.txt', delimiter='\t')
-   print(f"Energy drift: {(data['total_energy'].iloc[-1] - data['total_energy'].iloc[0]) / data['total_energy'].iloc[0]:.2e}")
-
-**Key File Locations**
-
-- **Trajectory**: `{job_dir}/prod-{replica}.gsd`
-- **Energy data**: `{job_dir}/prod-{replica}-energy.txt`
-- **Cavity mode**: `{job_dir}/prod-{replica}-cavity_mode.txt`
-- **Logs**: `{job_dir}/prod-{replica}.log` 
+- Read the complete help: ``python 05_advanced_run.py --help`` 
