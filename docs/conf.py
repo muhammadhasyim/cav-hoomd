@@ -7,22 +7,23 @@ import os
 import sys
 from pathlib import Path
 
-# -- Path setup --------------------------------------------------------------
+# CRITICAL: Set up plugin mocking FIRST, before any other imports or configuration
+# This must happen before autosummary tries to import modules during builder-inited
 
-# Add the project root to the Python path
+# Add the project root to the Python path immediately
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 sys.path.insert(0, str(project_root / 'src'))
 sys.path.insert(0, str(project_root / 'examples'))
 
-# -- Mock compiled extensions for Read the Docs ------------------------------------------
-
 # Check if we're running on Read the Docs (where C++ compilation isn't available)
 on_rtd = (os.environ.get('READTHEDOCS') == 'True' or 
           os.environ.get('RTD_ENV_NAME') is not None or
-          'readthedocs' in os.environ.get('HOSTNAME', '').lower())
+          'readthedocs' in os.environ.get('HOSTNAME', '').lower() or
+          'readthedocs' in os.getcwd().lower())
 
 print(f"Environment check: READTHEDOCS={os.environ.get('READTHEDOCS')}, RTD_ENV_NAME={os.environ.get('RTD_ENV_NAME')}")
+print(f"Current working directory: {os.getcwd()}")
 print(f"On RTD: {on_rtd}")
 
 if on_rtd:
@@ -55,12 +56,32 @@ if on_rtd:
             print(f"  Cavity MD files: {list(cavitymd_path.glob('*.py'))}")
         if bussi_path.exists():
             print(f"  Bussi Reservoir files: {list(bussi_path.glob('*.py'))}")
+            
+        # Force import test to verify modules are accessible
+        try:
+            import hoomd.cavitymd
+            print("✅ Successfully imported hoomd.cavitymd")
+        except Exception as e:
+            print(f"❌ Failed to import hoomd.cavitymd: {e}")
+            
+        try:
+            import hoomd.bussi_reservoir
+            print("✅ Successfully imported hoomd.bussi_reservoir")
+        except Exception as e:
+            print(f"❌ Failed to import hoomd.bussi_reservoir: {e}")
     else:
         print(f"Warning: Plugin source path not found: {src_path}")
     
     print("Plugin mocking setup complete")
 else:
     print("Local environment detected - no mocking needed")
+
+# -- Path setup (redundant but kept for clarity) ------------------------------
+
+# Add the project root to the Python path
+sys.path.insert(0, str(project_root))
+sys.path.insert(0, str(project_root / 'src'))
+sys.path.insert(0, str(project_root / 'examples'))
 
 # -- Project information -----------------------------------------------------
 
