@@ -2,223 +2,103 @@
 Theory
 ======
 
-Overview
-========
+Cavity HOOMD simulates molecules interacting with optical cavity modes. This enables study of light-matter interactions where molecular vibrations couple strongly to photons.
 
-Cavity HOOMD implements cavity quantum electrodynamics (cQED) within classical molecular dynamics simulations. This approach enables the study of light-matter interactions in the strong coupling regime, where molecular excitations hybridize with cavity photons to form polaritons.
+What It Models
+==============
 
-Theoretical Framework
-=====================
+**Cavity-Molecule Interaction**
 
-Cavity-Coupled Hamiltonian
----------------------------
-
-The total Hamiltonian for the cavity-molecule system is:
+The simulation implements the interaction Hamiltonian:
 
 .. math::
 
-   H = H_{\text{mol}} + H_{\text{cav}} + H_{\text{int}}
+   H = \frac{1}{2} K q^2 + g \vec{q} \cdot \vec{d} + \frac{g^2}{2K} d^2
 
-where:
+Where:
+- :math:`q` is the cavity mode position (photon displacement)
+- :math:`d` is the molecular dipole moment  
+- :math:`g` is the coupling strength
+- :math:`K = m \omega_c^2` is the cavity spring constant
 
-* :math:`H_{\text{mol}}` is the molecular Hamiltonian
-* :math:`H_{\text{cav}}` is the cavity Hamiltonian  
-* :math:`H_{\text{int}}` is the light-matter interaction
+**Physical Meaning**
 
-Molecular Hamiltonian
----------------------
+- **First term**: Cavity harmonic oscillator energy
+- **Second term**: Direct coupling between cavity and molecular dipole
+- **Third term**: Dipole self-energy (A²/2 term from QED)
 
-The molecular system follows standard molecular dynamics:
+How It Works
+============
 
-.. math::
+**Classical Treatment**
 
-   H_{\text{mol}} = \sum_i \frac{|\mathbf{p}_i|^2}{2m_i} + V(\{\mathbf{r}_i\})
+The cavity mode is treated as a classical harmonic oscillator with:
+- Position :math:`q` (photon displacement)
+- Momentum :math:`p` (photon momentum)
+- Natural frequency :math:`\omega_c`
 
-where :math:`\mathbf{p}_i` and :math:`\mathbf{r}_i` are momenta and positions of particle :math:`i`, and :math:`V` is the inter-particle potential.
+**Forces**
 
-Cavity Hamiltonian
--------------------
-
-The cavity mode is treated as a quantum harmonic oscillator:
-
-.. math::
-
-   H_{\text{cav}} = \hbar\omega_c a^\dagger a + \frac{1}{2}\hbar\omega_c
-
-where :math:`\omega_c` is the cavity frequency and :math:`a^\dagger, a` are creation/annihilation operators.
-
-Light-Matter Interaction
--------------------------
-
-In the electric dipole approximation:
+Molecular particles feel additional forces:
 
 .. math::
 
-   H_{\text{int}} = -\boldsymbol{\mu} \cdot \mathbf{E}_{\text{cav}}
+   F_i = -g \, q_i \, q - \frac{g^2}{K} q_i \vec{d}
 
-where :math:`\boldsymbol{\mu} = \sum_i q_i \mathbf{r}_i` is the total molecular dipole moment and :math:`\mathbf{E}_{\text{cav}}` is the cavity electric field.
-
-For a single-mode cavity:
+The cavity particle experiences:
 
 .. math::
 
-   \mathbf{E}_{\text{cav}} = i\mathbf{e} E_0 (a^\dagger - a)
+   F_{\text{cavity}} = -K q - g \vec{d}
 
-where :math:`\mathbf{e}` is the polarization vector and :math:`E_0 = \sqrt{\frac{\hbar\omega_c}{2\epsilon_0 V_{\text{cav}}}}`.
+Key Physics
+===========
 
-Classical Implementation
-========================
+**Strong Coupling Regime**
 
-Cavity Mode Dynamics
----------------------
+When :math:`g > \sqrt{\gamma \kappa}` (coupling stronger than loss rates), the system enters the strong coupling regime where:
 
-The cavity mode is treated as a classical harmonic oscillator with coordinate :math:`q` and momentum :math:`p`:
+- Molecular vibrations and cavity photons hybridize  
+- New energy levels appear (polaritons)
+- Collective effects emerge from many molecules
 
-.. math::
+**Energy Conservation**
 
-   H_{\text{cav}} = \frac{p^2}{2} + \frac{1}{2}\omega_c^2 q^2
-
-The equations of motion are:
-
-.. math::
-
-   \dot{q} &= p \\
-   \dot{p} &= -\omega_c^2 q - g \boldsymbol{\mu} \cdot \mathbf{e}
-
-where :math:`g` is the coupling strength.
-
-Molecular Dynamics
-------------------
-
-The molecular particles experience the usual forces plus the cavity coupling:
+The total energy is conserved:
 
 .. math::
 
-   m_i \ddot{\mathbf{r}}_i = \mathbf{F}_i^{\text{mol}} + q_i g \mathbf{e} q_{\text{cav}}
+   E_{\text{total}} = E_{\text{molecular}} + E_{\text{cavity}} + E_{\text{coupling}}
 
-where :math:`\mathbf{F}_i^{\text{mol}}` are the intermolecular forces.
+**Thermostats**
 
-Strong Coupling Regime
-======================
-
-Rabi Splitting
---------------
-
-In the strong coupling regime, the cavity-molecule system exhibits Rabi splitting:
-
-.. math::
-
-   \Omega_R = 2g\sqrt{N}
-
-where :math:`N` is the number of molecules and :math:`g` is the single-molecule coupling strength.
-
-Polariton Formation
--------------------
-
-The eigenstates become hybridized polaritons:
-
-.. math::
-
-   |P_\pm\rangle = \frac{1}{\sqrt{2}}(|0,e\rangle \pm |1,g\rangle)
-
-with energies :math:`E_\pm = \frac{\omega_c + \omega_m}{2} \pm \frac{\Omega_R}{2}`.
-
-Thermostats and Equilibration
-==============================
-
-Molecular Thermostats
----------------------
-
-The molecular degrees of freedom are thermostated using:
-
-* **Bussi thermostat**: Stochastic velocity rescaling
-* **Langevin thermostat**: Friction and random forces
-
-Cavity Thermostats
-------------------
-
-The cavity mode can be thermostated to maintain thermal equilibrium:
-
-.. math::
-
-   \dot{p} = -\omega_c^2 q - g \boldsymbol{\mu} \cdot \mathbf{e} - \gamma p + \sqrt{2\gamma k_B T} \xi(t)
-
-where :math:`\gamma` is the damping coefficient and :math:`\xi(t)` is white noise.
-
-Finite-q Effects
-=================
-
-Wave Vector Dependence
-----------------------
-
-For finite wave vector :math:`\mathbf{k} \neq 0`, the interaction becomes spatially dependent:
-
-.. math::
-
-   H_{\text{int}} = -g \sum_i q_i e^{i\mathbf{k} \cdot \mathbf{r}_i} (a^\dagger + a)
-
-This enables study of spatially correlated phenomena and collective excitations.
-
-Observables and Analysis
-========================
-
-Energy Components
------------------
-
-The total energy is conserved and consists of:
-
-.. math::
-
-   E_{\text{total}} = E_{\text{kinetic}} + E_{\text{potential}} + E_{\text{cavity}} + E_{\text{coupling}}
-
-Correlation Functions
----------------------
-
-Important correlation functions include:
-
-* **Density correlation**: :math:`F(k,t) = \langle \rho_{\mathbf{k}}(t) \rho_{-\mathbf{k}}(0) \rangle`
-* **Dipole correlation**: :math:`C_{\mu}(t) = \langle \boldsymbol{\mu}(t) \cdot \boldsymbol{\mu}(0) \rangle`
-* **Cavity correlation**: :math:`C_q(t) = \langle q(t) q(0) \rangle`
+Different thermostat combinations control temperature:
+- **Bussi**: Deterministic velocity rescaling
+- **Langevin**: Stochastic friction and random forces
 
 Applications
 ============
 
-Chemical Reactions
-------------------
+**What You Can Study**
 
-Cavity coupling can modify reaction rates and pathways through:
+- How cavity coupling affects molecular dynamics
+- Energy transfer between molecules and light
+- Collective vibrational effects
+- Modified chemical reaction rates
+- Polariton formation and dynamics
 
-* Vibrational strong coupling
-* Reaction coordinate modification
-* Collective effects
+**Typical Parameter Ranges**
 
-Phase Transitions
------------------
+- Coupling strength: :math:`10^{-5}` to :math:`10^{-2}` (atomic units)
+- Cavity frequency: 1000-3000 cm⁻¹ (molecular vibrations)
+- Temperature: 50-300 K
 
-Strong coupling can induce new phases:
+**Observables**
 
-* Polariton condensation
-* Modified phase diagram
-* Collective ordering
+The simulation tracks:
+- Individual energy components (harmonic, coupling, dipole)
+- Cavity mode position and momentum
+- Molecular trajectory and dipole moment
+- Total energy conservation
 
-Spectroscopy
-------------
-
-The framework enables simulation of:
-
-* Absorption spectra
-* Raman scattering
-* Polariton dispersion
-
-References
-==========
-
-Key theoretical works:
-
-1. Jaynes, E. T. & Cummings, F. W. Comparison of quantum and semiclassical radiation theories. *Proc. IEEE* **51**, 89-109 (1963).
-
-2. Hutchison, J. A., Schwartz, T., Genet, C., Devaux, E. & Ebbesen, T. W. Modifying chemical landscapes by coupling to vacuum fields. *Angew. Chem. Int. Ed.* **51**, 1592-1596 (2012).
-
-3. Flick, J., Ruggenthaler, M., Appel, H. & Rubio, A. Atoms and molecules in cavities: from weak to strong coupling. *Proc. Natl. Acad. Sci. USA* **114**, 3026-3034 (2017).
-
-4. Galego, J., Garcia-Vidal, F. J. & Feist, J. Cavity-induced modifications of molecular structure in the strong-coupling regime. *Phys. Rev. X* **5**, 041022 (2015). 
+This framework enables computational study of cavity quantum electrodynamics effects in realistic molecular systems. 

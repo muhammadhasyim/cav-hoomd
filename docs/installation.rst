@@ -2,79 +2,73 @@
 Installation
 ============
 
-System Requirements
-===================
+Requirements
+============
 
-Cavity HOOMD requires:
+- HOOMD-blue 4.0+
+- Python 3.8+
+- NumPy
+- For GPU support: CUDA toolkit
 
-* Python 3.8 or later
-* HOOMD-blue 4.0 or later
-* NumPy 1.19 or later
-* SciPy 1.6 or later
-
-Optional dependencies:
-
-* CUDA 11.0+ (for GPU acceleration)
-* MPI (for parallel simulations)
-
-Installation Methods
-====================
-
-From Source (Recommended)
---------------------------
+Installation
+============
 
 .. code-block:: bash
 
-   # Clone the repository
-   git clone https://github.com/muhammadhasyim/cav-hoomd.git
-   cd cav-hoomd
+   git clone https://github.com/yourusername/cavity-hoomd.git
+   cd cavity-hoomd
+   cmake -B build -S .
+   cmake --build build
+   cmake --install build
 
-   # Install in development mode
-   pip install -e .
+**Installation Options**
 
-   # Build and install the plugin
-   ./build_install.sh
+With GPU support (default):
+
+.. code-block:: bash
+
+   cmake -B build -S . -DENABLE_GPU=ON
+   cmake --build build
+   cmake --install build
+
+CPU only:
+
+.. code-block:: bash
+
+   cmake -B build -S . -DENABLE_GPU=OFF
+   cmake --build build
+   cmake --install build
 
 Verify Installation
 ===================
 
+.. code-block:: bash
+
+   python examples/05_advanced_run.py --help
+
+If you see the help message, the installation was successful!
+
+**Test with Python:**
+
 .. code-block:: python
 
    import hoomd
-   from hoomd.cavitymd import CavityForce, PhysicalConstants
-
+   from hoomd.cavitymd import CavityForce
+   from hoomd.bussi_reservoir import BussiReservoir
+   
    print("Cavity HOOMD installed successfully!")
-   print(f"Physical constants loaded: {PhysicalConstants.KB_HARTREE_PER_K}")
 
 Troubleshooting
 ===============
 
-Common Issues
--------------
+**Import errors:**
+- Make sure HOOMD-blue is installed: ``python -c "import hoomd; print(hoomd.__version__)"``
+- Check that the build completed without errors
 
-**ImportError: No module named 'hoomd.cavitymd'**
-   - Ensure HOOMD-blue is properly installed
-   - Check that the plugin was built and installed correctly
-   - Verify your Python environment
+**GPU issues:**
+- Try CPU-only build: ``cmake -B build -S . -DENABLE_GPU=OFF``
+- Verify CUDA installation: ``nvcc --version``
 
-**CUDA errors**
-   - Check CUDA installation and compatibility
-   - Verify GPU drivers are up to date
-   - Try CPU-only installation first
-
-**Build errors**
-   - Ensure all dependencies are installed
-   - Check compiler compatibility
-   - See the build logs for specific error messages
-
-Getting Help
-============
-
-If you encounter issues:
-
-1. Check the troubleshooting section above
-2. Search existing issues on GitHub
-3. Create a new issue with:
-   - Your system information
-   - Complete error messages
-   - Minimal example that reproduces the problem 
+**Need help?**
+- Check build logs for error messages
+- Post an issue: https://github.com/yourusername/cavity-hoomd/issues 

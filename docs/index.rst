@@ -2,154 +2,164 @@
 Cavity HOOMD Documentation
 ===============================
 
-.. image:: _static/logo.png
-   :width: 200px
-   :align: center
+**Cavity HOOMD** enables molecular dynamics simulations with optical cavity coupling using HOOMD-blue. 
 
-**Cavity HOOMD** is a molecular dynamics simulation framework that extends HOOMD-blue with cavity-coupling capabilities. It enables researchers to simulate molecular systems coupled to optical cavity modes.
+The easiest way to get started is using the **05_advanced_run.py** script.
 
-The easiest way to run simulations is using the **05_advanced_run.py** script, which provides a complete command-line interface for cavity MD simulations.
+Quick Start
+===========
 
-.. grid:: 2
-    :gutter: 3
+**Installation:**
 
-    .. grid-item-card:: 🚀 **Quick Start**
-        :link: quickstart
-        :link-type: doc
+.. code-block:: bash
 
-        Get up and running with Cavity HOOMD using 05_advanced_run.py.
-        Run your first simulation in minutes.
+   git clone https://github.com/yourusername/cavity-hoomd.git
+   cd cavity-hoomd
+   cmake -B build -S .
+   cmake --build build
+   cmake --install build
 
-    .. grid-item-card:: 📚 **User Guide**
-        :link: user_guide/index
-        :link-type: doc
-
-        Learn how to use 05_advanced_run.py for different simulation scenarios,
-        parameter sweeps, and analysis.
-
-Key Features
-============
-
-🔬 **Complete Command-Line Interface**
-   - Single script handles all simulation types
-   - Built-in parameter sweeps and replica management
-   - Automatic output organization
-
-⚡ **Advanced Simulation Capabilities**
-   - Multiple thermostat combinations (Bussi, Langevin)
-   - Adaptive timestep control
-   - GPU and CPU support
-
-📊 **Comprehensive Analysis**
-   - Real-time energy tracking
-   - F(k,t) density correlation functions
-   - Cavity mode monitoring
-
-🔄 **Production-Ready Features**
-   - SLURM integration for HPC
-   - Robust error handling
-   - Detailed logging and performance metrics
-
-Quick Example
-=============
-
-Run a cavity-coupled simulation:
+**Run your first simulation:**
 
 .. code-block:: bash
 
    # Basic cavity simulation
-   python 05_advanced_run.py --experiment bussi_langevin_finiteq --coupling 1e-3 --runtime 1000
+   python examples/05_advanced_run.py --coupling 1e-3 --runtime 1000
 
-   # Parameter sweep over coupling strengths
-   python 05_advanced_run.py --experiment bussi_langevin_finiteq --coupling 1e-3,1e-4,1e-5 --runtime 500
+   # Control simulation (no cavity)
+   python examples/05_advanced_run.py --no-cavity --runtime 1000
 
-   # Run without cavity (control simulation)
-   python 05_advanced_run.py --experiment bussi_langevin_finiteq --no-cavity --runtime 1000
+That's it! Your simulation will create output files with trajectory data and energy tracking.
 
-Available Experiments
-=====================
+Example Usage
+=============
 
-The script provides four pre-configured experiment types:
-
-- **bussi_langevin_finiteq**: Bussi thermostat for molecules, Langevin for cavity (finite-q mode)
-- **bussi_langevin_no_finiteq**: Same as above but q=0 mode  
-- **langevin_langevin**: Langevin thermostat for both molecules and cavity
-- **bussi_bussi**: Bussi thermostat for both molecules and cavity
-
-Installation
-============
+**Basic Parameters**
 
 .. code-block:: bash
 
-   # Install from source
-   git clone https://github.com/yourusername/cavity-hoomd.git
-   cd cavity-hoomd
-   pip install -e .
+   # Run with specific parameters
+   python examples/05_advanced_run.py \
+       --coupling 1e-3 \
+       --temperature 100 \
+       --frequency 2000 \
+       --runtime 1000
 
-Scientific Background
-=====================
+**Parameter Sweeps**
 
-Cavity HOOMD implements cavity quantum electrodynamics (cQED) in classical MD simulations:
+.. code-block:: bash
+
+   # Sweep over coupling strengths
+   python examples/05_advanced_run.py --coupling 1e-3,1e-4,1e-5 --runtime 500
+
+   # Multiple replicas
+   python examples/05_advanced_run.py --coupling 1e-3 --replicas 1-5 --runtime 1000
+
+**Available Options**
+
+- ``--coupling`` - Coupling strength (e.g., 1e-3)
+- ``--temperature`` - Temperature in K (default: 100)
+- ``--frequency`` - Cavity frequency in cm⁻¹ (default: 2000)
+- ``--runtime`` - Simulation time in ps (default: 500)
+- ``--no-cavity`` - Run without cavity (control simulation)
+- ``--replicas`` - Run multiple replicas (e.g., "1-5")
+- ``--device GPU`` - Use GPU acceleration
+- ``--enable-energy-tracker`` - Detailed energy tracking
+
+Output Files
+============
+
+Each simulation creates:
+
+- ``prod-X.gsd`` - Trajectory file
+- ``prod-X-energy.txt`` - Energy tracking data
+- ``prod-X-cavity_mode.txt`` - Cavity mode properties
+
+Jupyter Notebook
+================
+
+See ``examples/05_advanced_run.ipynb`` for an interactive example with the same functionality.
+
+What It Does
+============
+
+Cavity HOOMD adds cavity-molecule coupling using the interaction:
 
 .. math::
 
-   H = H_{\text{mol}} + \frac{1}{2}\hbar\omega_c (a^\dagger a + \frac{1}{2}) + g \vec{d} \cdot \vec{E}_{\text{cav}}
+   H = \frac{1}{2} K q^2 + g \vec{q} \cdot \vec{d} + \frac{g^2}{2K} d^2
 
-This enables study of cavity-mediated chemical reactions, polariton dynamics, and light-matter interactions.
+Where:
+- :math:`q` is the cavity mode position
+- :math:`d` is the molecular dipole moment  
+- :math:`g` is the coupling strength
+- :math:`K` is the cavity spring constant
+
+Python API
+===========
+
+For programmatic access:
+
+.. code-block:: python
+
+   import hoomd
+   from hoomd.cavitymd import CavityForce
+   from hoomd.bussi_reservoir import BussiReservoir
+
+   # Create simulation
+   sim = hoomd.Simulation(device=hoomd.device.CPU(), seed=42)
+   sim.create_state_from_gsd('system.gsd')
+
+   # Add cavity force
+   cavity_force = CavityForce(
+       kvector=[0, 0, 1],
+       couplstr=0.001,
+       omegac=0.01,
+       phmass=1.0
+   )
+
+   # Setup integrator
+   integrator = hoomd.md.Integrator(dt=0.001)
+   integrator.forces.append(cavity_force)
+
+   # Add thermostat
+   molecular_thermostat = BussiReservoir(kT=0.01, tau=1.0)
+   molecular_filter = hoomd.filter.Type(['O', 'N'])
+   integrator.methods.append(
+       hoomd.md.methods.ConstantVolume(
+           filter=molecular_filter, thermostat=molecular_thermostat
+       )
+   )
+
+   sim.operations.integrator = integrator
+   sim.run(10000)
+
+Help and Support
+================
+
+- Get all script options: ``python examples/05_advanced_run.py --help``
+- **Issues**: https://github.com/yourusername/cavity-hoomd/issues
+- **Questions**: https://github.com/yourusername/cavity-hoomd/discussions
 
 Contents
 ========
 
 .. toctree::
-   :maxdepth: 2
-   :caption: Getting Started
+   :maxdepth: 1
 
    installation
    quickstart
-
-.. toctree::
-   :maxdepth: 2
-   :caption: User Guide
-
-   user_guide/index
-
-.. toctree::
-   :maxdepth: 1
-   :caption: Reference
-
    theory
-   api/index
    license
 
 Citation
 ========
 
-If you use Cavity HOOMD in your research, please cite:
-
 .. code-block:: bibtex
 
-   @article{cavity_hoomd_2025,
-     title={Cavity HOOMD: A Framework for Cavity-Coupled Molecular Dynamics},
+   @software{cavity_hoomd_2025,
+     title={Cavity HOOMD: Molecular Dynamics with Optical Cavity Coupling},
      author={Development Team},
-     journal={Journal of Computational Chemistry},
-     year={2025}
-   }
-
-Support
-=======
-
-- **Documentation**: https://cavity-hoomd.readthedocs.io
-- **Issues**: https://github.com/yourusername/cavity-hoomd/issues
-- **Discussions**: https://github.com/yourusername/cavity-hoomd/discussions
-
-License
-=======
-
-Cavity HOOMD is released under the BSD 3-Clause License.
-
-Indices and tables
-==================
-
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search` 
+     year={2025},
+     url={https://github.com/yourusername/cavity-hoomd}
+   } 
