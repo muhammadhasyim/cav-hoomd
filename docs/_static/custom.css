@@ -145,6 +145,31 @@ table.docutils th {
     font-family: 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace;
     font-size: 0.9em;
     line-height: 1.4;
+    /* Fix text overflow issues */
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    white-space: pre-wrap;
+    overflow-x: auto;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+/* Ensure signature content doesn't overflow */
+.py.class .sig *,
+.py.function .sig *,
+.py.method .sig * {
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+
+
+/* Long parameter names and default values */
+.sig-param .n,
+.sig-param .o,
+.sig-param .default_value {
+    word-wrap: break-word;
+    overflow-wrap: break-word;
 }
 
 .py.class .sig-paren,
@@ -162,6 +187,8 @@ table.docutils th {
 /* Parameter list improvements */
 .sig-param {
     margin-right: 0.5em;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
 }
 
 .sig-param-decl {
@@ -175,6 +202,32 @@ table.docutils th {
 .py.method > dd {
     margin-left: 2em;
     margin-top: 1em;
+}
+
+/* Additional fixes for long class/function names and return types */
+.sig-return-annotation,
+.sig-return-typehint {
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+/* Ensure the signature container itself handles overflow properly */
+.sig {
+    display: block;
+    overflow-x: auto;
+    overflow-y: visible;
+}
+
+/* Handle very long module/class names */
+.sig-prename {
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+/* Make sure the signature name can break if needed */
+.sig-name {
+    word-wrap: break-word;
+    overflow-wrap: break-word;
 }
 
 /* Auto-summary table improvements */
@@ -314,11 +367,38 @@ table.docutils th {
     
     table.docutils {
         font-size: 0.9em;
+        overflow-x: auto;
+        display: block;
+        white-space: nowrap;
     }
     
     .highlight pre {
         font-size: 0.8em;
         overflow-x: auto;
+    }
+    
+    /* Mobile API signature improvements */
+    .py.class .sig,
+    .py.function .sig,
+    .py.method .sig {
+        font-size: 0.8em;
+        padding: 0.6em 0.8em;
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+    
+    /* Auto-summary table mobile improvements */
+    .autosummary {
+        font-size: 0.85em;
+        overflow-x: auto;
+        display: block;
+        white-space: nowrap;
+    }
+    
+    .autosummary th,
+    .autosummary td {
+        padding: 0.5em;
+        min-width: 150px;
     }
 }
 

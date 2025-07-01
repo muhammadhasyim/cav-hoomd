@@ -60,24 +60,4 @@ Thermostats
 .. autosummary::
    :toctree: _autosummary
 
-   BussiReservoir
-
-Detailed API Documentation
-==========================
-
-.. toctree::
-   :maxdepth: 2
-
-   _autosummary/hoomd.cavitymd.CavityForce
-   _autosummary/hoomd.cavitymd.Status
-   _autosummary/hoomd.cavitymd.ElapsedTimeTracker
-   _autosummary/hoomd.cavitymd.TimestepFormatter
-   _autosummary/hoomd.cavitymd.CavityModeTracker
-   _autosummary/hoomd.cavitymd.AutocorrelationTracker
-   _autosummary/hoomd.cavitymd.FieldAutocorrelationTracker
-   _autosummary/hoomd.cavitymd.EnergyTracker
-   _autosummary/hoomd.cavitymd.DipoleAutocorrelation
-   _autosummary/hoomd.cavitymd.AdaptiveTimestepUpdater
-   _autosummary/hoomd.cavitymd.PhysicalConstants
-   _autosummary/hoomd.cavitymd.unwrap_positions
-   _autosummary/hoomd.bussi_reservoir.BussiReservoir 
+   BussiReservoir 

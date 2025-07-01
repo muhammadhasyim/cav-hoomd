@@ -32,9 +32,17 @@ clean-all:
 install-deps:
 	pip install -r requirements.txt
 
-# Build HTML documentation
+# Build HTML documentation (single-threaded to avoid search index issues)
+html:
+	@$(SPHINXBUILD) -b html "$(SOURCEDIR)" "$(BUILDDIR)/html" $(SPHINXOPTS) $(O) -j 1
+
+# Build HTML documentation with warnings as errors
 html-fast:
-	@$(SPHINXBUILD) -b html "$(SOURCEDIR)" "$(BUILDDIR)/html" $(SPHINXOPTS) $(O) -W --keep-going
+	@$(SPHINXBUILD) -b html "$(SOURCEDIR)" "$(BUILDDIR)/html" $(SPHINXOPTS) $(O) -W --keep-going -j 1
+
+# Build HTML documentation without treating warnings as errors
+html-tolerant:
+	@$(SPHINXBUILD) -b html "$(SOURCEDIR)" "$(BUILDDIR)/html" $(SPHINXOPTS) $(O) --keep-going -j 1
 
 # Build with live reload for development
 live:
@@ -46,7 +54,7 @@ serve:
 
 # Check documentation for issues
 check:
-	@$(SPHINXBUILD) -b html "$(SOURCEDIR)" "$(BUILDDIR)/html" $(SPHINXOPTS) $(O) -W -n --keep-going
+	@$(SPHINXBUILD) -b html "$(SOURCEDIR)" "$(BUILDDIR)/html" $(SPHINXOPTS) $(O) -W -n --keep-going -j 1
 
 # Check external links
 linkcheck:

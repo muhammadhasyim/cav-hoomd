@@ -31,37 +31,73 @@ Where:
 - :math:`N_{\text{sub}}` is the number of molecules in a single simulation cell
 - :math:`d_{ng,\lambda}` is the dipole moment component
 
-**Our Single-Mode Implementation**
+Reducing to Single Mode Cavity Dynamics
+=======================================
 
-Cavity HOOMD implements a **simplified single-mode approximation** focusing on the lowest cavity mode. This reduces the complexity significantly while capturing the essential physics.
+**Single Mode Approximation (κ = 0)**
 
-**Single-Mode Equations**
+When we reduce the general multimode cavity molecular dynamics to a single mode case, we make several simplifying assumptions:
 
-For a single cavity mode (dropping indices :math:`k,\lambda`), the interaction Hamiltonian becomes:
+1. **Single cavity mode**: We consider only one photonic mode, typically the fundamental mode (κ = 0)
+2. **Specific field geometry**: The k-vector points in the z-direction
+3. **Polarization considerations**: The summation over λ now represents polarizations in the x and y directions
 
-.. math::
+**Simplified Nuclear Motion Equation**
 
-   H = \frac{1}{2} K q^2 + g \vec{q} \cdot \vec{d} + \frac{g^2}{2K} d^2
-
-Where:
-- :math:`q` is the cavity mode position (photon displacement)
-- :math:`d` is the total molecular dipole moment  
-- :math:`g` is the coupling strength
-- :math:`K = m \omega_c^2` is the cavity spring constant
-
-**Forces in Single-Mode Case**
-
-Molecular particles experience forces:
+For the single mode case, the nuclear motion equation becomes:
 
 .. math::
 
-   F_i = F_i^{\text{mol}} - g \, q_i \, q - \frac{g^2}{K} q_i \vec{d}
+   M_{nj}\ddot{R}_{nj} = F_{nj}^{(0)} - \tilde{\varepsilon}_{0,\lambda}\tilde{q}_{0,\lambda} + \frac{\tilde{\varepsilon}_{0,\lambda}^2}{m_{0,\lambda}\omega_{0,\lambda}^2} \sum_{l=1}^{N_{\text{sub}}} d_{lg,\lambda} \frac{\partial d_{ng,\lambda}}{\partial R_{nj}}
 
-The cavity mode evolves according to:
+**Simplified Photonic Mode Dynamics**
+
+The photonic mode equation reduces to:
 
 .. math::
 
-   m \ddot{q} = -K q - g \vec{d}
+   m_{0,\lambda}\ddot{\tilde{q}}_{0,\lambda} = -m_{0,\lambda}\omega_{0,\lambda}^2 \tilde{q}_{0,\lambda} - \tilde{\varepsilon}_{0,\lambda} \sum_{n=1}^{N_{\text{sub}}} d_{ng,\lambda}
+
+**Key Simplifications**
+
+1. **Mode Index Reduction**
+   
+   - The general (k,λ) indices reduce to (0,λ)
+   - Only the fundamental cavity mode (κ = 0) is retained
+   - The k-vector points along z-axis: **k⃗ = k_z ẑ**
+
+2. **Polarization Summation**
+   
+   With the field propagating in the z-direction, the polarization index λ now specifically refers to:
+   
+   - **λ = x**: Electric field polarized in x-direction
+   - **λ = y**: Electric field polarized in y-direction
+   
+   The summation ∑_λ effectively becomes ∑_{λ=x,y}, representing the two transverse polarization modes.
+
+3. **Coupling Strength Simplification**
+   
+   The effective coupling strength becomes:
+   
+   .. math::
+   
+      \tilde{\varepsilon}_{0,\lambda} = \sqrt{\frac{N_{\text{cell}} m_{0,\lambda}\omega_{0,\lambda}^2}{\Omega\varepsilon_0}}
+
+4. **Physical Interpretation**
+   
+   - **q̃_{0,λ}**: Normalized coordinate for the single cavity mode with polarization λ
+   - **d_{ng,λ}**: Dipole moment component of molecule n in direction λ (x or y)
+   - The coupling now involves only the transverse components of the molecular dipole moments
+
+**Resulting Dynamics**
+
+This single-mode approximation captures the essential physics of cavity-molecule coupling while dramatically simplifying the computational complexity. The system now describes:
+
+1. **Nuclear motion** influenced by a single cavity mode through the gradient of dipole-field coupling
+2. **Single photonic mode** driven by the collective dipole moment of all molecules in the transverse directions
+3. **Coherent coupling** between molecular vibrations and the cavity photon mode
+
+This reduction is particularly useful for studying strong coupling phenomena, polariton formation, and cavity-enhanced molecular dynamics in systems where one cavity mode dominates the interaction.
 
 Physical Interpretation
 =======================

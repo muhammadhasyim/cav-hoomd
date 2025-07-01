@@ -272,6 +272,10 @@ suppress_warnings = [
 autosummary_generate = True
 autosummary_generate_overwrite = True
 
+# Configure autosummary to avoid duplicate documentation warnings
+autosummary_mock_imports = []
+autosummary_imported_members = True
+
 # -- Options for intersphinx extension --------------------------------------
 
 intersphinx_mapping = {
