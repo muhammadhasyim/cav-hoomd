@@ -53,6 +53,18 @@ make serve
 make clean
 ```
 
+## ✨ Architecture Improvements
+
+The project has been restructured with a simplified architecture that provides several benefits:
+
+**Simplified Structure**: Plugins are now directly under `src/cavitymd/` and `src/bussi_reservoir/` instead of the previous nested `src/hoomd/plugin/` structure.
+
+**Streamlined Documentation**: The build process now uses conda-installed HOOMD with minimal C++ mocking, eliminating complex import workarounds and ensuring real docstrings are preserved.
+
+**Better Read the Docs Integration**: The simplified approach works seamlessly with Read the Docs' conda environment, providing reliable documentation builds.
+
+**Cleaner Development**: Developers no longer need to deal with complex namespace management or extensive mocking systems.
+
 ## 🌐 Deployment
 
 ### GitHub Pages

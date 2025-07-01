@@ -1,4 +1,14 @@
 # Configuration file for the Sphinx documentation builder.
+#
+# SIMPLIFIED ARCHITECTURE:
+# This configuration uses a streamlined approach after project restructuring:
+# 1. HOOMD is installed via conda (see environment.yml) 
+# 2. Only C++ extensions (_cavitymd, _bussi_reservoir) are mocked
+# 3. Plugins are imported directly from src/ (no intermediate hoomd/ folder)
+# 4. Real docstrings and signatures are preserved
+# 
+# This eliminates the complex mocking system previously required.
+#
 # This file only contains a selection of the most common options. For a full
 # list see the documentation:
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
