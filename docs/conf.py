@@ -6,129 +6,6 @@
 import os
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock
-
-class MockModule(MagicMock):
-    """A more sophisticated mock that handles module imports better."""
-    @classmethod
-    def __getattr__(cls, name):
-        return MagicMock()
-
-# Create mock classes for documentation
-def create_mock_cavitymd_module():
-    """Create a mock hoomd.cavitymd module with the expected classes."""
-    mock_module = MagicMock()
-    
-    # Mock classes with basic structure for autosummary
-    mock_classes = {
-        'CavityForce': type('CavityForce', (), {
-            '__doc__': 'Cavity force with automatic C++/Python fallback.',
-            '__module__': 'hoomd.cavitymd',
-            '__init__': lambda self, *args, **kwargs: None,
-        }),
-        'Status': type('Status', (), {
-            '__doc__': 'Status tracking for cavity simulations.',
-            '__module__': 'hoomd.cavitymd',
-        }),
-        'ElapsedTimeTracker': type('ElapsedTimeTracker', (), {
-            '__doc__': 'Track elapsed time during simulation.',
-            '__module__': 'hoomd.cavitymd',
-        }),
-        'TimestepFormatter': type('TimestepFormatter', (), {
-            '__doc__': 'Format timestep information.',
-            '__module__': 'hoomd.cavitymd',
-        }),
-        'CavityModeTracker': type('CavityModeTracker', (), {
-            '__doc__': 'Track cavity mode properties.',
-            '__module__': 'hoomd.cavitymd',
-        }),
-        'AutocorrelationTracker': type('AutocorrelationTracker', (), {
-            '__doc__': 'Track autocorrelation functions.',
-            '__module__': 'hoomd.cavitymd',
-        }),
-        'FieldAutocorrelationTracker': type('FieldAutocorrelationTracker', (), {
-            '__doc__': 'Track field autocorrelation functions.',
-            '__module__': 'hoomd.cavitymd',
-        }),
-        'EnergyTracker': type('EnergyTracker', (), {
-            '__doc__': 'Track energy components.',
-            '__module__': 'hoomd.cavitymd',
-        }),
-        'DipoleAutocorrelation': type('DipoleAutocorrelation', (), {
-            '__doc__': 'Track dipole autocorrelation.',
-            '__module__': 'hoomd.cavitymd',
-        }),
-        'AdaptiveTimestepUpdater': type('AdaptiveTimestepUpdater', (), {
-            '__doc__': 'Adaptive timestep updater.',
-            '__module__': 'hoomd.cavitymd',
-        }),
-        'PhysicalConstants': type('PhysicalConstants', (), {
-            '__doc__': 'Physical constants for cavity MD.',
-            '__module__': 'hoomd.cavitymd',
-        }),
-    }
-    
-    # Mock functions
-    def unwrap_positions(*args, **kwargs):
-        """Unwrap particle positions.
-        
-        Parameters
-        ----------
-        positions : array_like
-            Particle positions to unwrap
-            
-        Returns
-        -------
-        array_like
-            Unwrapped positions
-        """
-        pass
-    unwrap_positions.__module__ = 'hoomd.cavitymd'
-    unwrap_positions.__qualname__ = 'unwrap_positions'
-    unwrap_positions.__name__ = 'unwrap_positions'
-    
-    # Set up the mock module
-    for name, cls in mock_classes.items():
-        setattr(mock_module, name, cls)
-    
-    mock_module.unwrap_positions = unwrap_positions
-    mock_module.__all__ = list(mock_classes.keys()) + ['unwrap_positions']
-    mock_module.__file__ = '/mock/hoomd/cavitymd/__init__.py'
-    mock_module.__path__ = ['/mock/hoomd/cavitymd']
-    
-    return mock_module
-
-def create_mock_bussi_module():
-    """Create a mock hoomd.bussi_reservoir module."""
-    mock_module = MagicMock()
-    
-    BussiReservoir = type('BussiReservoir', (), {
-        '__doc__': 'Extended Bussi thermostat with reservoir energy tracking.',
-        '__module__': 'hoomd.bussi_reservoir',
-        '__init__': lambda self, *args, **kwargs: None,
-    })
-    
-    mock_module.BussiReservoir = BussiReservoir
-    mock_module.__all__ = ['BussiReservoir']
-    mock_module.__file__ = '/mock/hoomd/bussi_reservoir/__init__.py'
-    mock_module.__path__ = ['/mock/hoomd/bussi_reservoir']
-    
-    return mock_module
-
-# Setup sys.modules for modules that can't be imported on RTD
-def mock_modules():
-    """Set up comprehensive mocking for Read the Docs."""
-    # Basic C++ extension mocks
-    mock_modules_list = [
-        'hoomd.md._md',
-        'hoomd.bussi_reservoir._bussi_reservoir',
-    ]
-    for module in mock_modules_list:
-        sys.modules[module] = MockModule()
-    
-    # Create comprehensive module mocks
-    sys.modules['hoomd.cavitymd'] = create_mock_cavitymd_module()
-    sys.modules['hoomd.bussi_reservoir'] = create_mock_bussi_module()
 
 # -- Path setup --------------------------------------------------------------
 
@@ -137,13 +14,6 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 sys.path.insert(0, str(project_root / 'src'))
 sys.path.insert(0, str(project_root / 'examples'))
-
-# -- Mock imports for Read the Docs ------------------------------------------
-
-# -- Mock imports for Read the Docs ------------------------------------------
-# Environment-aware mocking: only mock when actually needed (like on Read the Docs)
-
-import os
 
 # -- Project information -----------------------------------------------------
 
@@ -171,7 +41,7 @@ extensions = [
     'sphinx.ext.viewcode',
     'sphinx.ext.napoleon',
     'sphinx.ext.githubpages',
-    # 'sphinx_autodoc_typehints', # Temporarily disabled due to conflict with mocking
+    'sphinx_autodoc_typehints',  # Re-enabled since we have real imports now
     'myst_parser',
     'sphinx_copybutton',
     'sphinxcontrib.bibtex',
@@ -359,40 +229,20 @@ autodoc_default_options = {
     'exclude-members': '__weakref__'
 }
 
-# autodoc_typehints = 'description'  # Disabled with sphinx_autodoc_typehints extension
-# autodoc_typehints_description_target = 'documented'
+autodoc_typehints = 'description'
+autodoc_typehints_description_target = 'documented'
 
-# Don't fail on import errors and handle mocked modules gracefully
+# Don't fail on import errors and handle gracefully
 autodoc_preserve_defaults = True
 
-# Environment-aware mocking: only mock on Read the Docs or when dependencies missing
-if os.environ.get('READTHEDOCS') == 'True' or os.environ.get('RTD_ENV_NAME'):
-    # On Read the Docs - mock external dependencies that won't be available
-    # Note: This may show a warning about "mocked analysis" but the build will succeed
-    mock_modules()  # Setup sophisticated mocking for C++ extensions
-    autodoc_mock_imports = [
-        'hoomd',  # Unfortunately needed to provide consistent import chain
-        'hoomd.md',
-        'hoomd.md._md',
-        'hoomd.md.methods',
-        'hoomd.md.methods.thermostats',
-        'hoomd.operation',
-        'hoomd.data',
-        'hoomd.data.parameterdicts',
-        'hoomd.variant',
-        'hoomd.logging',
-        'freud', 
-        'gsd',
-        'mpi4py',
-        'cupy',
-        'numba',
-        'pycuda',
-    ]
-    print("Read the Docs environment detected - enabling mocking for external dependencies")
-else:
-    # Local development - no mocking needed if dependencies are available
-    autodoc_mock_imports = []
-    print("Local environment - no mocking")
+# Only mock imports that are truly unavailable (like C++ extensions that need compilation)
+# Most dependencies should now be available via conda
+autodoc_mock_imports = [
+    # Only mock the compiled C++ extensions that won't be available even with HOOMD installed
+    'hoomd.md._md',
+    'hoomd.cavitymd._cavitymd',
+    'hoomd.bussi_reservoir._bussi_reservoir',
+]
 
 # Suppress certain warnings related to mocked imports
 suppress_warnings = [
