@@ -48,7 +48,7 @@ endif()
 # Build bussi_reservoir module (thermostat only)
 set(_bussi_reservoir_sources
     src/BussiReservoirThermostat.cc
-    src/hoomd/bussi_reservoir/module.cc
+    src/bussi_reservoir/module.cc
     )
 
 pybind11_add_module(_bussi_reservoir SHARED ${_bussi_reservoir_sources})
@@ -68,7 +68,7 @@ target_compile_definitions(_bussi_reservoir PRIVATE
 # Build cavitymd module (cavity force) - Re-enabled with CPU support
 set(_cavitymd_sources
     src/CavityForceCompute.cc
-    src/hoomd/cavitymd/module.cc
+    src/cavitymd/module.cc
     )
 
 # GPU support enabled for CUDA compilation
@@ -103,13 +103,13 @@ install(TARGETS _cavitymd
         )
 
 # Install the python packages
-install(DIRECTORY src/hoomd/bussi_reservoir/
+install(DIRECTORY src/bussi_reservoir/
         DESTINATION ${Python_SITEARCH}/hoomd/bussi_reservoir
         FILES_MATCHING PATTERN "*.py"
         )
 
 # Install the cavity module python packages
-install(DIRECTORY src/hoomd/cavitymd/
+install(DIRECTORY src/cavitymd/
         DESTINATION ${Python_SITEARCH}/hoomd/cavitymd
         FILES_MATCHING PATTERN "*.py"
         )
