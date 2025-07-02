@@ -156,7 +156,7 @@ class CavityMDSimulation:
                  enable_fkt=True, fkt_kmag=1.0, fkt_num_wavevectors=50, fkt_reference_interval_ps=1.0, fkt_max_references=10,
                  max_energy_output_time_ps=None, enable_energy_tracking=False, dt_fs=None, device='CPU', gpu_id=0,
                  energy_output_period_ps=0.1, fkt_output_period_ps=1.0, gsd_output_period_ps=50.0, console_output_period_ps=1.0,
-                 enable_text_output=False, text_output_file=None):
+                 enable_text_output=False, text_output_file=None, truncate_gsd=False):
         """Initialize the CavityMDSimulation with simulation parameters."""
         self.job_dir = job_dir
         self.replica = replica
@@ -212,6 +212,7 @@ class CavityMDSimulation:
         self.console_output_period_ps = console_output_period_ps
         self.enable_text_output = enable_text_output
         self.text_output_file = text_output_file
+        self.truncate_gsd = truncate_gsd
         
         # Initialize simulation components (will be set during setup)
         self.sim = None
@@ -1199,7 +1200,7 @@ class CavityMDSimulation:
             trigger=hoomd.trigger.Periodic(self.gsd_period),
             dynamic=['property', 'momentum', 'particles/diameter', 'topology'],
             mode='wb',
-            truncate=False,
+            truncate=self.truncate_gsd,
             filter=hoomd.filter.All()
         )
         gsd_writer.logger = self.logger_hoomd
@@ -1212,6 +1213,7 @@ class CavityMDSimulation:
         self.sim.operations.writers.append(gsd_writer)
         self.log_info(f"GSD writer added for file: {self.name}-{self.replica}.gsd")
         self.log_info(f"  GSD output period: {self.gsd_period} steps ({self.gsd_output_period_ps:.3f} ps)")
+        self.log_info(f"  GSD truncate mode: {self.truncate_gsd} ({'overwrite existing file' if self.truncate_gsd else 'append to existing file'})")
         
         # Create a separate logger for console output with only performance and time metrics
         console_logger = hoomd.logging.Logger(categories=['scalar', 'string'])
@@ -1320,7 +1322,7 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
                          device='CPU', gpu_id=0, incavity=True, fixed_timestep=False, 
                          timestep_fs=1.0, enable_energy_tracking=False, 
                          energy_output_period_ps=0.1, fkt_output_period_ps=1.0, 
-                         gsd_output_period_ps=50.0, console_output_period_ps=1.0):
+                         gsd_output_period_ps=50.0, console_output_period_ps=1.0, truncate_gsd=False):
     """
     Run a single experiment using the CavityMDSimulation class.
     """
@@ -1390,7 +1392,8 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
             gsd_output_period_ps=gsd_output_period_ps,
             console_output_period_ps=console_output_period_ps,
             enable_text_output=False,
-            text_output_file=None
+            text_output_file=None,
+            truncate_gsd=truncate_gsd
         )
         
         # Run the simulation
@@ -1476,6 +1479,10 @@ def main():
     parser.add_argument('--gpu-id', type=int, default=0, 
                        help='GPU ID when using GPU device (default: 0)')
     
+    # GSD output control
+    parser.add_argument('--truncate-gsd', action='store_true', 
+                       help='Truncate GSD output file if it exists (default: append)')
+    
     args = parser.parse_args()
     
     print("Advanced Cavity MD Experiment Runner")
@@ -1558,7 +1565,8 @@ def main():
             energy_output_period_ps=args.energy_output_period_ps,
             fkt_output_period_ps=args.fkt_output_period_ps,
             gsd_output_period_ps=args.gsd_output_period_ps,
-            console_output_period_ps=args.console_output_period_ps
+            console_output_period_ps=args.console_output_period_ps,
+            truncate_gsd=args.truncate_gsd
         )
         
         if success:
