@@ -338,11 +338,19 @@ class CavityMDSimulation:
 
     def calculate_physical_parameters(self):
         """Calculate physical parameters and unit conversions."""
-        # Time stepping parameters - keep ps and atomic unit values separate
-        dt_ps = 0.0001  # timestep in ps (1 fs - reasonable for MD simulations)
+        # Determine the actual timestep to use for calculations
+        if self.error_tolerance <= 0 and self.dt_fs is not None:
+            # Fixed timestep mode with user-specified timestep
+            dt_ps = self.dt_fs / 1000.0  # Convert fs to ps
+            self.log_info(f"Using user-specified timestep for calculations: {self.dt_fs} fs = {dt_ps} ps")
+        else:
+            # Adaptive timestep mode or no user-specified timestep - use default
+            dt_ps = 0.0001  # timestep in ps (0.1 fs - reasonable default for adaptive mode)
+            self.log_info(f"Using default timestep for calculations: {dt_ps} ps")
+        
         runtime_real = self.runtime_ps  # runtime in ps
         
-        # Calculate different output periods in timesteps using ps values
+        # Calculate different output periods in timesteps using the correct dt_ps
         energy_period = max(1, int(self.energy_output_period_ps / dt_ps))
         fkt_period = max(1, int(self.fkt_output_period_ps / dt_ps))
         gsd_period = max(1, int(self.gsd_output_period_ps / dt_ps))
