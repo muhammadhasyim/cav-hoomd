@@ -258,7 +258,8 @@ class FieldAutocorrelationTracker(BaseTracker):
     """Generic autocorrelation tracker for field observables with k-space averaging."""
     
     def __init__(self, simulation, observable, time_tracker=None, output_prefix=None, 
-                 output_period_steps=1000, reference_interval_steps=10000, max_references=10, **kwargs):
+                 output_period_steps=1000, reference_interval_steps=10000, max_references=10, 
+                 reference_interval_ps=None, **kwargs):
         """Initialize field autocorrelation tracker.
         
         Args:
@@ -267,8 +268,9 @@ class FieldAutocorrelationTracker(BaseTracker):
             time_tracker: Optional time tracker for accurate timing
             output_prefix: Prefix for output files
             output_period_steps: Output frequency in simulation steps
-            reference_interval_steps: Interval between new references in steps
+            reference_interval_steps: Interval between new references in steps (DEPRECATED in adaptive mode)
             max_references: Maximum number of reference states to keep
+            reference_interval_ps: Interval between new references in ps (PREFERRED for adaptive mode)
             **kwargs: Observable-specific parameters
         """
         if observable not in FIELD_OBSERVABLES:
@@ -276,7 +278,8 @@ class FieldAutocorrelationTracker(BaseTracker):
         
         self.observable = observable
         self.observable_func = FIELD_OBSERVABLES[observable]
-        self.reference_interval_steps = reference_interval_steps
+        self.reference_interval_steps = reference_interval_steps  # Fallback for fixed timestep
+        self.reference_interval_ps = reference_interval_ps  # Preferred for adaptive timestep
         self.max_references = max_references
         
         if output_prefix is None:
@@ -290,6 +293,7 @@ class FieldAutocorrelationTracker(BaseTracker):
         # Initialize field autocorrelation tracking
         self.references = []  # List of reference states
         self.last_reference_step = 0
+        self.last_reference_time_ps = 0.0  # Track time of last reference for time-based intervals
         
         # Initialize first reference and output files
         self._initialize_new_reference_file(0)
@@ -332,6 +336,9 @@ class FieldAutocorrelationTracker(BaseTracker):
                 'field': reference_field
             })
             
+            # Update timing trackers
+            self.last_reference_time_ps = current_time
+            
             # Create output file with header
             with open(ref_filename, 'w') as f:
                 f.write(f'# {self.observable.capitalize()} field autocorrelation\n')
@@ -351,6 +358,20 @@ class FieldAutocorrelationTracker(BaseTracker):
             return np.mean(np.real(field0 * np.conj(field_t)))
         else:
             return np.dot(field0, field_t)
+    
+    def _should_create_new_reference(self, current_time_ps, timestep):
+        """Determine if a new reference should be created based on time or step interval."""
+        if len(self.references) >= self.max_references:
+            return False
+        
+        # Prefer time-based intervals for accuracy in adaptive timestep mode
+        if self.reference_interval_ps is not None:
+            time_since_last = current_time_ps - self.last_reference_time_ps
+            return time_since_last >= self.reference_interval_ps
+        else:
+            # Fallback to step-based for fixed timestep mode
+            step_since_last = timestep - self.last_reference_step
+            return step_since_last >= self.reference_interval_steps
     
     def act(self, timestep):
         # Get current time FIRST, outside snapshot context
@@ -378,8 +399,7 @@ class FieldAutocorrelationTracker(BaseTracker):
                     f.write(f'{timestep} {lag_time:.6f} {autocorr_value:.6f}\n')
         
         # Add new reference if interval has passed and we haven't hit max
-        if (timestep - self.last_reference_step >= self.reference_interval_steps and 
-            len(self.references) < self.max_references):
+        if self._should_create_new_reference(current_time, timestep):
             ref_number = len(self.references)
             self._initialize_new_reference_file(ref_number)
             self.last_reference_step = timestep
