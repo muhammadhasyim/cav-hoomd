@@ -840,7 +840,7 @@ class CavityMDSimulation:
                 integrator=self.sim.operations.integrator,
                 error_tolerance=self.error_tolerance,
                 time_constant_ps=50.0,
-                initial_fraction=1e-4,
+                initial_fraction=1e-3,
                 adaptiveerror=True,
                 cavity_damping_factor=self.cavity_damping_factor,
                 molecular_thermostat_tau=self.molecular_thermostat_tau,
