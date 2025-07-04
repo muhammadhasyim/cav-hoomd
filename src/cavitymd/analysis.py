@@ -196,7 +196,8 @@ class AutocorrelationTracker(BaseTracker):
                 f.write(f'# Output period: {self.output_period_steps} steps\n')
                 f.write('# timestep t(ps) C(t)\n')
                 f.write(f'{0} {0.0:.6f} {self.current_autocorr_value:.6f}\n')
-        
+                f.flush()
+
         print(f"{self.observable.capitalize()} autocorrelation tracker initialized. C(0) = {self.current_autocorr_value:.6e}")
         print(f"Output period: {self.output_period_steps} steps")
         print(f"Writing to file: {self.output_file_path}")
@@ -224,6 +225,7 @@ class AutocorrelationTracker(BaseTracker):
                 f.write(f'# Output period: {self.output_period_steps} steps\n')
                 f.write('# timestep t(ps) C(t)\n')
                 f.write(f'{timestep} {self._get_current_time(timestep):.6f} {self.current_autocorr_value:.6f}\n')
+                f.flush()
     
     def act(self, timestep):
         if timestep == 0:
@@ -239,6 +241,7 @@ class AutocorrelationTracker(BaseTracker):
                 current_time = self._get_current_time(timestep)
                 with open(self.output_file_path, 'a') as f:
                     f.write(f'{timestep} {current_time:.6f} {autocorr_value:.6f}\n')
+                    f.flush()
                 self._update_output_step(timestep)
                 
                 # Start new reference file every 10000 steps
@@ -345,7 +348,8 @@ class FieldAutocorrelationTracker(BaseTracker):
                 f.write(f'# Reference {ref_number} at t={current_time:.6f} ps\n')
                 f.write(f'# Output period: {self.output_period_steps} steps\n')
                 f.write('# timestep lag_time(ps) field_autocorr\n')
-        
+                f.flush()
+
         print(f"Initialized {self.observable} field autocorr reference {ref_number}")
     
     def _initialize_logging_values(self):
@@ -397,7 +401,8 @@ class FieldAutocorrelationTracker(BaseTracker):
             if self._should_output(timestep):
                 with open(ref['filename'], 'a') as f:
                     f.write(f'{timestep} {lag_time:.6f} {autocorr_value:.6f}\n')
-        
+                    f.flush()
+
         # Add new reference if interval has passed and we haven't hit max
         if self._should_create_new_reference(current_time, timestep):
             ref_number = len(self.references)
@@ -664,7 +669,7 @@ class EnergyTracker(BaseTracker):
                     header += ' temperature'
                 header += '\n'
                 f.write(header)
-                
+                f.flush()
             if self.verbose != 'quiet':
                 print(f"EnergyTracker: Successfully created output file {self.output_file_path}")
         except Exception as e:
@@ -1026,7 +1031,8 @@ class EnergyTracker(BaseTracker):
             with open(self.output_file_path, 'a') as f:
                 formatted_values = [f'{val:.6f}' if isinstance(val, float) else str(val) for val in output_values]
                 f.write(' '.join(formatted_values) + '\n')
-                
+                f.flush()
+
             if self.verbose == 'verbose':
                 print(f"Successfully wrote energy data to {self.output_file_path}")
                 
@@ -1311,7 +1317,7 @@ class CavityModeTracker(hoomd.custom.Action):
             f.write('# Cavity mode tracking\n')
             f.write(f'# Output period: {self.output_period_steps} steps\n')
             f.write('# timestep time(ps) cavity_kinetic_energy cavity_potential_energy cavity_total_energy cavity_temperature\n')
-        
+            f.flush()
         print(f"CavityModeTracker: Will write to {self.output_file_path}")
         print(f"CavityModeTracker: Output period = {self.output_period_steps} steps")
 
@@ -1390,7 +1396,8 @@ class CavityModeTracker(hoomd.custom.Action):
             
             with open(self.output_file_path, 'a') as f:
                 f.write(f'{timestep} {current_time:.6f} {kinetic:.6f} {potential:.6f} {total:.6f} {temperature:.6f}\n')
-            
+                f.flush()
+                
             self.last_output_step = timestep
 
     @hoomd.logging.log
