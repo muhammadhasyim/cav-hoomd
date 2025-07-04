@@ -132,7 +132,7 @@ class BaseTracker(hoomd.custom.Action):
         if self.time_tracker is not None:
             return self.time_tracker.elapsed_time
         else:
-            return timestep * self.sim.operations.integrator.dt * 0.02418884  # Convert to ps
+            return PhysicalConstants.atomic_units_to_ps(timestep * self.sim.operations.integrator.dt)
     
     def _should_output(self, timestep):
         """Check if we should output at this timestep."""
@@ -684,7 +684,7 @@ class EnergyTracker(BaseTracker):
         if self.time_tracker is not None:
             current_time = self.time_tracker.elapsed_time
         else:
-            current_time = timestep * self.sim.operations.integrator.dt * 0.02418884  # Convert to ps
+            current_time = PhysicalConstants.atomic_units_to_ps(timestep * self.sim.operations.integrator.dt)
             
         # Check time limit first (more accurate than timestep limit)
         if self.max_time_ps is not None:
