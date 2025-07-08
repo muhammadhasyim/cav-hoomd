@@ -15,6 +15,7 @@ FEATURES:
 - GPU and CPU support
 - Comprehensive logging and output control
 - SLURM array job support and local multi-replica execution
+- Smart cavity particle handling (auto-detects existing cavity particles)
 
 BASIC USAGE:
    # Run a single experiment with cavity coupling
@@ -28,6 +29,12 @@ BASIC USAGE:
    
    # Run with finite-q cavity mode
    python 05_advanced_run.py --molecular-bath bussi --cavity-bath langevin --finite-q --coupling 1e-3 --runtime 1000
+
+CAVITY PARTICLE HANDLING:
+   The script automatically detects whether cavity particles already exist in your GSD file:
+   - If cavity particles exist: Uses them (validates count and properties)
+   - If no cavity particles exist: Adds new ones automatically (when cavity coupling enabled)
+   - Clear error messages if configuration is invalid
 
 THERMOSTAT OPTIONS:
 - --molecular-bath: bussi, langevin, none (thermostat for molecular particles)
@@ -43,6 +50,7 @@ ADVANCED FEATURES:
 - --enable-fkt: F(k,t) density correlation functions
 - --fixed-timestep: Use fixed timestep instead of adaptive
 - --device GPU: Run on GPU instead of CPU
+- --seed: Control random seed for reproducibility
 
 OUTPUT CONTROL:
 - Separate output periods for different observables (energy, F(k,t), trajectories, console)
@@ -145,6 +153,12 @@ class PerformanceTracker(hoomd.custom.Action):
 class CavityMDSimulation:
     """
     A class to encapsulate cavity MD simulation setup and execution.
+    
+    Features smart cavity particle handling:
+    - Automatically detects if cavity particles already exist in the GSD file
+    - Only adds new cavity particles when none exist and add_cavity_particle=True
+    - Validates existing cavity particles when found
+    - Provides clear error messages for misconfigurations
     """
     
     def __init__(self, job_dir, replica, freq, couplstr, incavity, runtime_ps=500.0, 
@@ -156,7 +170,7 @@ class CavityMDSimulation:
                  enable_fkt=True, fkt_kmag=1.0, fkt_num_wavevectors=50, fkt_reference_interval_ps=1.0, fkt_max_references=10,
                  max_energy_output_time_ps=None, enable_energy_tracking=False, dt_fs=None, device='CPU', gpu_id=0,
                  energy_output_period_ps=0.1, fkt_output_period_ps=1.0, gsd_output_period_ps=50.0, console_output_period_ps=1.0,
-                 enable_text_output=False, text_output_file=None, truncate_gsd=False):
+                 enable_text_output=False, text_output_file=None, truncate_gsd=False, seed=None):
         """Initialize the CavityMDSimulation with simulation parameters."""
         self.job_dir = job_dir
         self.replica = replica
@@ -201,6 +215,9 @@ class CavityMDSimulation:
         # Device configuration
         self.device = device.upper()
         self.gpu_id = gpu_id
+        
+        # Seed configuration
+        self.seed = seed
         
         # Physical constants
         self.kB = PhysicalConstants.KB_HARTREE_PER_K
@@ -248,6 +265,7 @@ class CavityMDSimulation:
         self.log_info(f"Device: {self.device}" + (f" (GPU {self.gpu_id})" if self.device == 'GPU' else ""))
         self.log_info(f"Runtime: {self.runtime_ps} ps")
         self.log_info(f"Temperature: {self.temperature} K")
+        self.log_info(f"Random seed: {self.seed if self.seed is not None else 'replica-based'}")
         self.log_info(f"Cavity coupling: {'Enabled' if self.incavity else 'Disabled'}")
         if self.incavity:
             self.log_info(f"  Frequency: {self.freq} cm^-1")
@@ -397,8 +415,16 @@ class CavityMDSimulation:
         # Setup device
         device = self.setup_device()
         
-        # Create simulation object
-        self.sim = hoomd.Simulation(device=device, seed=np.random.randint(int(10**4)))
+        # Create simulation object with seed control
+        if self.seed is not None:
+            simulation_seed = self.seed
+            self.log_info(f"Using user-specified seed: {simulation_seed}")
+        else:
+            # Generate deterministic seed based on replica for reproducibility
+            simulation_seed = hash(str(self.replica)) % (2**31)  # Use replica-based seed
+            self.log_info(f"Using replica-based seed: {simulation_seed} (replica {self.replica})")
+        
+        self.sim = hoomd.Simulation(device=device, seed=simulation_seed)
         
         # Load GSD file and handle cavity particle
         with gsd.hoomd.open(self.input_gsd, 'r') as f:
@@ -408,20 +434,39 @@ class CavityMDSimulation:
                     self.frame = 0
             snapshot = f[self.frame]
             
-            if self.incavity and self.add_cavity_particle:
-                # Add new cavity particle
-                self.log_info("Adding cavity particle to system...")
-                snapshot = self.create_cavity_particle(snapshot)
-                self.sim.create_state_from_snapshot(snapshot)
-                self.log_info(f"Simulation state created from modified snapshot with cavity particle")
-            else:
-                # Use original GSD file
-                self.sim.create_state_from_gsd(filename=self.input_gsd, frame=self.frame)
-                self.log_info(f"Simulation state created from original GSD file frame {self.frame}")
+            if self.incavity:
+                # Check if cavity particle already exists
+                cavity_exists, cavity_count = self.check_cavity_particle_exists(snapshot)
                 
-                # Validate cavity particle if needed
-                if self.incavity:
+                if cavity_exists:
+                    # Cavity particle already exists - use original snapshot
+                    self.log_info(f"Cavity particle already exists in GSD file ({cavity_count} found)")
+                    if cavity_count > 1:
+                        self.log_warning(f"Multiple cavity particles found ({cavity_count}). Expected exactly 1.")
+                    self.sim.create_state_from_gsd(filename=self.input_gsd, frame=self.frame)
+                    self.log_info(f"Simulation state created from original GSD file with existing cavity particle")
+                    # Validate the existing cavity particle
                     self.validate_cavity_particle()
+                    
+                elif self.add_cavity_particle:
+                    # No cavity particle exists, but we want to add one
+                    self.log_info("No cavity particle found in GSD file - adding new cavity particle")
+                    snapshot = self.create_cavity_particle(snapshot)
+                    self.sim.create_state_from_snapshot(snapshot)
+                    self.log_info(f"Simulation state created from modified snapshot with new cavity particle")
+                    
+                else:
+                    # No cavity particle exists and we don't want to add one - this is an error
+                    raise ValueError(
+                        "ERROR: Cavity simulation requested but no cavity particle found in GSD file "
+                        "and add_cavity_particle=False. Either:\n"
+                        "  1. Set add_cavity_particle=True to automatically add a cavity particle, or\n"
+                        "  2. Use a GSD file that already contains a cavity particle (type 'L' with typeid=2)"
+                    )
+            else:
+                # No cavity simulation - use original GSD file
+                self.sim.create_state_from_gsd(filename=self.input_gsd, frame=self.frame)
+                self.log_info(f"Simulation state created from original GSD file (no cavity)")
         
         return snapshot
 
@@ -450,9 +495,29 @@ class CavityMDSimulation:
         
         return device
 
+    def check_cavity_particle_exists(self, snapshot):
+        """Check if a cavity particle already exists in the snapshot."""
+        # Check if 'L' particle type exists
+        if 'L' not in snapshot.particles.types:
+            return False, 0
+        
+        # Check if any particles have typeid == 2 (cavity particles)
+        cavity_count = np.sum(snapshot.particles.typeid == 2)
+        return cavity_count > 0, cavity_count
+
     def create_cavity_particle(self, snapshot):
-        """Add a cavity particle to the simulation snapshot."""
-        self.log_info("Adding cavity particle to system...")
+        """
+        Add a new cavity particle to the simulation snapshot.
+        
+        Note: This method assumes no cavity particle already exists in the snapshot.
+        Use check_cavity_particle_exists() to verify this before calling.
+        """
+        self.log_info("Creating new cavity particle and adding to system...")
+        
+        # Set numpy seed for reproducible cavity particle positioning if seed is provided
+        if self.seed is not None:
+            np.random.seed(self.seed + 2)  # Use seed+2 to differentiate from other random operations
+            self.log_info(f"Using seed {self.seed + 2} for cavity particle positioning")
         
         # Calculate dipole moment and photon position
         positions = unwrap_positions(snapshot.particles.position, snapshot.particles.image, 
@@ -710,6 +775,11 @@ class CavityMDSimulation:
     def thermalize_system(self):
         """Initialize particle velocities and thermostat degrees of freedom."""
         kT = self.kB * self.temperature
+        
+        # Set numpy seed for reproducible thermalization if seed is provided
+        if self.seed is not None:
+            np.random.seed(self.seed + 1)  # Use seed+1 to differentiate from HOOMD seed
+            self.log_info(f"Using seed {self.seed + 1} for thermalization randomness")
         
         # Thermalize particle momenta
         if self.incavity:
@@ -1078,7 +1148,7 @@ class CavityMDSimulation:
                         cavity_mode_tracker=cavity_mode_tracker,
                         time_tracker=self.time_tracker,
                         output_prefix=output_prefix,
-                        output_period_ps=self.energy_output_period_ps,  # Use time-based output period
+                        output_period_steps=1,  # Check every step for best timing accuracy
                         max_time_ps=self.max_energy_output_time_ps,  # Use time-based limit directly
                         compute_temperature=True,
                         track_reservoirs=True,
@@ -1135,12 +1205,12 @@ class CavityMDSimulation:
                 self.log_info(f"  Reference interval: {self.fkt_reference_interval_ps:.3f} ps")
                 self.log_info(f"  Trigger period: {fkt_trigger_period} step")
                 
-                # Create density correlation tracker with time-based output and reference intervals
+                # Create density correlation tracker with time-based reference interval
                 self.density_corr_tracker = FieldAutocorrelationTracker(
                     simulation=self.sim,
                     observable="density_correlation",
                     time_tracker=self.time_tracker,
-                    output_period_ps=self.fkt_output_period_ps,  # Use time-based output period
+                    output_period_steps=1,  # Check every step for best timing accuracy
                     output_prefix=f'{self.name}-{self.replica}',
                     reference_interval_ps=self.fkt_reference_interval_ps,  # Use time-based interval
                     max_references=self.fkt_max_references,
@@ -1357,7 +1427,7 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
                          device='CPU', gpu_id=0, incavity=True, fixed_timestep=False, 
                          timestep_fs=1.0, enable_energy_tracking=False, 
                          energy_output_period_ps=0.1, fkt_output_period_ps=1.0, 
-                         gsd_output_period_ps=50.0, console_output_period_ps=1.0, truncate_gsd=False):
+                         gsd_output_period_ps=50.0, console_output_period_ps=1.0, truncate_gsd=False, seed=None):
     """
     Run a single experiment using the CavityMDSimulation class.
     """
@@ -1428,7 +1498,8 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
             console_output_period_ps=console_output_period_ps,
             enable_text_output=False,
             text_output_file=None,
-            truncate_gsd=truncate_gsd
+            truncate_gsd=truncate_gsd,
+            seed=seed
         )
         
         # Run the simulation
@@ -1518,6 +1589,10 @@ def main():
     parser.add_argument('--truncate-gsd', action='store_true', 
                        help='Truncate GSD output file if it exists (default: append)')
     
+    # Seed control
+    parser.add_argument('--seed', type=int, 
+                       help='Random seed for simulation (default: replica-based deterministic seed)')
+    
     args = parser.parse_args()
     
     print("Advanced Cavity MD Experiment Runner")
@@ -1554,6 +1629,7 @@ def main():
     print(f"  Device: {args.device}")
     if args.device == 'GPU':
         print(f"    GPU ID: {args.gpu_id}")
+    print(f"  Random seed: {args.seed if args.seed is not None else 'replica-based (deterministic)'}")
     
     # Set up device configuration
     device = args.device.upper()
@@ -1601,7 +1677,8 @@ def main():
             fkt_output_period_ps=args.fkt_output_period_ps,
             gsd_output_period_ps=args.gsd_output_period_ps,
             console_output_period_ps=args.console_output_period_ps,
-            truncate_gsd=args.truncate_gsd
+            truncate_gsd=args.truncate_gsd,
+            seed=args.seed
         )
         
         if success:
