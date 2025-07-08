@@ -107,8 +107,8 @@ class PerformanceTracker(hoomd.custom.Action):
         self.current_eta = ""
         
     def act(self, timestep):
-        if timestep <= 1:
-            return
+        #if timestep <= 1:
+        #    return
             
         # Calculate simulation progress
         if self.time_tracker is not None:
@@ -120,27 +120,28 @@ class PerformanceTracker(hoomd.custom.Action):
         # Calculate wall time elapsed
         wall_time_elapsed = time.time() - self.start_time
         
-        if wall_time_elapsed > 0:
-            # Calculate ns/day
-            ps_per_second = simulation_time_ps / wall_time_elapsed
-            ns_per_second = ps_per_second / 1000.0
-            self.current_ns_per_day = ns_per_second * 86400
-            
-            # Calculate ETA
-            if simulation_time_ps > 0:
-                total_wall_time_needed = (self.runtime_ps / simulation_time_ps) * wall_time_elapsed
-                seconds_remaining = total_wall_time_needed - wall_time_elapsed
-                if seconds_remaining > 0:
-                    eta_td = datetime.timedelta(seconds=int(seconds_remaining))
-                    self.current_eta = str(eta_td)
-                else:
-                    self.current_eta = "00:00:00"
-            else:
-                self.current_eta = "calculating..."
-        
+        # Always calculate performance metrics (even if potentially unreliable early on)
+        #if wall_time_elapsed > 0 and simulation_time_ps > 0:
+        # Calculate ns/day
+        ps_per_second = simulation_time_ps / wall_time_elapsed
+        ns_per_second = ps_per_second / 1000.0
+        self.current_ns_per_day = ns_per_second * 86400
+        #lues
+        #try:
+        total_wall_time_needed = (self.runtime_ps / simulation_time_ps) * wall_time_elapsed
+        seconds_remaining = total_wall_time_needed - wall_time_elapsed
+        #if seconds_remaining > 0:
+
+        eta_td = datetime.timedelta(seconds=int(seconds_remaining))
+        self.current_eta = str(eta_td)
+
     @hoomd.logging.log
     def ns_per_day(self):
-        return f"{self.current_ns_per_day:.2f}"
+        # Use more decimal places for small values
+        if self.current_ns_per_day < 0.01:
+            return f"{self.current_ns_per_day:.4f}"
+        else:
+            return f"{self.current_ns_per_day:.2f}"
     
     @hoomd.logging.log
     def eta_remaining(self):
@@ -170,7 +171,7 @@ class CavityMDSimulation:
                  enable_fkt=True, fkt_kmag=1.0, fkt_num_wavevectors=50, fkt_reference_interval_ps=1.0, fkt_max_references=10,
                  max_energy_output_time_ps=None, enable_energy_tracking=False, dt_fs=None, device='CPU', gpu_id=0,
                  energy_output_period_ps=0.1, fkt_output_period_ps=1.0, gsd_output_period_ps=50.0, console_output_period_ps=1.0,
-                 enable_text_output=False, text_output_file=None, truncate_gsd=False, seed=None):
+                 enable_text_output=False, text_output_file=None, truncate_gsd=False, seed=None, restart_velocities=True):
         """Initialize the CavityMDSimulation with simulation parameters."""
         self.job_dir = job_dir
         self.replica = replica
@@ -218,6 +219,9 @@ class CavityMDSimulation:
         
         # Seed configuration
         self.seed = seed
+        
+        # Velocity restart configuration
+        self.restart_velocities = restart_velocities
         
         # Physical constants
         self.kB = PhysicalConstants.KB_HARTREE_PER_K
@@ -603,10 +607,13 @@ class CavityMDSimulation:
 
     def validate_cavity_particle(self):
         """Validate that cavity particle exists when required."""
+        # Get particle types from simulation state, not local snapshot
+        particle_types = self.sim.state.particle_types
+        
+        if 'L' not in particle_types:
+            raise ValueError("ERROR: Cavity simulation requested but no cavity particle type 'L' found in GSD file.")
+        
         with self.sim.state.cpu_local_snapshot as snap:
-            if 'L' not in snap.particles.types:
-                raise ValueError("ERROR: Cavity simulation requested but no cavity particle type 'L' found in GSD file.")
-            
             if 2 not in snap.particles.typeid:
                 raise ValueError("ERROR: Cavity simulation requested but no cavity particles found in GSD file.")
             
@@ -774,6 +781,14 @@ class CavityMDSimulation:
 
     def thermalize_system(self):
         """Initialize particle velocities and thermostat degrees of freedom."""
+        
+        if not self.restart_velocities:
+            self.log_info("Velocity restart disabled - keeping existing velocities from GSD file")
+            # Still need to initialize reservoir energy tracking (requires at least one simulation step)
+            self.log_info("Initializing reservoir energy tracking...")
+            self.sim.run(1)
+            return
+        
         kT = self.kB * self.temperature
         
         # Set numpy seed for reproducible thermalization if seed is provided
@@ -899,7 +914,7 @@ class CavityMDSimulation:
         # Create custom performance tracker
         self.performance_tracker = PerformanceTracker(self.sim, self.runtime_ps, self.time_tracker)
         self.sim.operations.updaters.append(hoomd.update.CustomUpdater(
-            action=self.performance_tracker, trigger=hoomd.trigger.Periodic(100)
+            action=self.performance_tracker, trigger=hoomd.trigger.Periodic(10)
         ))
         
         # Set up adaptive timestep updater if error_tolerance is positive
@@ -1427,7 +1442,7 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
                          device='CPU', gpu_id=0, incavity=True, fixed_timestep=False, 
                          timestep_fs=1.0, enable_energy_tracking=False, 
                          energy_output_period_ps=0.1, fkt_output_period_ps=1.0, 
-                         gsd_output_period_ps=50.0, console_output_period_ps=1.0, truncate_gsd=False, seed=None):
+                         gsd_output_period_ps=50.0, console_output_period_ps=1.0, truncate_gsd=False, seed=None, restart_velocities=True):
     """
     Run a single experiment using the CavityMDSimulation class.
     """
@@ -1499,7 +1514,8 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
             enable_text_output=False,
             text_output_file=None,
             truncate_gsd=truncate_gsd,
-            seed=seed
+            seed=seed,
+            restart_velocities=restart_velocities
         )
         
         # Run the simulation
@@ -1593,6 +1609,10 @@ def main():
     parser.add_argument('--seed', type=int, 
                        help='Random seed for simulation (default: replica-based deterministic seed)')
     
+    # Velocity control
+    parser.add_argument('--no-restart-velocities', action='store_true', 
+                       help='Do not restart velocities - use existing velocities from GSD file (default: restart velocities)')
+    
     args = parser.parse_args()
     
     print("Advanced Cavity MD Experiment Runner")
@@ -1630,6 +1650,7 @@ def main():
     if args.device == 'GPU':
         print(f"    GPU ID: {args.gpu_id}")
     print(f"  Random seed: {args.seed if args.seed is not None else 'replica-based (deterministic)'}")
+    print(f"  Velocity restart: {'Disabled - using GSD velocities' if args.no_restart_velocities else 'Enabled - thermalizing velocities'}")
     
     # Set up device configuration
     device = args.device.upper()
@@ -1678,7 +1699,8 @@ def main():
             gsd_output_period_ps=args.gsd_output_period_ps,
             console_output_period_ps=args.console_output_period_ps,
             truncate_gsd=args.truncate_gsd,
-            seed=args.seed
+            seed=args.seed,
+            restart_velocities=not args.no_restart_velocities
         )
         
         if success:
