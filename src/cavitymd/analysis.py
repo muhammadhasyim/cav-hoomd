@@ -104,21 +104,41 @@ RESERVOIR_ENERGY_COMPONENTS = {
 class BaseTracker(hoomd.custom.Action):
     """Base class for all tracking components with common infrastructure."""
     
-    def __init__(self, simulation, time_tracker=None, output_prefix='tracker', output_period_steps=1000):
+    def __init__(self, simulation, time_tracker=None, output_prefix='tracker', 
+                 output_period_steps=None, output_period_ps=None):
         """Initialize base tracker.
         
         Args:
             simulation: HOOMD simulation object
             time_tracker: Optional time tracker for accurate timing
             output_prefix: Prefix for output files
-            output_period_steps: Output frequency in simulation steps (NOT time-based)
+            output_period_steps: Output frequency in simulation steps (for fixed timestep mode)
+            output_period_ps: Output frequency in ps (preferred for adaptive timestep mode)
         """
         super().__init__()
         self.sim = simulation
         self.time_tracker = time_tracker
         self.output_prefix = output_prefix
-        self.output_period_steps = output_period_steps  # Always in steps, never time-based
+        
+        # Support both step-based and time-based output periods
+        self.output_period_steps = output_period_steps
+        self.output_period_ps = output_period_ps
+        
+        # Validate that at least one period is specified
+        if output_period_steps is None and output_period_ps is None:
+            # Default to 1000 steps for backward compatibility
+            self.output_period_steps = 1000
+            self.output_period_ps = None
+        
+        # Prefer time-based periods when both are specified
+        if self.output_period_ps is not None:
+            self.use_time_based_output = True
+        else:
+            self.use_time_based_output = False
+        
+        # Track last output time/step
         self.last_output_step = 0
+        self.last_output_time = 0.0
         
         # Initialize current values for logging
         self._initialize_logging_values()
@@ -135,13 +155,21 @@ class BaseTracker(hoomd.custom.Action):
             return PhysicalConstants.atomic_units_to_ps(timestep * self.sim.operations.integrator.dt)
     
     def _should_output(self, timestep):
-        """Check if we should output at this timestep."""
-        return timestep - self.last_output_step >= self.output_period_steps
+        """Check if we should output at this timestep (supports both time and step-based)."""
+        if self.use_time_based_output:
+            # Time-based output logic
+            current_time = self._get_current_time(timestep)
+            time_since_last = current_time - self.last_output_time
+            return time_since_last >= self.output_period_ps
+        else:
+            # Step-based output logic (original behavior)
+            return timestep - self.last_output_step >= self.output_period_steps
     
     def _update_output_step(self, timestep):
-        """Update the last output step."""
+        """Update the last output step and time."""
         self.last_output_step = timestep
-    
+        if self.use_time_based_output:
+            self.last_output_time = self._get_current_time(timestep)
 
 
 
@@ -171,7 +199,7 @@ class AutocorrelationTracker(BaseTracker):
         if output_prefix is None:
             output_prefix = f'{observable}_autocorr'
         
-        super().__init__(simulation, time_tracker, output_prefix, output_period_steps)
+        super().__init__(simulation, time_tracker, output_prefix, output_period_steps, None)
         
         # Initialize autocorrelation tracking
         self.output_file_number = 0
@@ -261,7 +289,7 @@ class FieldAutocorrelationTracker(BaseTracker):
     """Generic autocorrelation tracker for field observables with k-space averaging."""
     
     def __init__(self, simulation, observable, time_tracker=None, output_prefix=None, 
-                 output_period_steps=1000, reference_interval_steps=10000, max_references=10, 
+                 output_period_steps=1000, output_period_ps=None, reference_interval_steps=10000, max_references=10, 
                  reference_interval_ps=None, **kwargs):
         """Initialize field autocorrelation tracker.
         
@@ -288,7 +316,7 @@ class FieldAutocorrelationTracker(BaseTracker):
         if output_prefix is None:
             output_prefix = f'{observable}_field_autocorr'
         
-        super().__init__(simulation, time_tracker, output_prefix, output_period_steps)
+        super().__init__(simulation, time_tracker, output_prefix, output_period_steps, output_period_ps)
         
         # Setup observable-specific parameters
         self._setup_parameters(kwargs)
@@ -342,12 +370,20 @@ class FieldAutocorrelationTracker(BaseTracker):
             # Update timing trackers
             self.last_reference_time_ps = current_time
             
-            # Create output file with header
+            # Compute initial autocorrelation (field with itself at t=0)
+            initial_autocorr = self.compute_field_autocorr(reference_field, reference_field)
+            
+            # Create output file with header and immediately write t=0 value
             with open(ref_filename, 'w') as f:
                 f.write(f'# {self.observable.capitalize()} field autocorrelation\n')
                 f.write(f'# Reference {ref_number} at t={current_time:.6f} ps\n')
-                f.write(f'# Output period: {self.output_period_steps} steps\n')
+                if self.use_time_based_output:
+                    f.write(f'# Output period: {self.output_period_ps:.3f} ps\n')
+                else:
+                    f.write(f'# Output period: {self.output_period_steps} steps\n')
                 f.write('# timestep lag_time(ps) field_autocorr\n')
+                # Write the t=0 correlation value immediately
+                f.write(f'{self.sim.timestep} {0.0:.6f} {initial_autocorr:.6f}\n')
                 f.flush()
 
         print(f"Initialized {self.observable} field autocorr reference {ref_number}")
@@ -443,7 +479,7 @@ class EnergyTracker(BaseTracker):
     
     def __init__(self, simulation, components, force_objects=None, thermostat_objects=None, 
                  kinetic_tracker=None, cavity_mode_tracker=None,
-                 time_tracker=None, output_prefix='energy', output_period_steps=1000, 
+                 time_tracker=None, output_prefix='energy', output_period_steps=None, output_period_ps=None, 
                  max_timesteps=None, max_time_ps=None, compute_temperature=True, track_reservoirs=True, verbose='normal'):
         """Initialize energy tracker with internal kinetic computation capability.
         
@@ -493,7 +529,7 @@ class EnergyTracker(BaseTracker):
                 print("  Using external kinetic_tracker for backward compatibility.")
                 print("  Consider removing kinetic_tracker and using internal computation.")
         
-        super().__init__(simulation, time_tracker, output_prefix, output_period_steps)
+        super().__init__(simulation, time_tracker, output_prefix, output_period_steps, output_period_ps)
         
         # Fix file naming to match working code
         self.output_file_path = f'{self.output_prefix}_energy_tracker.txt'
@@ -512,7 +548,10 @@ class EnergyTracker(BaseTracker):
             print(f"  Thermostat objects: {list(self.thermostat_objects.keys())}")
             print(f"  Cavity mode tracker: {self.cavity_mode_tracker is not None}")
             print(f"  Track reservoirs: {self.track_reservoirs}")
-            print(f"  Output period: {self.output_period_steps} steps")
+            if self.use_time_based_output:
+                print(f"  Output period: {self.output_period_ps:.3f} ps")
+            else:
+                print(f"  Output period: {self.output_period_steps} steps")
             print(f"  Verbosity: {self.verbose}")
             if self.max_time_ps:
                 print(f"  Max time: {self.max_time_ps} ps (time-based limit)")
@@ -628,7 +667,10 @@ class EnergyTracker(BaseTracker):
         try:
             with open(self.output_file_path, 'w') as f:
                 f.write('# CORRECTED Energy tracking following working EnergyContributionTracker pattern\n')
-                f.write(f'# Output period: {self.output_period_steps} steps\n')  
+                if self.use_time_based_output:
+                    f.write(f'# Output period: {self.output_period_ps:.3f} ps\n')
+                else:
+                    f.write(f'# Output period: {self.output_period_steps} steps\n')  
                 if self.max_time_ps:
                     f.write(f'# Max time: {self.max_time_ps} ps\n')
                 elif self.max_timesteps:
@@ -709,8 +751,8 @@ class EnergyTracker(BaseTracker):
                         print(f"Energy tracking stopped at timestep {timestep} (limit: {self.max_timesteps})")
                 return
         
-        # Only output periodically (matching working code pattern)
-        if timestep - self.last_output_step < self.output_period_steps:
+        # Only output periodically (use proper output logic from base class)
+        if not self._should_output(timestep):
             return
             
         try:
@@ -983,7 +1025,7 @@ class EnergyTracker(BaseTracker):
             if self.verbose == 'verbose':
                 print("=== WRITING OUTPUT DATA ===")
             self._write_energy_data(timestep, current_time)
-            self.last_output_step = timestep
+            self._update_output_step(timestep)
             
             if self.verbose == 'verbose':
                 print(f"=== END ENERGY TRACKER DEBUG - Timestep {timestep} ===\n")

@@ -1078,7 +1078,7 @@ class CavityMDSimulation:
                         cavity_mode_tracker=cavity_mode_tracker,
                         time_tracker=self.time_tracker,
                         output_prefix=output_prefix,
-                        output_period_steps=1,  # Check every step for best timing accuracy
+                        output_period_ps=self.energy_output_period_ps,  # Use time-based output period
                         max_time_ps=self.max_energy_output_time_ps,  # Use time-based limit directly
                         compute_temperature=True,
                         track_reservoirs=True,
@@ -1135,12 +1135,12 @@ class CavityMDSimulation:
                 self.log_info(f"  Reference interval: {self.fkt_reference_interval_ps:.3f} ps")
                 self.log_info(f"  Trigger period: {fkt_trigger_period} step")
                 
-                # Create density correlation tracker with time-based reference interval
+                # Create density correlation tracker with time-based output and reference intervals
                 self.density_corr_tracker = FieldAutocorrelationTracker(
                     simulation=self.sim,
                     observable="density_correlation",
                     time_tracker=self.time_tracker,
-                    output_period_steps=1,  # Check every step for best timing accuracy
+                    output_period_ps=self.fkt_output_period_ps,  # Use time-based output period
                     output_prefix=f'{self.name}-{self.replica}',
                     reference_interval_ps=self.fkt_reference_interval_ps,  # Use time-based interval
                     max_references=self.fkt_max_references,
