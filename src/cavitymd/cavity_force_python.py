@@ -36,7 +36,7 @@ class CavityForcePython(hoomd.md.force.Custom):
     Implements the same physics as the optimized versions but with Python performance.
     """
     
-    def __init__(self, kvector, couplstr, omegac, phmass=1.0):
+    def __init__(self, kvector, couplstr, omegac, phmass=1.0, damping_ratio=0.0):
         super().__init__(aniso=False)
         
         # Store parameters
@@ -44,6 +44,7 @@ class CavityForcePython(hoomd.md.force.Custom):
         self.couplstr = couplstr
         self.omegac = omegac
         self.phmass = phmass
+        self.damping_ratio = damping_ratio
         self.K = phmass * omegac**2
         
         # Initialize energy components
@@ -51,11 +52,16 @@ class CavityForcePython(hoomd.md.force.Custom):
         self.coupling_energy = 0.0
         self.dipole_self_energy = 0.0
         
+        # Compute effective gamma from damping ratio
+        gamma = 2.0 * damping_ratio * np.sqrt(self.K)
+        
         print(f"CavityForcePython initialized:")
         print(f"  Coupling strength: {self.couplstr:.6f} a.u.")
         print(f"  Cavity frequency: {self.omegac:.6f} a.u.")
         print(f"  Photon mass: {self.phmass:.6f} a.u.")
         print(f"  Spring constant K: {self.K:.6f} a.u.")
+        print(f"  Damping ratio: {self.damping_ratio:.6f}")
+        print(f"  Effective gamma: {gamma:.6f} a.u.")
     
     @property
     def total_cavity_energy(self):
@@ -140,8 +146,11 @@ class CavityForcePython(hoomd.md.force.Custom):
                             force_molecular = -self.couplstr * charge * force_factor
                             arrays.force[i] = force_molecular
                     
-                    # Force on cavity particle: F_cavity = -K * q - g * d_xy
-                    force_cavity = -self.K * cavity_position - self.couplstr * dipole_xy
+                    # Force on cavity particle: F_cavity = -K * q - g * d_xy - gamma * velocity
+                    # where gamma = 2 * damping_ratio * sqrt(K)
+                    gamma = 2.0 * self.damping_ratio * np.sqrt(self.K)
+                    cavity_velocity = snap.particles.velocity[cavity_idx]
+                    force_cavity = -self.K * cavity_position - self.couplstr * dipole_xy - gamma * cavity_velocity
                     arrays.force[cavity_idx] = force_cavity
                     
             except Exception as e:

@@ -27,16 +27,17 @@ namespace cavitymd
 //! Parameters for cavity force computation
 struct cavity_force_params
 {
-    Scalar omegac;     //!< Cavity frequency in atomic units
-    Scalar couplstr;   //!< Coupling strength in atomic units  
-    Scalar K;          //!< Spring constant (phmass * omegac^2)
-    Scalar phmass;     //!< Photon mass
+    Scalar omegac;        //!< Cavity frequency in atomic units
+    Scalar couplstr;      //!< Coupling strength in atomic units  
+    Scalar K;             //!< Spring constant (phmass * omegac^2)
+    Scalar phmass;        //!< Photon mass
+    Scalar damping_ratio; //!< Damping ratio (dimensionless)
     
 #ifndef __HIPCC__
-    cavity_force_params() : omegac(0.), couplstr(0.), K(0.), phmass(1.) {}
+    cavity_force_params() : omegac(0.), couplstr(0.), K(0.), phmass(1.), damping_ratio(0.) {}
     
-    cavity_force_params(Scalar _omegac, Scalar _couplstr, Scalar _phmass) 
-        : omegac(_omegac), couplstr(_couplstr), phmass(_phmass)
+    cavity_force_params(Scalar _omegac, Scalar _couplstr, Scalar _phmass, Scalar _damping_ratio = 0.0) 
+        : omegac(_omegac), couplstr(_couplstr), phmass(_phmass), damping_ratio(_damping_ratio)
     {
         K = phmass * omegac * omegac;
     }
@@ -48,6 +49,7 @@ struct cavity_force_params
         v["couplstr"] = couplstr;
         v["K"] = K;
         v["phmass"] = phmass;
+        v["damping_ratio"] = damping_ratio;
         return v;
     }
 #endif
@@ -59,6 +61,9 @@ struct cavity_force_params
     
     where q is the cavity mode position, d is the molecular dipole moment,
     g is the coupling strength, and K is the cavity spring constant.
+    
+    The cavity mode equation includes dissipation with damping ratio ζ:
+    F_total = F_cavity - 2ζ√(K) * velocity
     
     The cavity particle must have type name 'L'.
     Only x,y components of the cavity mode and dipole are used.
@@ -72,13 +77,14 @@ public:
     CavityForceCompute(std::shared_ptr<SystemDefinition> sysdef,
                        Scalar omegac,
                        Scalar couplstr, 
-                       Scalar phmass = Scalar(1.0));
+                       Scalar phmass = Scalar(1.0),
+                       Scalar damping_ratio = Scalar(0.0));
 
     //! Destructor
     virtual ~CavityForceCompute();
 
     //! Set parameters
-    void setParams(Scalar omegac, Scalar couplstr, Scalar phmass = Scalar(1.0));
+    void setParams(Scalar omegac, Scalar couplstr, Scalar phmass = Scalar(1.0), Scalar damping_ratio = Scalar(0.0));
     
     //! Get parameters as dictionary
     pybind11::dict getParams();

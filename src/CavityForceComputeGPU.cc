@@ -27,12 +27,14 @@ namespace cavitymd
     \param omegac Cavity frequency in atomic units
     \param couplstr Coupling strength in atomic units
     \param phmass Photon mass (default 1.0)
+    \param damping_ratio Damping ratio (default 0.0)
 */
 CavityForceComputeGPU::CavityForceComputeGPU(std::shared_ptr<SystemDefinition> sysdef,
                                              Scalar omegac,
                                              Scalar couplstr, 
-                                             Scalar phmass)
-    : CavityForceCompute(sysdef, omegac, couplstr, phmass)
+                                             Scalar phmass,
+                                             Scalar damping_ratio)
+    : CavityForceCompute(sysdef, omegac, couplstr, phmass, damping_ratio)
 {
     m_exec_conf->msg->notice(5) << "Constructing CavityForceComputeGPU" << std::endl;
     
@@ -151,6 +153,7 @@ void CavityForceComputeGPU::computeForces(uint64_t timestep)
     {
         // Access particle data arrays
         ArrayHandle<Scalar4> d_pos(m_pdata->getPositions(), access_location::device, access_mode::read);
+        ArrayHandle<Scalar4> d_vel(m_pdata->getVelocities(), access_location::device, access_mode::read);
         ArrayHandle<Scalar> d_charge(m_pdata->getCharges(), access_location::device, access_mode::read);
         ArrayHandle<int3> d_image(m_pdata->getImages(), access_location::device, access_mode::read);
         
@@ -173,6 +176,7 @@ void CavityForceComputeGPU::computeForces(uint64_t timestep)
         // CRITICAL FIX: Pass structures by pointer to avoid ABI corruption
         hipError_t error = kernel::gpu_compute_cavity_force(d_force.data,
                                                              d_pos.data,
+                                                             d_vel.data,
                                                              d_charge.data,
                                                              d_image.data,
                                                              &box,
@@ -258,9 +262,9 @@ void export_CavityForceComputeGPU(pybind11::module& m)
 {
     pybind11::class_<CavityForceComputeGPU, CavityForceCompute, std::shared_ptr<CavityForceComputeGPU>>(
         m, "CavityForceComputeGPU")
-        .def(pybind11::init<std::shared_ptr<SystemDefinition>, Scalar, Scalar, Scalar>(),
+        .def(pybind11::init<std::shared_ptr<SystemDefinition>, Scalar, Scalar, Scalar, Scalar>(),
              pybind11::arg("sysdef"), pybind11::arg("omegac"), pybind11::arg("couplstr"), 
-             pybind11::arg("phmass") = 1.0);
+             pybind11::arg("phmass") = 1.0, pybind11::arg("damping_ratio") = 0.0);
 }
 } // end namespace detail
 

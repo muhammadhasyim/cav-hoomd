@@ -20,12 +20,14 @@ namespace cavitymd
     \param omegac Cavity frequency in atomic units
     \param couplstr Coupling strength in atomic units
     \param phmass Photon mass (default 1.0)
+    \param damping_ratio Damping ratio (default 0.0)
 */
 CavityForceCompute::CavityForceCompute(std::shared_ptr<SystemDefinition> sysdef,
                                        Scalar omegac,
                                        Scalar couplstr, 
-                                       Scalar phmass)
-    : ForceCompute(sysdef), m_params(omegac, couplstr, phmass)
+                                       Scalar phmass,
+                                       Scalar damping_ratio)
+    : ForceCompute(sysdef), m_params(omegac, couplstr, phmass, damping_ratio)
 {
     m_exec_conf->msg->notice(5) << "Constructing CavityForceCompute" << std::endl;
     
@@ -34,10 +36,15 @@ CavityForceCompute::CavityForceCompute(std::shared_ptr<SystemDefinition> sysdef,
     m_coupling_energy = Scalar(0.0);
     m_dipole_self_energy = Scalar(0.0);
     
+    // Compute effective gamma from damping ratio
+    Scalar gamma = 2.0 * damping_ratio * sqrt(m_params.K);
+    
     std::cout << "CavityForceCompute initialized: "
               << "omegac=" << omegac << " a.u., "
               << "couplstr=" << couplstr << " a.u., "  
-              << "K=" << m_params.K << " a.u." << std::endl;
+              << "K=" << m_params.K << " a.u., "
+              << "damping_ratio=" << damping_ratio << ", "
+              << "gamma=" << gamma << " a.u." << std::endl;
 }
 
 CavityForceCompute::~CavityForceCompute()
@@ -45,9 +52,9 @@ CavityForceCompute::~CavityForceCompute()
     m_exec_conf->msg->notice(5) << "Destroying CavityForceCompute" << std::endl;
 }
 
-void CavityForceCompute::setParams(Scalar omegac, Scalar couplstr, Scalar phmass)
+void CavityForceCompute::setParams(Scalar omegac, Scalar couplstr, Scalar phmass, Scalar damping_ratio)
 {
-    m_params = cavity_force_params(omegac, couplstr, phmass);
+    m_params = cavity_force_params(omegac, couplstr, phmass, damping_ratio);
 }
 
 pybind11::dict CavityForceCompute::getParams()
@@ -138,6 +145,7 @@ void CavityForceCompute::computeForces(uint64_t timestep)
     ArrayHandle<Scalar4> h_force(m_force, access_location::host, access_mode::overwrite);
     ArrayHandle<Scalar> h_charge(m_pdata->getCharges(), access_location::host, access_mode::read);
     ArrayHandle<int3> h_image(m_pdata->getImages(), access_location::host, access_mode::read);
+    ArrayHandle<Scalar4> h_vel(m_pdata->getVelocities(), access_location::host, access_mode::read);
     
     unsigned int N = m_pdata->getN();
     
@@ -199,8 +207,11 @@ void CavityForceCompute::computeForces(uint64_t timestep)
         }
     }
     
-    // Force on photon particle
-    vec3<Scalar> photon_force = -m_params.K * q_photon - m_params.couplstr * dipole_xy;
+    // Force on photon particle: F = -K * q - g * dipole_xy - gamma * velocity
+    // where gamma = 2 * damping_ratio * sqrt(K)
+    Scalar gamma = 2.0 * m_params.damping_ratio * sqrt(m_params.K);
+    vec3<Scalar> photon_velocity = vec3<Scalar>(h_vel.data[photon_idx].x, h_vel.data[photon_idx].y, h_vel.data[photon_idx].z);
+    vec3<Scalar> photon_force = -m_params.K * q_photon - m_params.couplstr * dipole_xy - gamma * photon_velocity;
     
     h_force.data[photon_idx].x = photon_force.x;
     h_force.data[photon_idx].y = photon_force.y;
@@ -213,9 +224,9 @@ void export_CavityForceCompute(pybind11::module& m)
 {
     pybind11::class_<CavityForceCompute, ForceCompute, std::shared_ptr<CavityForceCompute>>(
         m, "CavityForceCompute")
-        .def(pybind11::init<std::shared_ptr<SystemDefinition>, Scalar, Scalar, Scalar>(),
+        .def(pybind11::init<std::shared_ptr<SystemDefinition>, Scalar, Scalar, Scalar, Scalar>(),
              pybind11::arg("sysdef"), pybind11::arg("omegac"), pybind11::arg("couplstr"), 
-             pybind11::arg("phmass") = 1.0)
+             pybind11::arg("phmass") = 1.0, pybind11::arg("damping_ratio") = 0.0)
         .def("setParams", &CavityForceCompute::setParams)
         .def("getParams", &CavityForceCompute::getParams)
         .def("getHarmonicEnergy", &CavityForceCompute::getHarmonicEnergy)

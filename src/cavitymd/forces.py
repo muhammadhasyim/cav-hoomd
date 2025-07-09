@@ -25,7 +25,11 @@ class CavityForce(hoomd.md.force.Force):
     Implements the cavity-molecule interaction force from the Hamiltonian:
     H = (1/2) * K * q² + g * q · d + (g²/2K) * d²
     
-    where q is the cavity mode position, d is the molecular dipole moment,
+    The equation of motion for the cavity mode includes dissipation:
+    F_total = F_cavity - γ * velocity
+    
+    where γ = 2ζ√K is the effective dissipation rate, ζ is the damping ratio,
+    q is the cavity mode position, d is the molecular dipole moment,
     g is the coupling strength, and K = phmass * omegac².
     
     Parameters:
@@ -38,11 +42,13 @@ class CavityForce(hoomd.md.force.Force):
         Cavity frequency in atomic units (Hartree)
     phmass : float, optional
         Photon mass, determines K = phmass * omegac² (default: 1.0)
+    damping_ratio : float, optional
+        Damping ratio ζ (dimensionless) (default: 0.0)
     force_python : bool, optional
         Force use of Python implementation even if C++ is available (default: False)
     """
     
-    def __init__(self, kvector, couplstr, omegac, phmass=1.0, force_python=False):
+    def __init__(self, kvector, couplstr, omegac, phmass=1.0, damping_ratio=0.0, force_python=False):
         # Initialize the base class FIRST - this creates empty _param_dict and _typeparam_dict
         super().__init__()
         
@@ -52,12 +58,14 @@ class CavityForce(hoomd.md.force.Force):
             couplstr=float,
             omegac=float,
             phmass=float,
+            damping_ratio=float,
             force_python=bool
         )
         param_dict['kvector'] = list(kvector)
         param_dict['couplstr'] = couplstr  
         param_dict['omegac'] = omegac
         param_dict['phmass'] = phmass
+        param_dict['damping_ratio'] = damping_ratio
         param_dict['force_python'] = force_python
         
         # Update the existing _param_dict (don't replace it)
@@ -68,6 +76,7 @@ class CavityForce(hoomd.md.force.Force):
         self.couplstr = couplstr
         self.omegac = omegac
         self.phmass = phmass
+        self.damping_ratio = damping_ratio
         
         # Determine which implementation to use
         if force_python or not _cpp_available:
@@ -83,7 +92,8 @@ class CavityForce(hoomd.md.force.Force):
                 kvector=kvector,
                 couplstr=couplstr,
                 omegac=omegac,
-                phmass=phmass
+                phmass=phmass,
+                damping_ratio=damping_ratio
             )
             self._implementation = "python"
             
@@ -109,7 +119,8 @@ class CavityForce(hoomd.md.force.Force):
                                 self._simulation.state._cpp_sys_def,
                                 self.omegac,
                                 self.couplstr,
-                                self.phmass
+                                self.phmass,
+                                self.damping_ratio
                             )
                             self._implementation = "cuda"
                             print(f"CUDA CavityForceComputeGPU initialized successfully")
@@ -122,7 +133,8 @@ class CavityForce(hoomd.md.force.Force):
                             self._simulation.state._cpp_sys_def,
                             self.omegac,
                             self.couplstr,
-                            self.phmass
+                            self.phmass,
+                            self.damping_ratio
                         )
                         self._implementation = "cpp"
                         print(f"CPU CavityForceCompute initialized successfully")
@@ -132,7 +144,8 @@ class CavityForce(hoomd.md.force.Force):
                         self._simulation.state._cpp_sys_def,
                         self.omegac,
                         self.couplstr,
-                        self.phmass
+                        self.phmass,
+                        self.damping_ratio
                     )
                     print(f"CPU CavityForceCompute initialized successfully")
                 
@@ -149,7 +162,8 @@ class CavityForce(hoomd.md.force.Force):
                     kvector=self.kvector,
                     couplstr=self.couplstr,
                     omegac=self.omegac,
-                    phmass=self.phmass
+                    phmass=self.phmass,
+                    damping_ratio=self.damping_ratio
                 )
                 self._implementation = "python_fallback"
         

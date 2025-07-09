@@ -171,12 +171,13 @@ class CavityMDSimulation:
                  enable_fkt=True, fkt_kmag=1.0, fkt_num_wavevectors=50, fkt_reference_interval_ps=1.0, fkt_max_references=10,
                  max_energy_output_time_ps=None, enable_energy_tracking=False, dt_fs=None, device='CPU', gpu_id=0,
                  energy_output_period_ps=0.1, fkt_output_period_ps=1.0, gsd_output_period_ps=50.0, console_output_period_ps=1.0,
-                 enable_text_output=False, text_output_file=None, truncate_gsd=False, seed=None, restart_velocities=True):
+                 enable_text_output=False, text_output_file=None, truncate_gsd=False, seed=None, restart_velocities=True, damping_ratio=0.0):
         """Initialize the CavityMDSimulation with simulation parameters."""
         self.job_dir = job_dir
         self.replica = replica
         self.freq = freq
         self.couplstr = couplstr
+        self.damping_ratio = damping_ratio
         self.incavity = incavity
         self.runtime_ps = runtime_ps
         self.input_gsd = input_gsd
@@ -274,6 +275,7 @@ class CavityMDSimulation:
         if self.incavity:
             self.log_info(f"  Frequency: {self.freq} cm^-1")
             self.log_info(f"  Coupling strength: {self.couplstr}")
+            self.log_info(f"  Damping ratio: {self.damping_ratio}")
             self.log_info(f"  Finite-q mode: {self.finite_q}")
         self.log_info(f"Molecular thermostat: {self.molecular_thermostat} (tau={self.molecular_thermostat_tau} ps)")
         if self.incavity:
@@ -632,7 +634,7 @@ class CavityMDSimulation:
         # Setup cavity force if requested
         if self.incavity:
             omegac = self.freq / PhysicalConstants.HARTREE_TO_CM_MINUS1
-            cavityforce = CavityForce(kvector=np.array([0,0,1]), couplstr=self.couplstr, omegac=omegac)
+            cavityforce = CavityForce(kvector=np.array([0,0,1]), couplstr=self.couplstr, omegac=omegac, damping_ratio=self.damping_ratio)
             forces.append(cavityforce)
         
         # Setup harmonic bonds
@@ -1436,7 +1438,7 @@ def parse_replicas(replicas_str):
     return sorted(list(set(replicas)))
 
 def run_single_experiment(molecular_thermo, cavity_thermo, finite_q, 
-                         coupling, temperature, frequency, replica, frame, 
+                         coupling, damping_ratio, temperature, frequency, replica, frame, 
                          runtime_ps, molecular_tau, cavity_tau, enable_fkt, fkt_kmag, fkt_wavevectors, 
                          fkt_ref_interval, fkt_max_refs, max_energy_output_time=None, 
                          device='CPU', gpu_id=0, incavity=True, fixed_timestep=False, 
@@ -1462,6 +1464,7 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
         print(f"  Cavity coupling: {'Enabled' if incavity else 'Disabled'}")
         if incavity:
             print(f"  Coupling strength: {coupling}")
+            print(f"  Damping ratio: {damping_ratio}")
             print(f"  Molecular thermostat: {molecular_thermo}")
             print(f"  Cavity thermostat: {cavity_thermo}")
             print(f"  Finite-q mode: {finite_q}")
@@ -1515,7 +1518,8 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
             text_output_file=None,
             truncate_gsd=truncate_gsd,
             seed=seed,
-            restart_velocities=restart_velocities
+            restart_velocities=restart_velocities,
+            damping_ratio=damping_ratio
         )
         
         # Run the simulation
@@ -1542,6 +1546,8 @@ def main():
                        help='Use finite-q cavity mode (default: q=0 mode)')
     parser.add_argument('--coupling', type=float, default=1e-3, 
                        help='Cavity coupling strength (default: 1e-3)')
+    parser.add_argument('--damping-ratio', type=float, default=0.0, 
+                       help='Cavity mode damping ratio (dimensionless, default: 0.0)')
     parser.add_argument('--temperature', type=float, default=100.0, 
                        help='Temperature in K (default: 100.0)')
     parser.add_argument('--frequency', type=float, default=2000.0, 
@@ -1640,6 +1646,7 @@ def main():
     print(f"  Cavity coupling: {'Enabled' if incavity else 'Disabled'}")
     if incavity:
         print(f"    Coupling strength: {args.coupling}")
+        print(f"    Damping ratio: {args.damping_ratio}")
         print(f"    Frequency: {args.frequency} cm⁻¹")
         print(f"    Finite-q mode: {finite_q}")
         print(f"    Cavity thermostat: {cavity_thermo}")
@@ -1675,6 +1682,7 @@ def main():
             cavity_thermo=cavity_thermo,
             finite_q=finite_q,
             coupling=args.coupling,
+            damping_ratio=args.damping_ratio,
             temperature=args.temperature,
             frequency=args.frequency,
             replica=replica,

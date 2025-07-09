@@ -34,7 +34,8 @@ public:
     CavityForceComputeGPU(std::shared_ptr<SystemDefinition> sysdef,
                           Scalar omegac,
                           Scalar couplstr, 
-                          Scalar phmass = Scalar(1.0));
+                          Scalar phmass = Scalar(1.0),
+                          Scalar damping_ratio = Scalar(0.0));
 
     //! Destructor
     virtual ~CavityForceComputeGPU();
