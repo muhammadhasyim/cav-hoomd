@@ -567,32 +567,44 @@ class EnergyTracker(BaseTracker):
         
         This replaces the need for external SimpleKineticEnergyTracker.
         
+        NOTE: For molecular systems with individual atoms (not rigid bodies),
+        only translational kinetic energy contributes to temperature.
+        This system uses O and N atom types, not rigid water molecules.
+        
         Returns:
             tuple: (kinetic_energy, temperature) in atomic units and Kelvin
         """
         try:
             with self.sim.state.cpu_local_snapshot as snap:
-                # Filter to molecular particles only (exclude cavity particle type 'L')
+                # Filter to molecular particles only (exclude cavity particle type 2)
                 molecular_mask = snap.particles.typeid != 2  # Type 2 is 'L' (cavity)
                 
                 if not np.any(molecular_mask):
                     return 0.0, 0.0
                 
-                velocities = snap.particles.velocity[molecular_mask]
+                # Get molecular particle data
                 masses = snap.particles.mass[molecular_mask]
+                velocities = snap.particles.velocity[molecular_mask]
                 
-                # Compute kinetic energy: KE = 0.5 * sum(m_i * v_i^2)
-                kinetic_energy = 0.5 * np.sum(masses[:, np.newaxis] * velocities**2)
+                if len(masses) == 0:
+                    return 0.0, 0.0
                 
-                # Compute temperature: T = (2/3) * KE / (N * k_B)
-                N_dof = 3 * len(masses)  # 3 degrees of freedom per particle
-                temperature = (2.0/3.0) * kinetic_energy / (N_dof * PhysicalConstants.KB_HARTREE_PER_K)
+                # Only translational kinetic energy (no rotational for individual atoms)
+                translational_ke = 0.5 * np.sum(masses[:, np.newaxis] * velocities**2)
                 
-                return kinetic_energy, temperature
+                # Degrees of freedom: 3 per particle (translational only)
+                N_dof = 3 * len(masses)
+                
+                # Temperature from equipartition theorem: T = (2 * KE) / (N_dof * kB)
+                # Each degree of freedom contributes (1/2)kT, so KE = (N_dof/2)*kT
+                temperature = (2.0 * translational_ke) / (N_dof * PhysicalConstants.KB_HARTREE_PER_K)
+                
+                return translational_ke, temperature
                 
         except Exception as e:
-            if self.verbose in ['normal', 'verbose']:
-                print(f"Error computing molecular kinetic energy internally: {e}")
+            print(f"ERROR in molecular kinetic energy calculation: {e}")
+            import traceback
+            traceback.print_exc()
             return 0.0, 0.0
     
     def _compute_cavity_kinetic_energy(self):
@@ -757,7 +769,6 @@ class EnergyTracker(BaseTracker):
             
         try:
             if self.verbose == 'verbose':
-                print(f"\n=== ENERGY TRACKER DEBUG - Timestep {timestep} ===")
                 print(f"Current time: {current_time:.6f} ps")
                 print(f"Internal kinetic computation: {self.use_internal_kinetic}")
             
@@ -1026,9 +1037,6 @@ class EnergyTracker(BaseTracker):
                 print("=== WRITING OUTPUT DATA ===")
             self._write_energy_data(timestep, current_time)
             self._update_output_step(timestep)
-            
-            if self.verbose == 'verbose':
-                print(f"=== END ENERGY TRACKER DEBUG - Timestep {timestep} ===\n")
             
         except Exception as e:
             # Always print critical errors regardless of verbosity

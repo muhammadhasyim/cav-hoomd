@@ -7,6 +7,7 @@
 #include "hoomd/ForceCompute.h"
 #include "hoomd/HOOMDMath.h"
 #include "hoomd/VectorMath.h"
+#include "hoomd/Variant.h"
 #include <memory>
 
 /*! \file CavityForceCompute.h
@@ -27,16 +28,16 @@ namespace cavitymd
 //! Parameters for cavity force computation
 struct cavity_force_params
 {
-    Scalar omegac;        //!< Cavity frequency in atomic units
-    Scalar couplstr;      //!< Coupling strength in atomic units  
-    Scalar K;             //!< Spring constant (phmass * omegac^2)
-    Scalar phmass;        //!< Photon mass
-    Scalar damping_ratio; //!< Damping ratio (dimensionless)
+    Scalar omegac;                         //!< Cavity frequency in atomic units
+    std::shared_ptr<Variant> couplstr;    //!< Coupling strength variant in atomic units  
+    Scalar K;                              //!< Spring constant (phmass * omegac^2)
+    Scalar phmass;                         //!< Photon mass
+    Scalar damping_ratio;                  //!< Damping ratio (dimensionless)
     
 #ifndef __HIPCC__
-    cavity_force_params() : omegac(0.), couplstr(0.), K(0.), phmass(1.), damping_ratio(0.) {}
+    cavity_force_params() : omegac(0.), couplstr(nullptr), K(0.), phmass(1.), damping_ratio(0.) {}
     
-    cavity_force_params(Scalar _omegac, Scalar _couplstr, Scalar _phmass, Scalar _damping_ratio = 0.0) 
+    cavity_force_params(Scalar _omegac, std::shared_ptr<Variant> _couplstr, Scalar _phmass, Scalar _damping_ratio = 0.0) 
         : omegac(_omegac), couplstr(_couplstr), phmass(_phmass), damping_ratio(_damping_ratio)
     {
         K = phmass * omegac * omegac;
@@ -46,7 +47,7 @@ struct cavity_force_params
     {
         pybind11::dict v;
         v["omegac"] = omegac;
-        v["couplstr"] = couplstr;
+        v["couplstr"] = couplstr;  // This will be a Python variant object
         v["K"] = K;
         v["phmass"] = phmass;
         v["damping_ratio"] = damping_ratio;
@@ -60,7 +61,7 @@ struct cavity_force_params
     H = (1/2) * K * q² + g * q · d + (g²/2K) * d²
     
     where q is the cavity mode position, d is the molecular dipole moment,
-    g is the coupling strength, and K is the cavity spring constant.
+    g is the coupling strength (time-varying), and K is the cavity spring constant.
     
     The cavity mode equation includes dissipation with damping ratio ζ:
     F_total = F_cavity - 2ζ√(K) * velocity
@@ -76,7 +77,7 @@ public:
     //! Constructs the compute
     CavityForceCompute(std::shared_ptr<SystemDefinition> sysdef,
                        Scalar omegac,
-                       Scalar couplstr, 
+                       std::shared_ptr<Variant> couplstr, 
                        Scalar phmass = Scalar(1.0),
                        Scalar damping_ratio = Scalar(0.0));
 
@@ -84,7 +85,7 @@ public:
     virtual ~CavityForceCompute();
 
     //! Set parameters
-    void setParams(Scalar omegac, Scalar couplstr, Scalar phmass = Scalar(1.0), Scalar damping_ratio = Scalar(0.0));
+    void setParams(Scalar omegac, std::shared_ptr<Variant> couplstr, Scalar phmass = Scalar(1.0), Scalar damping_ratio = Scalar(0.0));
     
     //! Get parameters as dictionary
     pybind11::dict getParams();

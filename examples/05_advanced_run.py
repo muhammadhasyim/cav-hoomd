@@ -9,7 +9,7 @@ This script provides a comprehensive framework for running cavity MD simulations
 with various thermostat combinations and advanced analysis features.
 
 FEATURES:
-- Multiple thermostat combinations (Bussi, Langevin)
+- Multiple thermostat combinations (Bussi, Corrected Langevin)
 - Advanced analysis trackers (energy, F(k,t), cavity modes)
 - Adaptive or fixed timestep control
 - GPU and CPU support
@@ -81,6 +81,9 @@ from hoomd.cavitymd import (
     TimestepFormatter, AdaptiveTimestepUpdater, FieldAutocorrelationTracker,
     CavityModeTracker, EnergyTracker
 )
+
+# Import HOOMD's standard Langevin integrator
+import hoomd.md.methods
 
 def unwrap_positions(positions, images, box_lengths):
     """Unwrap particle positions across periodic boundaries."""
@@ -727,11 +730,11 @@ class CavityMDSimulation:
             thermostat_refs['molecular_bussi'] = molecular_bussi
             self.log_info(f"Molecular Bussi thermostat configured: T = {self.temperature:.1f} K, kT = {kT:.6f} a.u., tau = {self.molecular_thermostat_tau:.3f} ps")
         elif self.molecular_thermostat.lower() == 'langevin':
-            self.log_info("Running molecular system with Langevin thermostat (NVT ensemble)")
+            self.log_info("Running molecular system with HOOMD Langevin thermostat (NVT ensemble)")
             molecular_gamma = PhysicalConstants.gamma_from_tau_ps(self.molecular_thermostat_tau)
             molecular_method = hoomd.md.methods.Langevin(filter=molecular_filter, kT=kT, default_gamma=molecular_gamma, tally_reservoir_energy=True)
             thermostat_refs['molecular_langevin'] = molecular_method
-            self.log_info(f"Molecular Langevin thermostat configured: T = {self.temperature:.1f} K, kT = {kT:.6f} a.u.")
+            self.log_info(f"Molecular HOOMD Langevin thermostat configured: T = {self.temperature:.1f} K, kT = {kT:.6f} a.u.")
             self.log_info(f"  gamma = {molecular_gamma:.6f} a.u.^-1 (tau = {self.molecular_thermostat_tau:.3f} ps)")
         elif self.molecular_thermostat.lower() == 'none':
             self.log_info("Running molecular system without thermostat (NVE ensemble)")
@@ -745,13 +748,13 @@ class CavityMDSimulation:
             cavity_filter = hoomd.filter.Type(['L'])  # Cavity particle only
             
             if self.cavity_thermostat.lower() == 'langevin':
-                self.log_info("Running cavity with Langevin thermostat")
+                self.log_info("Running cavity with HOOMD Langevin thermostat")
                 base_gamma = PhysicalConstants.gamma_from_tau_ps(self.cavity_thermostat_tau)
                 cavity_gamma = self.cavity_damping_factor * base_gamma
                 cavity_method = hoomd.md.methods.Langevin(filter=cavity_filter, 
-                                                         kT=kT, default_gamma=cavity_gamma, tally_reservoir_energy=True)
+                                                 kT=kT, default_gamma=cavity_gamma, tally_reservoir_energy=True)
                 thermostat_refs['cavity_langevin'] = cavity_method
-                self.log_info(f"Cavity Langevin thermostat configured: T = {self.temperature:.1f} K, kT = {kT:.6f} a.u.")
+                self.log_info(f"Cavity HOOMD Langevin thermostat configured: T = {self.temperature:.1f} K, kT = {kT:.6f} a.u.")
                 self.log_info(f"  base_gamma = {base_gamma:.6f} a.u.^-1 (tau = {self.cavity_thermostat_tau:.3f} ps)")
                 self.log_info(f"  effective_gamma = {cavity_gamma:.6f} a.u.^-1 (damping_factor = {self.cavity_damping_factor:.1f}x)")
             elif self.cavity_thermostat.lower() == 'bussi':

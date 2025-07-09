@@ -36,8 +36,8 @@ class CavityForce(hoomd.md.force.Force):
     -----------
     kvector : array_like
         Cavity mode wave vector (currently not used but kept for compatibility)
-    couplstr : float
-        Coupling strength g in atomic units
+    couplstr : hoomd.variant.variant_like
+        Coupling strength g in atomic units. Can be a constant or time-varying.
     omegac : float
         Cavity frequency in atomic units (Hartree)
     phmass : float, optional
@@ -55,7 +55,7 @@ class CavityForce(hoomd.md.force.Force):
         # Now set up parameter dictionaries using the proper HOOMD methods
         param_dict = hoomd.data.parameterdicts.ParameterDict(
             kvector=hoomd.data.typeconverter.to_type_converter([float, float, float]),
-            couplstr=float,
+            couplstr=hoomd.variant.Variant,
             omegac=float,
             phmass=float,
             damping_ratio=float,
@@ -73,7 +73,7 @@ class CavityForce(hoomd.md.force.Force):
         
         # Store parameters for easy access
         self.kvector = np.array(kvector)
-        self.couplstr = couplstr
+        # Note: couplstr is now a variant, accessed via self.couplstr
         self.omegac = omegac
         self.phmass = phmass
         self.damping_ratio = damping_ratio
@@ -118,7 +118,7 @@ class CavityForce(hoomd.md.force.Force):
                             self._force_impl = _cavitymd.CavityForceComputeGPU(
                                 self._simulation.state._cpp_sys_def,
                                 self.omegac,
-                                self.couplstr,
+                                self.couplstr,  # Now passes the variant
                                 self.phmass,
                                 self.damping_ratio
                             )
@@ -132,7 +132,7 @@ class CavityForce(hoomd.md.force.Force):
                         self._force_impl = _cavitymd.CavityForceCompute(
                             self._simulation.state._cpp_sys_def,
                             self.omegac,
-                            self.couplstr,
+                            self.couplstr,  # Now passes the variant
                             self.phmass,
                             self.damping_ratio
                         )
@@ -143,7 +143,7 @@ class CavityForce(hoomd.md.force.Force):
                     self._force_impl = _cavitymd.CavityForceCompute(
                         self._simulation.state._cpp_sys_def,
                         self.omegac,
-                        self.couplstr,
+                        self.couplstr,  # Now passes the variant
                         self.phmass,
                         self.damping_ratio
                     )
@@ -241,8 +241,8 @@ class CavityForce(hoomd.md.force.Force):
         super()._detach_hook()
     
     def set_forces(self, timestep):
-        """For Python implementation compatibility"""
-        if hasattr(self._force_impl, 'set_forces'):
-            return self._force_impl.set_forces(timestep)
+        """Callback for python implementation when used as CustomForceCompute"""
+        if self._implementation in ["python", "python_fallback"]:
+            self._force_impl.set_forces(timestep)
     
     # Removed __getattr__ method temporarily to debug _typeparam_dict issue 

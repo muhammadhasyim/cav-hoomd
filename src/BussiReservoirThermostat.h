@@ -166,7 +166,7 @@ protected:
     Scalar m_instantaneous_reservoir_translational = 0.0;
     Scalar m_instantaneous_reservoir_rotational = 0.0;
 
-    /** Compute the rescaling factor (now with correct sign determination)
+    /** Compute the rescaling factor following CP2K's validated implementation
 
         @param K kinetic energy
         @param degrees_of_freedom Number of degrees of freedom with this energy.
@@ -180,11 +180,11 @@ protected:
                                 Scalar set_T,
                                 RandomGenerator& rng)
     {
-        if (degrees_of_freedom == 0)
+        if (degrees_of_freedom == 0 || K <= 0.0)
             return Scalar(1.0);
 
         double time_decay_factor = 0.0;
-        if (m_tau != 0.0)
+        if (m_tau > 0.1 * deltaT)  // Follow CP2K's tau > 0.1 condition
         {
             time_decay_factor = exp(-deltaT / m_tau);
         }
@@ -192,36 +192,46 @@ protected:
         NormalDistribution<double> normal(1.0);
         Scalar r_normal_one = normal(rng);
 
-        GammaDistribution<double> gamma((degrees_of_freedom - 1.0) / Scalar(2.0), Scalar(1.0));
-        double r_gamma = 0.0;
+        // Generate sum of (ndeg-1) squared Gaussian variables (direct sum like CP2K)
+        double r_gamma_sum = 0.0;
         if (degrees_of_freedom > 1.0)
         {
-            r_gamma = 2.0 * gamma(rng);
+            NormalDistribution<double> normal_for_sum(1.0);
+            int num_gaussians = static_cast<int>(degrees_of_freedom - 1.0);
+            for (int i = 0; i < num_gaussians; i++)
+            {
+                double gaussian_sample = normal_for_sum(rng);
+                r_gamma_sum += gaussian_sample * gaussian_sample;
+            }
         }
 
-        double v = set_T / 2.0 / K;
-        double term1 = v * (1.0 - time_decay_factor) * (r_gamma + r_normal_one * r_normal_one);
-        double term2 = 2.0 * r_normal_one * sqrt(v * (1.0 - time_decay_factor) * time_decay_factor);
+        // Target average kinetic energy (sigma in CP2K)
+        double sigma = set_T * degrees_of_freedom / 2.0;
+        
+        // CP2K's momentum reversal logic (only for ndeg=1)
+        double reverse = 1.0;
+        if (degrees_of_freedom == 1)
+        {
+            // Condition: r^2 * sigma * (1-c) > ndeg * K * c AND r <= 0
+            if ((r_normal_one * r_normal_one * sigma * (1.0 - time_decay_factor)) > 
+                (degrees_of_freedom * K * time_decay_factor) && r_normal_one <= 0.0)
+            {
+                reverse = -1.0;
+            }
+        }
+        // For ndeg != 1, skip momentum reversal to avoid unnecessary slowing
 
-        // Calculate α² (always positive)
-        double alpha_squared = time_decay_factor + term1 + term2;
-        double alpha_magnitude = sqrt(alpha_squared);
+        // CP2K's resample formula (Equation A7)
+        double total_noise = r_gamma_sum + r_normal_one * r_normal_one;
+        double resample = K + (1.0 - time_decay_factor) * 
+                         (sigma * total_noise / degrees_of_freedom - K) +
+                         2.0 * r_normal_one * sqrt(K * sigma / degrees_of_freedom * 
+                                                  (1.0 - time_decay_factor) * time_decay_factor);
+
+        // Ensure non-negative kinetic energy
+        resample = std::max(0.0, resample);
         
-        // Determine sign according to equation (A8) from Bussi et al. 2009
-        // sign[α(t)] = sign[R(t) + √(cNf*K*(t)/((1-c)K̄*))]
-        double c = time_decay_factor;  // c = exp(-Δt/τ)
-        double K_bar = set_T * degrees_of_freedom / 2.0;  // average kinetic energy
-        double sign_term = r_normal_one + sqrt(c * degrees_of_freedom * K / ((1.0 - c) * K_bar));
-        
-        // Apply the correct sign
-        if (sign_term >= 0.0)
-        {
-            return Scalar(alpha_magnitude);
-        }
-        else
-        {
-            return Scalar(-alpha_magnitude);
-        }
+        return Scalar(reverse * sqrt(resample / K));
     }
 };
 

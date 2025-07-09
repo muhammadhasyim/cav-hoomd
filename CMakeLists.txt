@@ -72,7 +72,7 @@ set(_cavitymd_sources
     )
 
 # GPU support enabled for CUDA compilation
-if (ENABLE_GPU AND ENABLE_HIP)
+if (ENABLE_GPU)
 list(APPEND _cavitymd_sources 
     src/CavityForceComputeGPU.cc
     src/CavityForceComputeGPU.cu
@@ -93,6 +93,35 @@ target_compile_definitions(_cavitymd PRIVATE
     HOOMD_LONGREAL_SIZE=${HOOMD_LONGREAL_SIZE}
 )
 
+# Build langevin module (corrected Langevin integrator)
+set(_langevin_sources
+    src/TwoStepLangevinCorrectedBase.cc
+    src/TwoStepLangevinCorrected.cc
+    src/langevin/module.cc
+    )
+
+# GPU support enabled for CUDA compilation  
+if (ENABLE_GPU)
+list(APPEND _langevin_sources 
+    src/TwoStepLangevinCorrectedGPU.cc
+    src/TwoStepLangevinCorrectedGPU.cu
+    )
+endif()
+
+pybind11_add_module(_langevin SHARED ${_langevin_sources})
+target_link_libraries(_langevin PRIVATE HOOMD::_hoomd HOOMD::_md)
+target_include_directories(_langevin PRIVATE 
+    ${HOOMD_INSTALL_PREFIX}/${PYTHON_SITE_INSTALL_DIR}/include
+    ${HOOMD_INSTALL_PREFIX}/${PYTHON_SITE_INSTALL_DIR}/include/hoomd/extern/OpenRAND/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+
+# Add the preprocessor definitions to the target
+target_compile_definitions(_langevin PRIVATE 
+    HOOMD_SHORTREAL_SIZE=${HOOMD_SHORTREAL_SIZE}
+    HOOMD_LONGREAL_SIZE=${HOOMD_LONGREAL_SIZE}
+)
+
 # Install the libraries
 install(TARGETS _bussi_reservoir
         LIBRARY DESTINATION ${Python_SITEARCH}/hoomd/bussi_reservoir
@@ -100,6 +129,10 @@ install(TARGETS _bussi_reservoir
 
 install(TARGETS _cavitymd
         LIBRARY DESTINATION ${Python_SITEARCH}/hoomd/cavitymd
+        )
+
+install(TARGETS _langevin
+        LIBRARY DESTINATION ${Python_SITEARCH}/hoomd/langevin
         )
 
 # Install the python packages
@@ -111,6 +144,12 @@ install(DIRECTORY src/bussi_reservoir/
 # Install the cavity module python packages
 install(DIRECTORY src/cavitymd/
         DESTINATION ${Python_SITEARCH}/hoomd/cavitymd
+        FILES_MATCHING PATTERN "*.py"
+        )
+
+# Install the langevin module python packages
+install(DIRECTORY src/langevin/
+        DESTINATION ${Python_SITEARCH}/hoomd/langevin
         FILES_MATCHING PATTERN "*.py"
         )
 

@@ -1,31 +1,18 @@
 # Copyright (c) 2009-2025 The Regents of the University of Michigan.
 # Part of HOOMD-blue, released under the BSD 3-Clause License.
 
-"""Pure Python cavity force implementation."""
+"""Pure Python implementation of cavity force."""
 
-import hoomd
+import hoomd.md.force
 import numpy as np
+import hoomd.variant
+from hoomd.data.typeconverter import OnlyIf, to_type_converter
+from hoomd.data.parameterdicts import ParameterDict
 
 
 def unwrap_positions(positions, images, box_lengths):
-    """
-    Unwrap particle positions across periodic boundaries.
-    
-    Args:
-        positions: Array of wrapped positions (N x 3)
-        images: Array of image flags (N x 3)
-        box_lengths: Array of box dimensions (3,)
-        
-    Returns:
-        Array of unwrapped positions (N x 3)
-    """
-    # Convert inputs to numpy arrays if they aren't already
-    pos = np.asarray(positions)
-    img = np.asarray(images)
-    box = np.asarray(box_lengths)
-    
-    # Unwrap by adding box lengths multiplied by image flags
-    return pos + img * box[None, :]
+    """Unwrap particle positions accounting for periodic boundary conditions."""
+    return positions + images * box_lengths
 
 
 class CavityForcePython(hoomd.md.force.Custom):
@@ -39,13 +26,19 @@ class CavityForcePython(hoomd.md.force.Custom):
     def __init__(self, kvector, couplstr, omegac, phmass=1.0, damping_ratio=0.0):
         super().__init__(aniso=False)
         
-        # Store parameters
+        # Store parameters - convert couplstr to variant if it's not already
         self.kvector = np.array(kvector)
-        self.couplstr = couplstr
         self.omegac = omegac
         self.phmass = phmass
         self.damping_ratio = damping_ratio
         self.K = phmass * omegac**2
+        
+        # Handle variant conversion for coupling strength
+        if isinstance(couplstr, hoomd.variant.Variant):
+            self.couplstr = couplstr
+        else:
+            # Convert constant to variant
+            self.couplstr = hoomd.variant.Constant(float(couplstr))
         
         # Initialize energy components
         self.harmonic_energy = 0.0
@@ -56,7 +49,7 @@ class CavityForcePython(hoomd.md.force.Custom):
         gamma = 2.0 * damping_ratio * np.sqrt(self.K)
         
         print(f"CavityForcePython initialized:")
-        print(f"  Coupling strength: {self.couplstr:.6f} a.u.")
+        print(f"  Coupling strength: {self.couplstr(0):.6f} a.u. (at t=0)")
         print(f"  Cavity frequency: {self.omegac:.6f} a.u.")
         print(f"  Photon mass: {self.phmass:.6f} a.u.")
         print(f"  Spring constant K: {self.K:.6f} a.u.")
@@ -75,14 +68,23 @@ class CavityForcePython(hoomd.md.force.Custom):
         This is called by HOOMD at each timestep to compute forces.
         Implements the cavity-molecule interaction Hamiltonian.
         """
+        # Get current coupling strength at this timestep
+        current_couplstr = self.couplstr(timestep)
+        
         with self._state.cpu_local_snapshot as snap:
             try:
-                # Find cavity particle (type ID = 1)
-                cavity_mask = snap.particles.typeid == 1
-                cavity_indices = np.where(cavity_mask)[0]
+                # Find cavity particle (type name = "L")
+                try:
+                    L_typeid = self._state.particle_types.index('L')
+                    cavity_mask = snap.particles.typeid == L_typeid
+                    cavity_indices = np.where(cavity_mask)[0]
+                except ValueError:
+                    print("Warning: Particle type 'L' not found in simulation")
+                    self._zero_forces_and_energy()
+                    return
                 
                 if len(cavity_indices) == 0:
-                    print("Warning: No cavity particle found (typeid=1)")
+                    print("Warning: No cavity particle found")
                     self._zero_forces_and_energy()
                     return
                 elif len(cavity_indices) > 1:
@@ -113,20 +115,20 @@ class CavityForcePython(hoomd.md.force.Custom):
                 cavity_xy = cavity_position.copy()
                 cavity_xy[2] = 0.0  # Zero out z-component
                 
-                # Compute energy components
+                # Compute energy components using current coupling strength
                 # 1. Harmonic energy: (1/2) * K * |q|²
                 self.harmonic_energy = 0.5 * self.K * np.dot(cavity_position, cavity_position)
                 
                 # 2. Coupling energy: g * (q_xy · d_xy)
-                self.coupling_energy = self.couplstr * np.dot(cavity_xy, dipole_xy)
+                self.coupling_energy = current_couplstr * np.dot(cavity_xy, dipole_xy)
                 
                 # 3. Dipole self-energy: (g²/2K) * |d_xy|²
-                self.dipole_self_energy = 0.5 * (self.couplstr**2 / self.K) * np.dot(dipole_xy, dipole_xy)
+                self.dipole_self_energy = 0.5 * (current_couplstr**2 / self.K) * np.dot(dipole_xy, dipole_xy)
                 
                 # Total cavity energy
                 total_energy = self.total_cavity_energy
                 
-                # Compute forces
+                # Compute forces using current coupling strength
                 with self.cpu_local_force_arrays as arrays:
                     # Initialize arrays
                     arrays.force[:] = 0.0
@@ -138,31 +140,36 @@ class CavityForcePython(hoomd.md.force.Custom):
                     
                     # Force on molecular particles: F_i = -g * q_i * [q_xy + (g/K) * d_xy]
                     # Only x,y components contribute
-                    force_factor = cavity_xy + (self.couplstr / self.K) * dipole_xy
+                    force_factor = cavity_xy + (current_couplstr / self.K) * dipole_xy
                     num_particles = len(snap.particles.position)
                     for i in range(num_particles):
                         if i != cavity_idx:  # Skip cavity particle
                             charge = snap.particles.charge[i]
-                            force_molecular = -self.couplstr * charge * force_factor
+                            force_molecular = -current_couplstr * charge * force_factor
                             arrays.force[i] = force_molecular
                     
                     # Force on cavity particle: F_cavity = -K * q - g * d_xy - gamma * velocity
                     # where gamma = 2 * damping_ratio * sqrt(K)
                     gamma = 2.0 * self.damping_ratio * np.sqrt(self.K)
                     cavity_velocity = snap.particles.velocity[cavity_idx]
-                    force_cavity = -self.K * cavity_position - self.couplstr * dipole_xy - gamma * cavity_velocity
-                    arrays.force[cavity_idx] = force_cavity
+                    cavity_force = (-self.K * cavity_position - 
+                                   current_couplstr * dipole_xy - 
+                                   gamma * cavity_velocity)
+                    arrays.force[cavity_idx] = cavity_force
                     
             except Exception as e:
-                print(f"Error in cavity force calculation: {e}")
+                print(f"Error in CavityForcePython.set_forces: {e}")
                 self._zero_forces_and_energy()
     
     def _zero_forces_and_energy(self):
-        """Set all forces and energies to zero in case of error."""
-        with self.cpu_local_force_arrays as arrays:
-            arrays.force[:] = 0.0
-            arrays.potential_energy[:] = 0.0
-        
-        self.harmonic_energy = 0.0
-        self.coupling_energy = 0.0
-        self.dipole_self_energy = 0.0 
+        """Set all forces and energies to zero"""
+        try:
+            with self.cpu_local_force_arrays as arrays:
+                arrays.force[:] = 0.0
+                arrays.potential_energy[:] = 0.0
+            
+            self.harmonic_energy = 0.0
+            self.coupling_energy = 0.0
+            self.dipole_self_energy = 0.0
+        except Exception as e:
+            print(f"Error zeroing forces: {e}") 
