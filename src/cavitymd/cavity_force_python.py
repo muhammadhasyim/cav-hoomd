@@ -35,11 +35,30 @@ class CavityForcePython(hoomd.md.force.Custom):
         self.dipole_self_energy = 0.0
         
         print(f"CavityForcePython initialized:")
-        print(f"  Coupling strength: {self.couplstr:.6f} a.u.")
+        # Handle both regular floats and variant objects for printing
+        if hasattr(self.couplstr, '__call__'):
+            # It's a variant object, get its initial value
+            try:
+                coupling_val = self.couplstr(0)  # Get value at timestep 0
+                print(f"  Coupling strength: {coupling_val:.6f} a.u. (variant)")
+            except:
+                print(f"  Coupling strength: {self.couplstr} a.u. (variant)")
+        else:
+            print(f"  Coupling strength: {self.couplstr:.6f} a.u.")
+        
+        # Handle dissipation parameter similarly
+        if hasattr(self.dissipation, '__call__'):
+            try:
+                dissipation_val = self.dissipation(0)  # Get value at timestep 0
+                print(f"  Dissipation rate: {dissipation_val:.6f} a.u. (variant)")
+            except:
+                print(f"  Dissipation rate: {self.dissipation} a.u. (variant)")
+        else:
+            print(f"  Dissipation rate: {self.dissipation:.6f} a.u.")
+            
         print(f"  Cavity frequency: {self.omegac:.6f} a.u.")
         print(f"  Photon mass: {self.phmass:.6f} a.u.")
         print(f"  Spring constant K: {self.K:.6f} a.u.")
-        print(f"  Dissipation rate: {self.dissipation:.6f} a.u.")
     
     @property
     def total_cavity_energy(self):
@@ -55,12 +74,23 @@ class CavityForcePython(hoomd.md.force.Custom):
         """
         with self._state.cpu_local_snapshot as snap:
             try:
-                # Find cavity particle (type ID = 1)
-                cavity_mask = snap.particles.typeid == 1
+                # Evaluate variant parameters at current timestep
+                if hasattr(self.couplstr, '__call__'):
+                    coupling_strength = self.couplstr(timestep)
+                else:
+                    coupling_strength = self.couplstr
+                    
+                if hasattr(self.dissipation, '__call__'):
+                    dissipation_rate = self.dissipation(timestep)
+                else:
+                    dissipation_rate = self.dissipation
+                
+                # Find cavity particle (type 'L', should be typeid=2)
+                cavity_mask = snap.particles.typeid == 2
                 cavity_indices = np.where(cavity_mask)[0]
                 
                 if len(cavity_indices) == 0:
-                    print("Warning: No cavity particle found (typeid=1)")
+                    print("Warning: No cavity particle found (typeid=2, type 'L')")
                     self._zero_forces_and_energy()
                     return
                 elif len(cavity_indices) > 1:
@@ -94,15 +124,15 @@ class CavityForcePython(hoomd.md.force.Custom):
                 # Get cavity particle velocity for dissipation
                 cavity_velocity = snap.particles.velocity[cavity_idx]
                 
-                # Compute energy components
+                # Compute energy components using evaluated parameters
                 # 1. Harmonic energy: (1/2) * K * |q|²
                 self.harmonic_energy = 0.5 * self.K * np.dot(cavity_position, cavity_position)
                 
                 # 2. Coupling energy: g * (q_xy · d_xy)
-                self.coupling_energy = self.couplstr * np.dot(cavity_xy, dipole_xy)
+                self.coupling_energy = coupling_strength * np.dot(cavity_xy, dipole_xy)
                 
                 # 3. Dipole self-energy: (g²/2K) * |d_xy|²
-                self.dipole_self_energy = 0.5 * (self.couplstr**2 / self.K) * np.dot(dipole_xy, dipole_xy)
+                self.dipole_self_energy = 0.5 * (coupling_strength**2 / self.K) * np.dot(dipole_xy, dipole_xy)
                 
                 # Total cavity energy
                 total_energy = self.total_cavity_energy
@@ -119,19 +149,19 @@ class CavityForcePython(hoomd.md.force.Custom):
                     
                     # Force on molecular particles: F_i = -g * q_i * [q_xy + (g/K) * d_xy]
                     # Only x,y components contribute
-                    force_factor = cavity_xy + (self.couplstr / self.K) * dipole_xy
+                    force_factor = cavity_xy + (coupling_strength / self.K) * dipole_xy
                     num_particles = len(snap.particles.position)
                     for i in range(num_particles):
                         if i != cavity_idx:  # Skip cavity particle
                             charge = snap.particles.charge[i]
-                            force_molecular = -self.couplstr * charge * force_factor
+                            force_molecular = -coupling_strength * charge * force_factor
                             arrays.force[i] = force_molecular
                     
                     # Force on cavity particle: F_cavity = -K * q - g * d_xy - γ * v_cavity
                     # Add dissipation term: -γ * v_cavity (friction force)
                     force_cavity = (-self.K * cavity_position - 
-                                   self.couplstr * dipole_xy - 
-                                   self.dissipation * cavity_velocity)
+                                   coupling_strength * dipole_xy - 
+                                   dissipation_rate * cavity_velocity)
                     arrays.force[cavity_idx] = force_cavity
                     
             except Exception as e:

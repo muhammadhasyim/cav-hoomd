@@ -2,6 +2,7 @@
 // Part of HOOMD-blue, released under the BSD 3-Clause License.
 
 #include "CavityForceCompute.h"
+#include "CavityParticleDisplacer.h"
 
 #ifdef ENABLE_HIP
 #include "CavityForceComputeGPU.h"
@@ -21,6 +22,7 @@ namespace hoomd { namespace cavitymd { namespace detail { void export_CavityForc
 #ifdef ENABLE_HIP
 namespace hoomd { namespace cavitymd { namespace detail { void export_CavityForceComputeGPU(pybind11::module& m); } } }
 #endif
+namespace hoomd { namespace cavitymd { namespace detail { void export_CavityParticleDisplacer(pybind11::module& m); } } }
 
 // specify the python module. Note that the name must exactly match the filename of the output
 // library
@@ -31,4 +33,6 @@ PYBIND11_MODULE(_cavitymd, m)
 #ifdef ENABLE_HIP
     hoomd::cavitymd::detail::export_CavityForceComputeGPU(m);
 #endif
+
+    hoomd::cavitymd::detail::export_CavityParticleDisplacer(m);
 } 

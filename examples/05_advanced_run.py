@@ -79,7 +79,7 @@ from hoomd.cavitymd import CavityForce
 from hoomd.cavitymd import (
     CavityForce, PhysicalConstants, Status, ElapsedTimeTracker,
     TimestepFormatter, AdaptiveTimestepUpdater, FieldAutocorrelationTracker,
-    CavityModeTracker, EnergyTracker
+    CavityModeTracker, EnergyTracker, CavityParticleDisplacer
 )
 
 def unwrap_positions(positions, images, box_lengths):
@@ -542,22 +542,33 @@ class CavityMDSimulation:
 
         omegac = self.freq / PhysicalConstants.HARTREE_TO_CM_MINUS1
         
+        # Determine coupling strength for initial placement
+        initial_couplstr = 0.0 if self.switch_time_ps is not None else self.couplstr
+
         if self.finite_q:
             # Allow finite-q photon displacement based on dipole-coupling interaction
-            newpos = -dipmom * self.couplstr / omegac**2
-            newpos[-1] = 0.0
-            # Only add thermal fluctuations if coupling is non-zero
-            if self.couplstr != 0.0:
-                sigma = np.sqrt(self.kB * self.temperature / omegac**2)
-                newpos = np.random.normal(loc=newpos, scale=sigma, size=3)
-                self.log_info(f"Finite-q mode: Photon displaced by dipole interaction to {newpos} (with thermal fluctuations)")
+            if self.switch_time_ps is not None:
+                # For instantaneous switching: start at zero coupling position
+                # Displacement will happen at switch time via CavityParticleDisplacer
+                newpos = np.array([0.0, 0.0, 0.0])
+                self.log_info(f"Finite-q + instantaneous switching: Photon starts at origin")
+                self.log_info(f"  CavityParticleDisplacer will handle displacement at switch time")
             else:
-                self.log_info(f"Finite-q mode: Photon at equilibrium position {newpos} (no thermal fluctuations due to zero coupling)")
+                # Original finite-q behavior for constant coupling
+                newpos = -dipmom * initial_couplstr / omegac**2
+                newpos[-1] = 0.0
+                # Only add thermal fluctuations if coupling is non-zero
+                if initial_couplstr != 0.0:
+                    sigma = np.sqrt(self.kB * self.temperature / omegac**2)
+                    newpos = np.random.normal(loc=newpos, scale=sigma, size=3)
+                    self.log_info(f"Finite-q mode: Photon displaced by dipole interaction to {newpos} (with thermal fluctuations)")
+                else:
+                    self.log_info(f"Finite-q mode: Photon at equilibrium position {newpos} (no thermal fluctuations due to zero coupling)")
         else:
             # Start photon at origin (q=0 limit)
             newpos = np.array([0.0, 0.0, 0.0])
             # Only add thermal fluctuations if coupling is non-zero
-            if self.couplstr != 0.0:
+            if initial_couplstr != 0.0:
                 sigma = np.sqrt(self.kB * self.temperature / omegac**2)
                 newpos = np.random.normal(loc=newpos, scale=sigma, size=3)
                 self.log_info("q=0 mode: Photon positioned at origin + thermal fluctuations")
@@ -650,7 +661,7 @@ class CavityMDSimulation:
                 # Import variants from hoomd.cavitymd
                 from hoomd.cavitymd import StepVariant
                 
-                # Create step variants for coupling and dissipation
+                # Create step variants for instantaneous switching
                 coupling_variant = StepVariant(
                     target_value=self.couplstr,
                     switch_time_ps=self.switch_time_ps,
@@ -663,10 +674,10 @@ class CavityMDSimulation:
                     time_tracker=self.time_tracker
                 )
                 
-                self.log_info(f"Using time-varying coupling and dissipation:")
+                self.log_info(f"Using instantaneous switching:")
                 self.log_info(f"  Switch time: {self.switch_time_ps} ps")
-                self.log_info(f"  Coupling: 0 → {self.couplstr} a.u.")
-                self.log_info(f"  Dissipation: 0 → {self.dissipation} a.u.")
+                self.log_info(f"  Coupling: 0 → {self.couplstr} a.u. (instantaneous)")
+                self.log_info(f"  Dissipation: 0 → {self.dissipation} a.u. (instantaneous)")
                 
                 # Create cavity force with variants
                 cavityforce = CavityForce(
@@ -675,6 +686,11 @@ class CavityMDSimulation:
                     omegac=omegac,
                     dissipation=dissipation_variant
                 )
+
+                # Store variants for later use in finite-q setup
+                self.coupling_variant = coupling_variant
+                self.omegac = omegac
+
             else:
                 # Use constant values (backward compatibility)
                 self.log_info(f"Using constant coupling and dissipation:")
@@ -687,6 +703,10 @@ class CavityMDSimulation:
                     omegac=omegac,
                     dissipation=self.dissipation
                 )
+                
+                # Clear variants for later use
+                self.coupling_variant = None
+                self.omegac = omegac
             
             forces.append(cavityforce)
         
@@ -833,6 +853,114 @@ class CavityMDSimulation:
         
         self.log_info(f"Integrator configured with initial dt = {self.dt:.6f} a.u. ({self.dt_ps:.6f} ps)")
         self.log_info(f"Number of integration methods: {len(valid_methods)}")
+        
+        # Setup CavityParticleDisplacer if using finite-q mode with time-varying coupling
+        if self.finite_q and self.switch_time_ps is not None:
+            self.log_info("Setting up CavityParticleDisplacer for finite-q mode with time-varying coupling")
+            
+            # Create Python custom action for cavity particle displacement
+            class CavityParticleDisplacer(hoomd.custom.Action):
+                def __init__(self, coupling_variant, omegac, temperature, kB):
+                    self.coupling_variant = coupling_variant
+                    self.omegac = omegac
+                    self.temperature = temperature
+                    self.kB = kB
+                    self.phmass = 1.0  # Photon mass
+                    self.K = self.phmass * self.omegac * self.omegac
+                    self.has_run = False
+                    
+                def act(self, timestep):
+                    if self.has_run:
+                        return
+                    
+                    # Get current coupling strength
+                    g_current = self.coupling_variant(timestep)
+                    
+                    # Check if coupling has switched from 0 to non-zero
+                    if g_current == 0.0:
+                        return  # Still zero, nothing to do
+                    
+                    # Coupling has switched ON! Perform displacement
+                    print(f"CavityParticleDisplacer: Coupling switched ON at timestep {timestep}, g = {g_current}")
+                    
+                    # Get system snapshot
+                    snap = self._state.get_snapshot()
+                    
+                    if snap.communicator.rank == 0:
+                        # Find cavity particle (type 'L', typeid = 2)
+                        cavity_indices = [i for i in range(snap.particles.N) if snap.particles.typeid[i] == 2]
+                        
+                        if len(cavity_indices) == 0:
+                            print("Warning: No cavity particle found for displacement")
+                            self.has_run = True
+                            return
+                        
+                        cavity_idx = cavity_indices[0]  # Use first cavity particle
+                        
+                        # Compute unwrapped positions
+                        box_L = np.array(snap.configuration.box[:3])
+                        positions = snap.particles.position
+                        images = snap.particles.image
+                        
+                        unwrapped_pos = positions + images * box_L
+                        
+                        # Compute molecular dipole moment (excluding cavity particle)
+                        dipole = np.array([0.0, 0.0, 0.0])
+                        for i in range(snap.particles.N):
+                            if i != cavity_idx:
+                                dipole += snap.particles.charge[i] * unwrapped_pos[i]
+                        
+                        # Only use x,y components for displacement
+                        dipole_xy = np.array([dipole[0], dipole[1], 0.0])
+                        
+                        # Calculate new equilibrium position
+                        q_eq = -(g_current / self.K) * dipole_xy
+                        
+                        # Get current cavity position
+                        q_old = unwrapped_pos[cavity_idx]
+                        
+                        print(f"  Dipole moment (xy): {dipole_xy}")
+                        print(f"  Old cavity position: {q_old}")
+                        print(f"  New equilibrium position: {q_eq}")
+                        
+                        # Create new position (preserve z coordinate)
+                        new_pos_unwrapped = np.array([q_eq[0], q_eq[1], q_old[2]])
+                        
+                        # Wrap position back into box
+                        new_image = np.floor((new_pos_unwrapped + box_L/2) / box_L).astype(int)
+                        new_pos_wrapped = new_pos_unwrapped - new_image * box_L
+                        
+                        # Update particle position and image
+                        snap.particles.position[cavity_idx] = new_pos_wrapped
+                        snap.particles.image[cavity_idx] = new_image
+                        
+                        displacement_xy = np.linalg.norm(new_pos_unwrapped[:2] - q_old[:2])
+                        print(f"  Displacement magnitude (xy): {displacement_xy}")
+                        print(f"  Final position: {new_pos_wrapped}")
+                    
+                    # Set updated snapshot back to system
+                    self._state.set_snapshot(snap)
+                    
+                    print("CavityParticleDisplacer: Displacement completed and system state updated")
+                    self.has_run = True
+            
+            # Create and add the custom updater
+            cavity_displacer_action = CavityParticleDisplacer(
+                coupling_variant=self.coupling_variant,
+                omegac=self.omegac,
+                temperature=self.temperature,
+                kB=self.kB
+            )
+            
+            displacer_updater = hoomd.update.CustomUpdater(
+                action=cavity_displacer_action,
+                trigger=hoomd.trigger.Periodic(1)
+            )
+            self.sim.operations.updaters.append(displacer_updater)
+            
+            self.log_info("CavityParticleDisplacer configured as Python custom action")
+        else:
+            self.log_info("CavityParticleDisplacer not needed (constant coupling or q=0 mode)")
 
     def thermalize_system(self):
         """Initialize particle velocities and thermostat degrees of freedom."""
@@ -840,8 +968,8 @@ class CavityMDSimulation:
         if not self.restart_velocities:
             self.log_info("Velocity restart disabled - keeping existing velocities from GSD file")
             # Still need to initialize reservoir energy tracking (requires at least one simulation step)
-            self.log_info("Initializing reservoir energy tracking...")
-            self.sim.run(1)
+            # Defer this to avoid Bussi thermostat issues
+            self.log_info("Will initialize reservoir energy tracking after optimal timestep computation")
             return
         
         kT = self.kB * self.temperature
@@ -889,9 +1017,35 @@ class CavityMDSimulation:
             self.sim.state.thermalize_particle_momenta(kT=kT, filter=hoomd.filter.All())
             self.log_info("Thermalized all molecular particles")
         
-        # Initialize reservoir energy logging (requires at least one simulation step)
-        self.log_info("Initializing reservoir energy tracking...")
-        self.sim.run(1)
+        # Ensure no particles have exactly zero velocity (Bussi thermostat requirement)
+        self.ensure_nonzero_velocities(kT)
+        
+        # Defer reservoir energy initialization to avoid Bussi thermostat issues
+        self.log_info("Deferring reservoir energy initialization to after optimal timestep computation")
+
+    def ensure_nonzero_velocities(self, kT):
+        """Ensure all particles have non-zero velocities for Bussi thermostat compatibility."""
+        min_velocity = 1e-6  # Minimum velocity component to avoid exactly zero
+        
+        with self.sim.state.cpu_local_snapshot as snap:
+            velocities_modified = False
+            zero_count = 0
+            
+            for i in range(len(snap.particles.velocity)):
+                velocity = snap.particles.velocity[i]
+                
+                # Check if any component is exactly zero or very close to zero
+                if np.any(np.abs(velocity) < min_velocity):
+                    # Add small random perturbation to avoid exactly zero
+                    perturbation = np.random.normal(0.0, np.sqrt(kT), size=3) * 0.01  # Small fraction of thermal velocity
+                    snap.particles.velocity[i] = velocity + perturbation
+                    velocities_modified = True
+                    zero_count += 1
+            
+            if velocities_modified:
+                self.log_info(f"Applied velocity perturbations to {zero_count} particles to avoid zero velocities for Bussi thermostat")
+            else:
+                self.log_info("All particle velocities are non-zero - no perturbations needed")
 
     def compute_and_set_optimal_timestep(self):
         """Compute and set the optimal timestep after running one step to initialize forces."""
@@ -906,12 +1060,22 @@ class CavityMDSimulation:
             else:
                 # Keep current dt (HOOMD default)
                 self.log_info(f"Using default fixed timestep: {self.sim.operations.integrator.dt:.6f} a.u. ({PhysicalConstants.atomic_units_to_ps(self.sim.operations.integrator.dt) * 1000:.3f} fs)")
+            
+            # Initialize reservoir energy tracking now for fixed timestep mode
+            if self.restart_velocities:  # Only if we did thermalization
+                self.log_info("Initializing reservoir energy tracking...")
+                self.sim.run(1)
             return
         
         try:
             self.log_info("Computing optimal timestep...")
             
-            # Run one step to initialize forces (required by HOOMD)
+            # Initialize reservoir energy tracking first for adaptive timestep mode
+            if self.restart_velocities:  # Only if we did thermalization
+                self.log_info("Initializing reservoir energy tracking before optimal timestep computation...")
+                self.sim.run(1)
+            
+            # Run one more step to initialize forces (required by HOOMD)
             self.sim.run(1)
             
             # Use initial error tolerance
@@ -1438,6 +1602,12 @@ class CavityMDSimulation:
             self.log_info(f"Timestep will adapt dynamically (error_tolerance = {self.error_tolerance})")
         else:
             self.log_info(f"Fixed timestep mode - steps per ps: {1.0/actual_dt_ps:.1f}")
+        
+        # Final check for Bussi thermostat compatibility - ensure non-zero velocities
+        if self.molecular_thermostat.lower() == 'bussi' or self.cavity_thermostat.lower() == 'bussi':
+            self.log_info("Performing final velocity check for Bussi thermostat compatibility...")
+            kT = self.kB * self.temperature
+            self.ensure_nonzero_velocities(kT)
         
         # Run the simulation
         self.sim.run(total_steps, write_at_start=True)

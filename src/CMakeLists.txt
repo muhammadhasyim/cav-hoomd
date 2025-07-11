@@ -55,3 +55,15 @@ copy_files_to_build("${python_files}" "hoomd-component-${COMPONENT_NAME}" "*.py"
 
 # Python tests.
 add_subdirectory(pytest)
+
+target_sources(
+    _cavitymd
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/cavitymd/module.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/CavityForceCompute.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/CavityForceComputeGPU.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/CavityForceComputeGPU.cu
+        ${CMAKE_CURRENT_SOURCE_DIR}/CavityParticleDisplacer.cc
+)
+
+# Set properties for GPU code

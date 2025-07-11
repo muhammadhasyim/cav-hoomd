@@ -11,6 +11,7 @@ from .analysis import (
     DipoleAutocorrelation
 )
 from .simulation import AdaptiveTimestepUpdater
+from .updaters import CavityParticleDisplacer
 from .variants import StepVariant, ConstantVariant
 
 __all__ = [
@@ -23,7 +24,7 @@ __all__ = [
     'AutocorrelationTracker', 'FieldAutocorrelationTracker', 'EnergyTracker',
     'DipoleAutocorrelation',
     # Simulation framework
-    'AdaptiveTimestepUpdater',
+    'AdaptiveTimestepUpdater', 'CavityParticleDisplacer',
     # Variants
     'StepVariant', 'ConstantVariant',
 ] 

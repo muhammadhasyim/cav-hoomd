@@ -69,6 +69,7 @@ target_compile_definitions(_bussi_reservoir PRIVATE
 set(_cavitymd_sources
     src/CavityForceCompute.cc
     src/cavitymd/module.cc
+    src/CavityParticleDisplacer.cc
     )
 
 # GPU support enabled for CUDA compilation
