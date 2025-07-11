@@ -27,12 +27,14 @@ namespace cavitymd
     \param omegac Cavity frequency in atomic units
     \param couplstr Coupling strength in atomic units
     \param phmass Photon mass (default 1.0)
+    \param dissipation Dissipation rate (default 0.0)
 */
 CavityForceComputeGPU::CavityForceComputeGPU(std::shared_ptr<SystemDefinition> sysdef,
                                              Scalar omegac,
-                                             Scalar couplstr, 
-                                             Scalar phmass)
-    : CavityForceCompute(sysdef, omegac, couplstr, phmass)
+                                             std::shared_ptr<Variant> couplstr,
+                                             Scalar phmass,
+                                             std::shared_ptr<Variant> dissipation)
+    : CavityForceCompute(sysdef, omegac, couplstr, phmass, dissipation)
 {
     m_exec_conf->msg->notice(5) << "Constructing CavityForceComputeGPU" << std::endl;
     
@@ -75,20 +77,7 @@ CavityForceComputeGPU::CavityForceComputeGPU(std::shared_ptr<SystemDefinition> s
                                    5));  // 5 samples
     
     // Check if cooperative kernel launch is supported
-    if (m_exec_conf->isCUDAEnabled()) {
-        int device;
-        hipGetDevice(&device);
-        hipDeviceProp_t prop;
-        hipGetDeviceProperties(&prop, device);
-        m_supports_cooperative = false; // Disable cooperative kernels for compatibility
-        
-        std::cout << "CavityForceComputeGPU initialized with GPU acceleration" << std::endl;
-        std::cout << "  - Using optimized 2-kernel approach for better performance" << std::endl;
-    }
-    else {
-        m_supports_cooperative = false;
-        std::cout << "CavityForceComputeGPU initialized (CPU fallback mode)" << std::endl;
-    }
+    // (implementation details would go here for advanced GPU features)
 }
 
 CavityForceComputeGPU::~CavityForceComputeGPU()
@@ -149,8 +138,9 @@ void CavityForceComputeGPU::computeForces(uint64_t timestep)
     
     // Main computation with limited concurrent handles
     {
-        // Access particle data arrays
+        // Access particle data arrays (including velocities for dissipation)
         ArrayHandle<Scalar4> d_pos(m_pdata->getPositions(), access_location::device, access_mode::read);
+        ArrayHandle<Scalar4> d_vel(m_pdata->getVelocities(), access_location::device, access_mode::read);
         ArrayHandle<Scalar> d_charge(m_pdata->getCharges(), access_location::device, access_mode::read);
         ArrayHandle<int3> d_image(m_pdata->getImages(), access_location::device, access_mode::read);
         
@@ -168,22 +158,24 @@ void CavityForceComputeGPU::computeForces(uint64_t timestep)
         // Use HOOMD's logging system for debug info (only at high debug levels)
         m_exec_conf->msg->notice(10) << "CavityForceComputeGPU: GPU computation with N=" << N 
                                      << ", block_size=" << block_size 
-                                     << ", L_typeid=" << L_typeid << std::endl;
+                                     << ", L_typeid=" << L_typeid 
+                                     << ", dissipation=" << m_params.dissipation << std::endl;
         
-        // CRITICAL FIX: Pass structures by pointer to avoid ABI corruption
-        hipError_t error = kernel::gpu_compute_cavity_force(d_force.data,
-                                                             d_pos.data,
-                                                             d_charge.data,
-                                                             d_image.data,
-                                                             &box,
-                                                             N,
-                                                             m_params,
-                                                             d_temp_energy.data,
-                                                             d_photon_idx.data,
-                                                             d_temp_dipole.data,
-                                                             d_dipole_global.data,
-                                                             L_typeid,
-                                                             block_size);
+        // Call the updated GPU function that includes velocity data and dissipation
+        hipError_t error = hoomd::cavitymd::kernel::gpu_compute_cavity_forces(d_force.data,
+                                                      d_pos.data,
+                                                      d_vel.data,
+                                                      d_charge.data,
+                                                      d_image.data,
+                                                      &box,
+                                                      &m_params,
+                                                      d_temp_energy.data,
+                                                      d_temp_dipole.data,
+                                                      d_photon_idx.data,
+                                                      d_dipole_global.data,
+                                                      N,
+                                                      L_typeid,
+                                                      block_size);
         
         if (error != hipSuccess)
         {
@@ -258,9 +250,9 @@ void export_CavityForceComputeGPU(pybind11::module& m)
 {
     pybind11::class_<CavityForceComputeGPU, CavityForceCompute, std::shared_ptr<CavityForceComputeGPU>>(
         m, "CavityForceComputeGPU")
-        .def(pybind11::init<std::shared_ptr<SystemDefinition>, Scalar, Scalar, Scalar>(),
+        .def(pybind11::init<std::shared_ptr<SystemDefinition>, Scalar, std::shared_ptr<Variant>, Scalar, std::shared_ptr<Variant>>(),
              pybind11::arg("sysdef"), pybind11::arg("omegac"), pybind11::arg("couplstr"), 
-             pybind11::arg("phmass") = 1.0);
+             pybind11::arg("phmass") = 1.0, pybind11::arg("dissipation") = pybind11::none());
 }
 } // end namespace detail
 

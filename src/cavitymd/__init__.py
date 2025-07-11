@@ -11,6 +11,7 @@ from .analysis import (
     DipoleAutocorrelation
 )
 from .simulation import AdaptiveTimestepUpdater
+from .variants import StepVariant, ConstantVariant
 
 __all__ = [
     # Forces
@@ -23,4 +24,6 @@ __all__ = [
     'DipoleAutocorrelation',
     # Simulation framework
     'AdaptiveTimestepUpdater',
+    # Variants
+    'StepVariant', 'ConstantVariant',
 ] 

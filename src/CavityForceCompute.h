@@ -18,6 +18,7 @@
 #endif
 
 #include <pybind11/pybind11.h>
+#include "hoomd/Variant.h"
 
 namespace hoomd
 {
@@ -31,12 +32,13 @@ struct cavity_force_params
     Scalar couplstr;   //!< Coupling strength in atomic units  
     Scalar K;          //!< Spring constant (phmass * omegac^2)
     Scalar phmass;     //!< Photon mass
+    Scalar dissipation; //!< Dissipation rate in atomic units
     
 #ifndef __HIPCC__
-    cavity_force_params() : omegac(0.), couplstr(0.), K(0.), phmass(1.) {}
+    cavity_force_params() : omegac(0.), couplstr(0.), K(0.), phmass(1.), dissipation(0.) {}
     
-    cavity_force_params(Scalar _omegac, Scalar _couplstr, Scalar _phmass) 
-        : omegac(_omegac), couplstr(_couplstr), phmass(_phmass)
+    cavity_force_params(Scalar _omegac, Scalar _couplstr, Scalar _phmass, Scalar _dissipation = Scalar(0.0)) 
+        : omegac(_omegac), couplstr(_couplstr), phmass(_phmass), dissipation(_dissipation)
     {
         K = phmass * omegac * omegac;
     }
@@ -48,6 +50,7 @@ struct cavity_force_params
         v["couplstr"] = couplstr;
         v["K"] = K;
         v["phmass"] = phmass;
+        v["dissipation"] = dissipation;
         return v;
     }
 #endif
@@ -57,8 +60,11 @@ struct cavity_force_params
 /*! Implements the force from the cavity Hamiltonian:
     H = (1/2) * K * q² + g * q · d + (g²/2K) * d²
     
+    with optional dissipation term: F_dissipation = -γ * v_cavity
+    
     where q is the cavity mode position, d is the molecular dipole moment,
-    g is the coupling strength, and K is the cavity spring constant.
+    g is the coupling strength, K is the cavity spring constant,
+    and γ is the dissipation rate.
     
     The cavity particle must have type name 'L'.
     Only x,y components of the cavity mode and dipole are used.
@@ -71,14 +77,15 @@ public:
     //! Constructs the compute
     CavityForceCompute(std::shared_ptr<SystemDefinition> sysdef,
                        Scalar omegac,
-                       Scalar couplstr, 
-                       Scalar phmass = Scalar(1.0));
+                       std::shared_ptr<Variant> couplstr,
+                       Scalar phmass = Scalar(1.0),
+                       std::shared_ptr<Variant> dissipation = nullptr);
 
     //! Destructor
     virtual ~CavityForceCompute();
 
     //! Set parameters
-    void setParams(Scalar omegac, Scalar couplstr, Scalar phmass = Scalar(1.0));
+    void setParams(Scalar omegac, std::shared_ptr<Variant> couplstr, Scalar phmass = Scalar(1.0), std::shared_ptr<Variant> dissipation = nullptr);
     
     //! Get parameters as dictionary
     pybind11::dict getParams();
@@ -113,6 +120,12 @@ protected:
                                      int photon_idx);
 
     cavity_force_params m_params;  //!< Force parameters
+
+    //!< Coupling strength variant
+    std::shared_ptr<Variant> m_couplstr;
+
+    //!< Dissipation variant
+    std::shared_ptr<Variant> m_dissipation;
     
     //! Energy components (now protected for GPU access)
     Scalar m_harmonic_energy;      //!< (1/2) * K * q²

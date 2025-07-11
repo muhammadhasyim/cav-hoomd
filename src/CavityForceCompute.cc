@@ -18,26 +18,36 @@ namespace cavitymd
 
 /*! \param sysdef SystemDefinition containing the ParticleData to compute forces on
     \param omegac Cavity frequency in atomic units
-    \param couplstr Coupling strength in atomic units
+    \param couplstr Coupling strength variant
     \param phmass Photon mass (default 1.0)
+    \param dissipation Dissipation rate variant
 */
 CavityForceCompute::CavityForceCompute(std::shared_ptr<SystemDefinition> sysdef,
                                        Scalar omegac,
-                                       Scalar couplstr, 
-                                       Scalar phmass)
-    : ForceCompute(sysdef), m_params(omegac, couplstr, phmass)
+                                       std::shared_ptr<Variant> couplstr, 
+                                       Scalar phmass,
+                                       std::shared_ptr<Variant> dissipation)
+    : ForceCompute(sysdef), m_couplstr(couplstr), m_dissipation(dissipation)
 {
     m_exec_conf->msg->notice(5) << "Constructing CavityForceCompute" << std::endl;
     
+    // Initialize m_params with initial values from variants
+    m_params.omegac = omegac;
+    m_params.phmass = phmass;
+    m_params.couplstr = (*m_couplstr)(0);
+    m_params.dissipation = (m_dissipation) ? (*m_dissipation)(0) : 0.0;
+    m_params.K = m_params.phmass * m_params.omegac * m_params.omegac;
+
     // Initialize energy components
     m_harmonic_energy = Scalar(0.0);
     m_coupling_energy = Scalar(0.0);
     m_dipole_self_energy = Scalar(0.0);
     
     std::cout << "CavityForceCompute initialized: "
-              << "omegac=" << omegac << " a.u., "
-              << "couplstr=" << couplstr << " a.u., "  
-              << "K=" << m_params.K << " a.u." << std::endl;
+              << "omegac=" << m_params.omegac << " a.u., "
+              << "couplstr=" << m_params.couplstr << " a.u. (from variant), "
+              << "K=" << m_params.K << " a.u., "
+              << "dissipation=" << m_params.dissipation << " a.u. (from variant)" << std::endl;
 }
 
 CavityForceCompute::~CavityForceCompute()
@@ -45,9 +55,12 @@ CavityForceCompute::~CavityForceCompute()
     m_exec_conf->msg->notice(5) << "Destroying CavityForceCompute" << std::endl;
 }
 
-void CavityForceCompute::setParams(Scalar omegac, Scalar couplstr, Scalar phmass)
+void CavityForceCompute::setParams(Scalar omegac, std::shared_ptr<Variant> couplstr, Scalar phmass, std::shared_ptr<Variant> dissipation)
 {
-    m_params = cavity_force_params(omegac, couplstr, phmass);
+    m_params.omegac = omegac;
+    m_params.phmass = phmass;
+    m_couplstr = couplstr;
+    m_dissipation = dissipation;
 }
 
 pybind11::dict CavityForceCompute::getParams()
@@ -133,11 +146,19 @@ vec3<Scalar> CavityForceCompute::computeDipoleMoment(const std::vector<vec3<Scal
 */
 void CavityForceCompute::computeForces(uint64_t timestep)
 {
+    // Update parameters from variants
+    m_params.couplstr = (*m_couplstr)(timestep);
+    if (m_dissipation)
+    {
+        m_params.dissipation = (*m_dissipation)(timestep);
+    }
+
     // Access particle data
     ArrayHandle<Scalar4> h_pos(m_pdata->getPositions(), access_location::host, access_mode::read);
     ArrayHandle<Scalar4> h_force(m_force, access_location::host, access_mode::overwrite);
     ArrayHandle<Scalar> h_charge(m_pdata->getCharges(), access_location::host, access_mode::read);
     ArrayHandle<int3> h_image(m_pdata->getImages(), access_location::host, access_mode::read);
+    ArrayHandle<Scalar4> h_vel(m_pdata->getVelocities(), access_location::host, access_mode::read);
     
     unsigned int N = m_pdata->getN();
     
@@ -165,10 +186,13 @@ void CavityForceCompute::computeForces(uint64_t timestep)
     // Compute molecular dipole moment  
     vec3<Scalar> dipole = computeDipoleMoment(unwrapped_pos, h_charge.data, N, photon_idx);
     
-    // Get photon position (only x,y components used)
+    // Get photon position and velocity (only x,y components used)
     vec3<Scalar> q_photon = unwrapped_pos[photon_idx];
     vec3<Scalar> q_photon_xy = vec3<Scalar>(q_photon.x, q_photon.y, 0);
     vec3<Scalar> dipole_xy = vec3<Scalar>(dipole.x, dipole.y, 0);
+    
+    // Get photon velocity for dissipation
+    vec3<Scalar> v_photon = vec3<Scalar>(h_vel.data[photon_idx].x, h_vel.data[photon_idx].y, h_vel.data[photon_idx].z);
     
     // Compute energy contributions
     m_harmonic_energy = Scalar(0.5) * m_params.K * dot(q_photon, q_photon);
@@ -199,8 +223,9 @@ void CavityForceCompute::computeForces(uint64_t timestep)
         }
     }
     
-    // Force on photon particle
-    vec3<Scalar> photon_force = -m_params.K * q_photon - m_params.couplstr * dipole_xy;
+    // Force on photon particle: F_cavity = -K * q - g * d_xy - γ * v_cavity
+    // Add dissipation term: -γ * v_cavity (friction force)
+    vec3<Scalar> photon_force = -m_params.K * q_photon - m_params.couplstr * dipole_xy - m_params.dissipation * v_photon;
     
     h_force.data[photon_idx].x = photon_force.x;
     h_force.data[photon_idx].y = photon_force.y;
@@ -213,9 +238,9 @@ void export_CavityForceCompute(pybind11::module& m)
 {
     pybind11::class_<CavityForceCompute, ForceCompute, std::shared_ptr<CavityForceCompute>>(
         m, "CavityForceCompute")
-        .def(pybind11::init<std::shared_ptr<SystemDefinition>, Scalar, Scalar, Scalar>(),
+        .def(pybind11::init<std::shared_ptr<SystemDefinition>, Scalar, std::shared_ptr<Variant>, Scalar, std::shared_ptr<Variant>>(),
              pybind11::arg("sysdef"), pybind11::arg("omegac"), pybind11::arg("couplstr"), 
-             pybind11::arg("phmass") = 1.0)
+             pybind11::arg("phmass") = 1.0, pybind11::arg("dissipation") = pybind11::none())
         .def("setParams", &CavityForceCompute::setParams)
         .def("getParams", &CavityForceCompute::getParams)
         .def("getHarmonicEnergy", &CavityForceCompute::getHarmonicEnergy)

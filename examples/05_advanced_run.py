@@ -171,7 +171,8 @@ class CavityMDSimulation:
                  enable_fkt=True, fkt_kmag=1.0, fkt_num_wavevectors=50, fkt_reference_interval_ps=1.0, fkt_max_references=10,
                  max_energy_output_time_ps=None, enable_energy_tracking=False, dt_fs=None, device='CPU', gpu_id=0,
                  energy_output_period_ps=0.1, fkt_output_period_ps=1.0, gsd_output_period_ps=50.0, console_output_period_ps=1.0,
-                 enable_text_output=False, text_output_file=None, truncate_gsd=False, seed=None, restart_velocities=True):
+                 enable_text_output=False, text_output_file=None, truncate_gsd=False, seed=None, restart_velocities=True,
+                 switch_time_ps=None, dissipation=0.0):
         """Initialize the CavityMDSimulation with simulation parameters."""
         self.job_dir = job_dir
         self.replica = replica
@@ -192,6 +193,10 @@ class CavityMDSimulation:
         self.finite_q = finite_q
         self.molecular_thermostat_tau = molecular_thermostat_tau
         self.cavity_thermostat_tau = cavity_thermostat_tau
+        
+        # Time-varying parameters
+        self.switch_time_ps = switch_time_ps
+        self.dissipation = dissipation
         
         # Logging parameters - simplified to console only
         self.log_level = log_level
@@ -311,6 +316,13 @@ class CavityMDSimulation:
             self.log_info("=== Phase 1: Setting up simulation ===")
             self.calculate_physical_parameters()
             snapshot = self.setup_simulation()
+
+            # Phase 1.5: Setup time tracker (must be after sim setup, before force setup)
+            self.log_info("=== Phase 1.5: Setting up time tracker ===")
+            self.time_tracker = ElapsedTimeTracker(self.sim, self.runtime_ps)
+            self.sim.operations.updaters.append(hoomd.update.CustomUpdater(
+                action=self.time_tracker, trigger=hoomd.trigger.Periodic(1)
+            ))
             
             # Phase 2: Configure forces and thermostats
             self.log_info("=== Phase 2: Configuring forces and thermostats ===")
@@ -632,7 +644,50 @@ class CavityMDSimulation:
         # Setup cavity force if requested
         if self.incavity:
             omegac = self.freq / PhysicalConstants.HARTREE_TO_CM_MINUS1
-            cavityforce = CavityForce(kvector=np.array([0,0,1]), couplstr=self.couplstr, omegac=omegac)
+            
+            # Create time-varying coupling and dissipation if switch_time is specified
+            if self.switch_time_ps is not None:
+                # Import variants from hoomd.cavitymd
+                from hoomd.cavitymd import StepVariant
+                
+                # Create step variants for coupling and dissipation
+                coupling_variant = StepVariant(
+                    target_value=self.couplstr,
+                    switch_time_ps=self.switch_time_ps,
+                    time_tracker=self.time_tracker
+                )
+                
+                dissipation_variant = StepVariant(
+                    target_value=self.dissipation,
+                    switch_time_ps=self.switch_time_ps,
+                    time_tracker=self.time_tracker
+                )
+                
+                self.log_info(f"Using time-varying coupling and dissipation:")
+                self.log_info(f"  Switch time: {self.switch_time_ps} ps")
+                self.log_info(f"  Coupling: 0 → {self.couplstr} a.u.")
+                self.log_info(f"  Dissipation: 0 → {self.dissipation} a.u.")
+                
+                # Create cavity force with variants
+                cavityforce = CavityForce(
+                    kvector=np.array([0,0,1]), 
+                    couplstr=coupling_variant, 
+                    omegac=omegac,
+                    dissipation=dissipation_variant
+                )
+            else:
+                # Use constant values (backward compatibility)
+                self.log_info(f"Using constant coupling and dissipation:")
+                self.log_info(f"  Coupling: {self.couplstr} a.u.")
+                self.log_info(f"  Dissipation: {self.dissipation} a.u.")
+                
+                cavityforce = CavityForce(
+                    kvector=np.array([0,0,1]), 
+                    couplstr=self.couplstr, 
+                    omegac=omegac,
+                    dissipation=self.dissipation
+                )
+            
             forces.append(cavityforce)
         
         # Setup harmonic bonds
@@ -905,12 +960,6 @@ class CavityMDSimulation:
 
     def setup_trackers_and_loggers(self):
         """Set up comprehensive tracking and logging objects for the simulation."""
-        # Create elapsed time tracker
-        self.time_tracker = ElapsedTimeTracker(self.sim, self.runtime_ps)
-        self.sim.operations.updaters.append(hoomd.update.CustomUpdater(
-            action=self.time_tracker, trigger=hoomd.trigger.Periodic(1)
-        ))
-        
         # Create custom performance tracker
         self.performance_tracker = PerformanceTracker(self.sim, self.runtime_ps, self.time_tracker)
         self.sim.operations.updaters.append(hoomd.update.CustomUpdater(
@@ -1442,17 +1491,29 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
                          device='CPU', gpu_id=0, incavity=True, fixed_timestep=False, 
                          timestep_fs=1.0, enable_energy_tracking=False, 
                          energy_output_period_ps=0.1, fkt_output_period_ps=1.0, 
-                         gsd_output_period_ps=50.0, console_output_period_ps=1.0, truncate_gsd=False, seed=None, restart_velocities=True):
+                         gsd_output_period_ps=50.0, console_output_period_ps=1.0, 
+                         truncate_gsd=False, seed=None, restart_velocities=True,
+                         switch_time_ps=None, damping_ratio=0.0):
     """
     Run a single experiment using the CavityMDSimulation class.
     """
     
     try:
+        # Calculate dissipation from damping_ratio
+        phmass = 1.0  # Photon mass is 1.0 in a.u.
+        omegac = frequency / PhysicalConstants.HARTREE_TO_CM_MINUS1
+        dissipation = 2 * damping_ratio * phmass * omegac
+
         # Create experiment directory with appropriate naming
         if incavity:
             # For cavity simulations, include coupling strength in directory name
             coupling_str = f"{coupling:.0e}".replace("-", "neg").replace("+", "pos")
-            exp_dir = Path(f"cavity_coupling_{coupling_str}")
+            if switch_time_ps is not None:
+                # Include switch time in directory name for time-varying simulations
+                switch_str = f"_switch_{switch_time_ps}ps"
+                exp_dir = Path(f"cavity_coupling_{coupling_str}{switch_str}")
+            else:
+                exp_dir = Path(f"cavity_coupling_{coupling_str}")
         else:
             # For non-cavity simulations
             exp_dir = Path("no_cavity")
@@ -1462,6 +1523,13 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
         print(f"  Cavity coupling: {'Enabled' if incavity else 'Disabled'}")
         if incavity:
             print(f"  Coupling strength: {coupling}")
+            if switch_time_ps is not None:
+                print(f"  Switch time: {switch_time_ps} ps")
+                print(f"  Damping ratio (zeta): {damping_ratio}")
+                print(f"  Calculated dissipation (c): {dissipation:.4e} a.u.")
+            else:
+                print(f"  Damping ratio (zeta): {damping_ratio}")
+                print(f"  Calculated dissipation (c): {dissipation:.4e} a.u.")
             print(f"  Molecular thermostat: {molecular_thermo}")
             print(f"  Cavity thermostat: {cavity_thermo}")
             print(f"  Finite-q mode: {finite_q}")
@@ -1515,7 +1583,9 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
             text_output_file=None,
             truncate_gsd=truncate_gsd,
             seed=seed,
-            restart_velocities=restart_velocities
+            restart_velocities=restart_velocities,
+            switch_time_ps=switch_time_ps,
+            dissipation=dissipation
         )
         
         # Run the simulation
@@ -1542,6 +1612,10 @@ def main():
                        help='Use finite-q cavity mode (default: q=0 mode)')
     parser.add_argument('--coupling', type=float, default=1e-3, 
                        help='Cavity coupling strength (default: 1e-3)')
+    parser.add_argument('--switch-time', type=float, 
+                       help='Time in ps when coupling and dissipation turn on (default: on from start)')
+    parser.add_argument('--damping-ratio', type=float, default=0.0,
+                       help='Damping ratio (zeta) for the cavity mode (default: 0.0)')
     parser.add_argument('--temperature', type=float, default=100.0, 
                        help='Temperature in K (default: 100.0)')
     parser.add_argument('--frequency', type=float, default=2000.0, 
@@ -1700,7 +1774,9 @@ def main():
             console_output_period_ps=args.console_output_period_ps,
             truncate_gsd=args.truncate_gsd,
             seed=args.seed,
-            restart_velocities=not args.no_restart_velocities
+            restart_velocities=not args.no_restart_velocities,
+            switch_time_ps=args.switch_time,
+            damping_ratio=args.damping_ratio
         )
         
         if success:

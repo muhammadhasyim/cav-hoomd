@@ -586,7 +586,7 @@ class EnergyTracker(BaseTracker):
                 
                 # Compute temperature: T = (2/3) * KE / (N * k_B)
                 N_dof = 3 * len(masses)  # 3 degrees of freedom per particle
-                temperature = (2.0/3.0) * kinetic_energy / (N_dof * PhysicalConstants.KB_HARTREE_PER_K)
+                temperature = (2.0) * kinetic_energy / (N_dof * PhysicalConstants.KB_HARTREE_PER_K)
                 
                 return kinetic_energy, temperature
                 
@@ -1405,7 +1405,7 @@ class CavityModeTracker(hoomd.custom.Action):
                 
                 # Temperature from kinetic energy (3 degrees of freedom)
                 # T = (2/3) * KE / k_B for 3D
-                temperature = (2.0/3.0) * kinetic_energy / PhysicalConstants.KB_HARTREE_PER_K
+                temperature = (2.0) * kinetic_energy / PhysicalConstants.KB_HARTREE_PER_K
                 
                 return kinetic_energy, potential_energy, total_energy, temperature
                 

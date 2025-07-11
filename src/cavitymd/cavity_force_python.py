@@ -1,31 +1,11 @@
 # Copyright (c) 2009-2025 The Regents of the University of Michigan.
 # Part of HOOMD-blue, released under the BSD 3-Clause License.
 
-"""Pure Python cavity force implementation."""
+"""Pure Python implementation of cavity force computation."""
 
 import hoomd
 import numpy as np
-
-
-def unwrap_positions(positions, images, box_lengths):
-    """
-    Unwrap particle positions across periodic boundaries.
-    
-    Args:
-        positions: Array of wrapped positions (N x 3)
-        images: Array of image flags (N x 3)
-        box_lengths: Array of box dimensions (3,)
-        
-    Returns:
-        Array of unwrapped positions (N x 3)
-    """
-    # Convert inputs to numpy arrays if they aren't already
-    pos = np.asarray(positions)
-    img = np.asarray(images)
-    box = np.asarray(box_lengths)
-    
-    # Unwrap by adding box lengths multiplied by image flags
-    return pos + img * box[None, :]
+from .utils import unwrap_positions
 
 
 class CavityForcePython(hoomd.md.force.Custom):
@@ -34,9 +14,11 @@ class CavityForcePython(hoomd.md.force.Custom):
     
     This serves as a fallback when the C++/CUDA implementations are not available.
     Implements the same physics as the optimized versions but with Python performance.
+    
+    Now includes dissipation support for cavity mode damping.
     """
     
-    def __init__(self, kvector, couplstr, omegac, phmass=1.0):
+    def __init__(self, kvector, couplstr, omegac, phmass=1.0, dissipation=0.0):
         super().__init__(aniso=False)
         
         # Store parameters
@@ -44,6 +26,7 @@ class CavityForcePython(hoomd.md.force.Custom):
         self.couplstr = couplstr
         self.omegac = omegac
         self.phmass = phmass
+        self.dissipation = dissipation
         self.K = phmass * omegac**2
         
         # Initialize energy components
@@ -56,6 +39,7 @@ class CavityForcePython(hoomd.md.force.Custom):
         print(f"  Cavity frequency: {self.omegac:.6f} a.u.")
         print(f"  Photon mass: {self.phmass:.6f} a.u.")
         print(f"  Spring constant K: {self.K:.6f} a.u.")
+        print(f"  Dissipation rate: {self.dissipation:.6f} a.u.")
     
     @property
     def total_cavity_energy(self):
@@ -67,7 +51,7 @@ class CavityForcePython(hoomd.md.force.Custom):
         Compute cavity forces and potential energy.
         
         This is called by HOOMD at each timestep to compute forces.
-        Implements the cavity-molecule interaction Hamiltonian.
+        Implements the cavity-molecule interaction Hamiltonian with dissipation.
         """
         with self._state.cpu_local_snapshot as snap:
             try:
@@ -102,10 +86,13 @@ class CavityForcePython(hoomd.md.force.Custom):
                 dipole_xy = dipole_moment.copy()
                 dipole_xy[2] = 0.0  # Zero out z-component
                 
-                # Get cavity particle position (only x,y components)
+                # Get cavity particle position and velocity
                 cavity_position = unwrapped_positions[cavity_idx]
                 cavity_xy = cavity_position.copy()
                 cavity_xy[2] = 0.0  # Zero out z-component
+                
+                # Get cavity particle velocity for dissipation
+                cavity_velocity = snap.particles.velocity[cavity_idx]
                 
                 # Compute energy components
                 # 1. Harmonic energy: (1/2) * K * |q|²
@@ -140,8 +127,11 @@ class CavityForcePython(hoomd.md.force.Custom):
                             force_molecular = -self.couplstr * charge * force_factor
                             arrays.force[i] = force_molecular
                     
-                    # Force on cavity particle: F_cavity = -K * q - g * d_xy
-                    force_cavity = -self.K * cavity_position - self.couplstr * dipole_xy
+                    # Force on cavity particle: F_cavity = -K * q - g * d_xy - γ * v_cavity
+                    # Add dissipation term: -γ * v_cavity (friction force)
+                    force_cavity = (-self.K * cavity_position - 
+                                   self.couplstr * dipole_xy - 
+                                   self.dissipation * cavity_velocity)
                     arrays.force[cavity_idx] = force_cavity
                     
             except Exception as e:
@@ -149,7 +139,7 @@ class CavityForcePython(hoomd.md.force.Custom):
                 self._zero_forces_and_energy()
     
     def _zero_forces_and_energy(self):
-        """Set all forces and energies to zero in case of error."""
+        """Zero out all forces and energies."""
         with self.cpu_local_force_arrays as arrays:
             arrays.force[:] = 0.0
             arrays.potential_energy[:] = 0.0

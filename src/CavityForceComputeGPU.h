@@ -22,9 +22,8 @@ namespace hoomd
 namespace cavitymd
 {
 
-//! Computes cavity-molecule interaction forces on the GPU
-/*! GPU implementation of cavity force computation using CUDA kernels.
-    
+//! GPU accelerated cavity force computation
+/*! Implements the cavity-molecule interaction force on the GPU
     \ingroup computes
 */
 class PYBIND11_EXPORT CavityForceComputeGPU : public CavityForceCompute
@@ -33,26 +32,24 @@ public:
     //! Constructs the compute
     CavityForceComputeGPU(std::shared_ptr<SystemDefinition> sysdef,
                           Scalar omegac,
-                          Scalar couplstr, 
-                          Scalar phmass = Scalar(1.0));
+                          std::shared_ptr<Variant> couplstr,
+                          Scalar phmass = Scalar(1.0),
+                          std::shared_ptr<Variant> dissipation = nullptr);
 
     //! Destructor
     virtual ~CavityForceComputeGPU();
 
 protected:
-    //! Actually compute the forces on the GPU
+    //! Actually compute the forces (GPU implementation)
     virtual void computeForces(uint64_t timestep);
-    
+
 private:
-    std::shared_ptr<Autotuner<1>> m_tuner;  //!< Autotuner for block size
+    GPUArray<Scalar> m_temp_energy;     //!< Temporary storage for energy components
+    GPUArray<Scalar3> m_temp_dipole;    //!< Temporary storage for dipole calculation
+    GPUArray<int> m_photon_idx;         //!< Storage for photon particle index
+    GPUArray<Scalar3> m_dipole_global;  //!< Global dipole result storage
     
-    // Device memory for temporary storage
-    GPUArray<Scalar> m_temp_energy;     //!< Temporary energy storage on GPU
-    GPUArray<Scalar3> m_temp_dipole;    //!< Temporary dipole storage on GPU  
-    GPUArray<int> m_photon_idx;         //!< Photon particle index on GPU
-    GPUArray<Scalar3> m_dipole_global;  //!< Global dipole storage for fused kernel
-    
-    bool m_supports_cooperative;        //!< Whether device supports cooperative kernel launches
+    std::unique_ptr<Autotuner<1>> m_tuner; //!< Autotuner for kernel optimization
 };
 
 } // end namespace cavitymd

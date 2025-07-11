@@ -28,44 +28,75 @@ class CavityForce(hoomd.md.force.Force):
     where q is the cavity mode position, d is the molecular dipole moment,
     g is the coupling strength, and K = phmass * omegac².
     
+    Now supports time-varying coupling strength and dissipation using hoomd.variant.
+    
     Parameters:
     -----------
     kvector : array_like
         Cavity mode wave vector (currently not used but kept for compatibility)
-    couplstr : float
-        Coupling strength g in atomic units
+    couplstr : float or hoomd.variant.Variant
+        Coupling strength g in atomic units (can be time-varying)
     omegac : float
         Cavity frequency in atomic units (Hartree)
     phmass : float, optional
         Photon mass, determines K = phmass * omegac² (default: 1.0)
+    dissipation : float or hoomd.variant.Variant, optional
+        Dissipation rate in atomic units (default: 0.0, can be time-varying)
     force_python : bool, optional
         Force use of Python implementation even if C++ is available (default: False)
     """
     
-    def __init__(self, kvector, couplstr, omegac, phmass=1.0, force_python=False):
+    def __init__(self, kvector, couplstr, omegac, phmass=1.0, dissipation=0.0, force_python=False):
         # Initialize the base class FIRST - this creates empty _param_dict and _typeparam_dict
         super().__init__()
         
+        # Handle variant parameters - convert to variants if needed
+        if isinstance(couplstr, (int, float)):
+            from hoomd.variant import Constant
+            self.couplstr_variant = Constant(float(couplstr))
+            self.uses_variant_coupling = False
+        elif hasattr(couplstr, '__call__'):  # It's a variant
+            from hoomd.variant import Constant
+            self.couplstr_variant = couplstr
+            self.uses_variant_coupling = not isinstance(couplstr, Constant)
+        else:
+            raise ValueError("couplstr must be a number or hoomd.variant.Variant")
+            
+        if isinstance(dissipation, (int, float)):
+            from hoomd.variant import Constant
+            self.dissipation_variant = Constant(float(dissipation))
+            self.uses_variant_dissipation = False
+        elif hasattr(dissipation, '__call__'):  # It's a variant
+            from hoomd.variant import Constant
+            self.dissipation_variant = dissipation
+            self.uses_variant_dissipation = not isinstance(dissipation, Constant)
+        else:
+            # Default to a constant zero variant if dissipation is None or not provided
+            from hoomd.variant import Constant
+            self.dissipation_variant = Constant(0.0)
+            self.uses_variant_dissipation = False
+
         # Now set up parameter dictionaries using the proper HOOMD methods
         param_dict = hoomd.data.parameterdicts.ParameterDict(
             kvector=hoomd.data.typeconverter.to_type_converter([float, float, float]),
-            couplstr=float,
+            couplstr=hoomd.variant.Variant,
             omegac=float,
             phmass=float,
+            dissipation=hoomd.variant.Variant,
             force_python=bool
         )
         param_dict['kvector'] = list(kvector)
-        param_dict['couplstr'] = couplstr  
+        param_dict['couplstr'] = self.couplstr_variant
         param_dict['omegac'] = omegac
         param_dict['phmass'] = phmass
+        param_dict['dissipation'] = self.dissipation_variant
         param_dict['force_python'] = force_python
         
         # Update the existing _param_dict (don't replace it)
         self._param_dict.update(param_dict)
         
-        # Store parameters for easy access
+        # Store parameters for easy access (no longer need initial values here)
         self.kvector = np.array(kvector)
-        self.couplstr = couplstr
         self.omegac = omegac
         self.phmass = phmass
         
@@ -83,7 +114,8 @@ class CavityForce(hoomd.md.force.Force):
                 kvector=kvector,
                 couplstr=couplstr,
                 omegac=omegac,
-                phmass=phmass
+                phmass=phmass,
+                dissipation=dissipation
             )
             self._implementation = "python"
             
@@ -93,6 +125,14 @@ class CavityForce(hoomd.md.force.Force):
             self._implementation = "cpp"
         
         print(f"CavityForce initialized using {self._implementation} implementation")
+        if self.uses_variant_coupling:
+            print(f"  Using time-varying coupling strength")
+        else:
+            print(f"  Using constant coupling strength: {self.couplstr_variant.value}")
+        if self.uses_variant_dissipation:
+            print(f"  Using time-varying dissipation")
+        else:
+            print(f"  Using constant dissipation: {self.dissipation_variant.value}")
     
     def _attach_hook(self):
         """Called when force is attached to simulation"""
@@ -108,8 +148,9 @@ class CavityForce(hoomd.md.force.Force):
                             self._force_impl = _cavitymd.CavityForceComputeGPU(
                                 self._simulation.state._cpp_sys_def,
                                 self.omegac,
-                                self.couplstr,
-                                self.phmass
+                                self.couplstr_variant,
+                                self.phmass,
+                                self.dissipation_variant
                             )
                             self._implementation = "cuda"
                             print(f"CUDA CavityForceComputeGPU initialized successfully")
@@ -121,8 +162,9 @@ class CavityForce(hoomd.md.force.Force):
                         self._force_impl = _cavitymd.CavityForceCompute(
                             self._simulation.state._cpp_sys_def,
                             self.omegac,
-                            self.couplstr,
-                            self.phmass
+                            self.couplstr_variant,
+                            self.phmass,
+                            self.dissipation_variant
                         )
                         self._implementation = "cpp"
                         print(f"CPU CavityForceCompute initialized successfully")
@@ -131,8 +173,9 @@ class CavityForce(hoomd.md.force.Force):
                     self._force_impl = _cavitymd.CavityForceCompute(
                         self._simulation.state._cpp_sys_def,
                         self.omegac,
-                        self.couplstr,
-                        self.phmass
+                        self.couplstr_variant,
+                        self.phmass,
+                        self.dissipation_variant
                     )
                     print(f"CPU CavityForceCompute initialized successfully")
                 
@@ -149,7 +192,8 @@ class CavityForce(hoomd.md.force.Force):
                     kvector=self.kvector,
                     couplstr=self.couplstr,
                     omegac=self.omegac,
-                    phmass=self.phmass
+                    phmass=self.phmass,
+                    dissipation=self.dissipation
                 )
                 self._implementation = "python_fallback"
         
@@ -172,6 +216,16 @@ class CavityForce(hoomd.md.force.Force):
         if hasattr(self._force_impl, '_attach_hook'):
             self._force_impl._attach_hook()
     
+    def set_forces(self, timestep):
+        """
+        Compute forces (Python implementation only).
+        
+        This method is now only used by the pure Python fallback implementation.
+        """
+        # Call the actual force computation
+        if self._implementation in ["python", "python_fallback"]:
+            self._force_impl.set_forces(timestep)
+
     @property
     def implementation(self):
         """Return the current implementation being used ('cpp', 'cuda', or 'python')."""
@@ -219,16 +273,15 @@ class CavityForce(hoomd.md.force.Force):
         else:
             # For Python implementation, forces are managed by HOOMD's Custom force
             return None
-    
-    def _detach_hook(self):
-        """Called when force is detached from simulation"""
-        if hasattr(self._force_impl, '_detach_hook'):
-            self._force_impl._detach_hook()
-        super()._detach_hook()
-    
-    def set_forces(self, timestep):
-        """For Python implementation compatibility"""
-        if hasattr(self._force_impl, 'set_forces'):
-            return self._force_impl.set_forces(timestep)
-    
-    # Removed __getattr__ method temporarily to debug _typeparam_dict issue 
+
+    def set_params(self, **kwargs):
+        """Set force parameters at runtime."""
+        for key, value in kwargs.items():
+            if key in self._param_dict:
+                self._param_dict[key] = value
+                setattr(self, key, value)
+                # Update implementation if needed
+                if self._force_impl and hasattr(self._force_impl, 'setParams'):
+                    self._force_impl.setParams(self.omegac, self.couplstr, self.phmass, self.dissipation)
+            else:
+                raise ValueError(f"Unknown parameter: {key}") 

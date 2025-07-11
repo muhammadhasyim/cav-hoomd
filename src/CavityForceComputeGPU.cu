@@ -27,6 +27,7 @@ struct cavity_force_params
     Scalar couplstr;   //!< Coupling strength in atomic units  
     Scalar K;          //!< Spring constant (phmass * omegac^2)
     Scalar phmass;     //!< Photon mass
+    Scalar dissipation; //!< Dissipation rate in atomic units
 };
 
 namespace kernel
@@ -106,19 +107,16 @@ __global__ void gpu_compute_photon_and_dipole(const Scalar4* d_pos,
         if (tid < s && tid + s < blockDim.x) {
             sdata[tid].x += sdata[tid + s].x;
             sdata[tid].y += sdata[tid + s].y;
+            sdata[tid].z += sdata[tid + s].z;
         }
         __syncthreads();
     }
     
-    // Store block-level results
+    // Write results
     if (tid == 0) {
-        // Use atomics to accumulate dipole across blocks
-        atomicAdd(&d_dipole_result[0].x, sdata[0].x);
-        atomicAdd(&d_dipole_result[0].y, sdata[0].y);
-        
-        // Store photon index if found
+        d_dipole_result[blockIdx.x] = sdata[0];
         if (shared_photon_idx != -1) {
-            atomicExch(d_photon_idx, shared_photon_idx);
+            *d_photon_idx = shared_photon_idx;
         }
     }
 }
@@ -467,6 +465,102 @@ __global__ void gpu_compute_cavity_force_kernel(Scalar4* d_force,
     }
 }
 
+//! GPU kernel for computing cavity forces and energies
+__global__ void gpu_compute_cavity_forces_and_energies(Scalar4* d_force,
+                                                        const Scalar4* d_pos,
+                                                        const Scalar4* d_vel,
+                                                        const Scalar* d_charge,
+                                                        const int3* d_image,
+                                                        const BoxDim box,
+                                                        cavity_force_params params,
+                                                        Scalar3 dipole_xy,
+                                                        int photon_idx,
+                                                        unsigned int N,
+                                                        unsigned int L_typeid,
+                                                        Scalar* d_temp_energy)
+{
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    
+    if (idx >= N || photon_idx < 0)
+        return;
+    
+    // Get photon position and velocity (unwrapped) - computed once per block
+    __shared__ Scalar3 shared_q_photon;
+    __shared__ Scalar3 shared_q_photon_xy;
+    __shared__ Scalar3 shared_v_photon;
+    
+    if (threadIdx.x == 0) {
+        Scalar4 photon_pos_data = d_pos[photon_idx];
+        Scalar4 photon_vel_data = d_vel[photon_idx];
+        int3 photon_img = d_image[photon_idx];
+        Scalar3 L = box.getL();
+        
+        shared_q_photon.x = photon_pos_data.x + Scalar(photon_img.x) * L.x;
+        shared_q_photon.y = photon_pos_data.y + Scalar(photon_img.y) * L.y;
+        shared_q_photon.z = photon_pos_data.z + Scalar(photon_img.z) * L.z;
+        
+        shared_q_photon_xy = make_scalar3(shared_q_photon.x, shared_q_photon.y, 0);
+        shared_v_photon = make_scalar3(photon_vel_data.x, photon_vel_data.y, photon_vel_data.z);
+    }
+    __syncthreads();
+    
+    // Compute energy components (only in first thread)
+    if (idx == 0) {
+        Scalar harmonic_energy = Scalar(0.5) * params.K * 
+                               (shared_q_photon.x * shared_q_photon.x + 
+                                shared_q_photon.y * shared_q_photon.y + 
+                                shared_q_photon.z * shared_q_photon.z);
+        Scalar coupling_energy = params.couplstr * 
+                               (dipole_xy.x * shared_q_photon_xy.x + dipole_xy.y * shared_q_photon_xy.y);
+        Scalar dipole_self_energy = Scalar(0.5) * (params.couplstr * params.couplstr / params.K) *
+                                  (dipole_xy.x * dipole_xy.x + dipole_xy.y * dipole_xy.y);
+        
+        d_temp_energy[0] = harmonic_energy;
+        d_temp_energy[1] = coupling_energy;
+        d_temp_energy[2] = dipole_self_energy;
+        
+        // DO NOT assign energy to particle potential energy - prevents double-counting
+        d_force[photon_idx].w = 0.0;
+    }
+    
+    // Compute forces for this particle
+    if (idx < N) {
+        int type = __scalar_as_int(d_pos[idx].w);
+        
+        if (type != (int)L_typeid) { // Molecular particle
+            Scalar charge = d_charge[idx];
+            
+            // Dq = q_photon_xy + (g/K) * dipole_xy
+            Scalar3 Dq;
+            Dq.x = shared_q_photon_xy.x + (params.couplstr / params.K) * dipole_xy.x;
+            Dq.y = shared_q_photon_xy.y + (params.couplstr / params.K) * dipole_xy.y;
+            Dq.z = 0;
+            
+            // Force = -g * charge * Dq
+            Scalar3 force;
+            force.x = -params.couplstr * charge * Dq.x;
+            force.y = -params.couplstr * charge * Dq.y;
+            force.z = Scalar(0.0);
+            
+            d_force[idx].x = force.x;
+            d_force[idx].y = force.y;
+            d_force[idx].z = force.z;
+            
+        } else if ((int)idx == photon_idx) { // Cavity particle
+            // Force = -K * q_photon - g * dipole_xy - γ * v_photon
+            // Add dissipation term: -γ * v_photon (friction force)
+            Scalar3 photon_force;
+            photon_force.x = -params.K * shared_q_photon.x - params.couplstr * dipole_xy.x - params.dissipation * shared_v_photon.x;
+            photon_force.y = -params.K * shared_q_photon.y - params.couplstr * dipole_xy.y - params.dissipation * shared_v_photon.y;
+            photon_force.z = -params.K * shared_q_photon.z - params.dissipation * shared_v_photon.z;
+            
+            d_force[idx].x = photon_force.x;
+            d_force[idx].y = photon_force.y;
+            d_force[idx].z = photon_force.z;
+        }
+    }
+}
+
 //! Legacy dipole reduction kernel
 __global__ void gpu_reduce_dipole_kernel(const Scalar3* d_temp_dipole,
                                           Scalar3* d_dipole_result,
@@ -504,52 +598,42 @@ __global__ void gpu_reduce_dipole_kernel(const Scalar3* d_temp_dipole,
 }
 
 //! GPU function to compute cavity forces
-hipError_t gpu_compute_cavity_force(Scalar4* d_force,
+hipError_t gpu_compute_cavity_forces(Scalar4* d_force,
                                     const Scalar4* d_pos,
+                                    const Scalar4* d_vel,
                                     const Scalar* d_charge,
                                     const int3* d_image,
                                     const BoxDim* box,
-                                    const unsigned int N,
-                                    const cavity_force_params& params,
+                                    const cavity_force_params* params,
                                     Scalar* d_temp_energy,
-                                    int* d_photon_idx,
                                     Scalar3* d_temp_dipole,
+                                    int* d_photon_idx,
                                     Scalar3* d_dipole_global,
+                                    unsigned int N,
                                     unsigned int L_typeid,
-                                    unsigned int& block_size)
+                                    unsigned int block_size)
 {
-    // Argument validation
-    if (d_force == nullptr || d_pos == nullptr ||
-        d_charge == nullptr || d_image == nullptr || box == nullptr ||
-        d_temp_energy == nullptr || d_photon_idx == nullptr ||
-        d_temp_dipole == nullptr || d_dipole_global == nullptr)
-    {
-        return hipErrorInvalidValue;
-    }
+    hipError_t error = hipSuccess;
     
-    if (N == 0) {
-        return hipSuccess;
-    }
+    // Reset photon index
+    int photon_idx_host = -1;
+    hipMemcpy(d_photon_idx, &photon_idx_host, sizeof(int), hipMemcpyHostToDevice);
     
-    // Find the photon particle
+    // Find photon particle
     {
-        unsigned int find_block_size = 1; // Single thread kernel
-        unsigned int find_grid_size = 1;
-        
-        hipLaunchKernelGGL(gpu_find_photon_kernel, 
-                          dim3(find_grid_size), dim3(find_block_size), 0, 0,
+        unsigned int find_grid_size = (N + block_size - 1) / block_size;
+        hipLaunchKernelGGL(kernel::gpu_find_photon_kernel, 
+                          dim3(find_grid_size), dim3(block_size), 0, 0,
                           d_pos, N, d_photon_idx, L_typeid);
         
-        hipError_t error = hipGetLastError();
+        error = hipGetLastError();
         if (error != hipSuccess) return error;
     }
     
-    // Get photon index from device
-    int photon_idx_host;
-    hipError_t error = hipMemcpy(&photon_idx_host, d_photon_idx, sizeof(int), hipMemcpyDeviceToHost);
-    if (error != hipSuccess) return error;
+    // Get photon index back to host
+    hipMemcpy(&photon_idx_host, d_photon_idx, sizeof(int), hipMemcpyDeviceToHost);
     
-    // If no photon found, skip computation
+    // Check if photon was found
     if (photon_idx_host == -1) {
         // Zero forces
         hipMemset(d_force, 0, N * sizeof(Scalar4));
@@ -567,7 +651,7 @@ hipError_t gpu_compute_cavity_force(Scalar4* d_force,
         unsigned int dipole_grid_size = (N + dipole_block_size - 1) / dipole_block_size;
         unsigned int dipole_shmem_size = dipole_block_size * sizeof(Scalar3);
         
-        hipLaunchKernelGGL(gpu_compute_dipole_kernel, 
+        hipLaunchKernelGGL(kernel::gpu_compute_dipole_kernel, 
                           dim3(dipole_grid_size), dim3(dipole_block_size), dipole_shmem_size, 0,
                           d_pos, d_charge, d_image, *box, N, photon_idx_host, d_temp_dipole, L_typeid);
         
@@ -580,7 +664,7 @@ hipError_t gpu_compute_cavity_force(Scalar4* d_force,
             unsigned int reduce_grid_size = 1;
             unsigned int reduce_shmem_size = reduce_block_size * sizeof(Scalar3);
             
-            hipLaunchKernelGGL(gpu_reduce_dipole_kernel, 
+            hipLaunchKernelGGL(kernel::gpu_reduce_dipole_kernel, 
                               dim3(reduce_grid_size), dim3(reduce_block_size), reduce_shmem_size, 0,
                               d_temp_dipole, d_dipole_global, dipole_grid_size);
             
@@ -597,17 +681,16 @@ hipError_t gpu_compute_cavity_force(Scalar4* d_force,
     error = hipMemcpy(&dipole_result, d_dipole_global, sizeof(Scalar3), hipMemcpyDeviceToHost);
     if (error != hipSuccess) return error;
     
-    // Compute forces
+    // Compute forces using the updated kernel that includes velocity data
     {
-        // IMPORTANT: Don't reset the atomic flag here - let energies persist across multiple kernel launches per timestep
-        // The flag will be reset at the beginning of each new timestep in the host code
-        
         unsigned int force_grid_size = (N + block_size - 1) / block_size;
         
-        hipLaunchKernelGGL(gpu_compute_cavity_force_kernel, 
+        Scalar3 dipole_xy = make_scalar3(dipole_result.x, dipole_result.y, 0);
+        
+        hipLaunchKernelGGL(kernel::gpu_compute_cavity_forces_and_energies, 
                           dim3(force_grid_size), dim3(block_size), 0, 0,
-                          d_force, d_pos, d_charge, d_image, *box, N, photon_idx_host,
-                          dipole_result, params, d_temp_energy, L_typeid);
+                          d_force, d_pos, d_vel, d_charge, d_image, *box, 
+                          *params, dipole_xy, photon_idx_host, N, L_typeid, d_temp_energy);
         
         error = hipGetLastError();
         if (error != hipSuccess) return error;
