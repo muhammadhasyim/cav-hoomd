@@ -13,14 +13,21 @@ class AdaptiveTimestepUpdater(hoomd.custom.Action):
     
     def __init__(self, state, integrator, error_tolerance, time_constant_ps=50.0, 
                  initial_fraction=0.01, adaptiveerror=True, cavity_damping_factor=1.0, 
-                 molecular_thermostat_tau=5.0, cavity_thermostat_tau=5.0, time_tracker=None):
+                 molecular_thermostat_tau=5.0, cavity_thermostat_tau=5.0, time_tracker=None,
+                 switch_time_ps=None):
         super().__init__()
         print("Performing error tolerance ramping with time constant", time_constant_ps, "ps")
         self.state = state
         self.integrator = integrator
         self.target_error_tolerance = error_tolerance
         self.initial_error_tolerance = error_tolerance * initial_fraction
-        self.current_error_tolerance = self.initial_error_tolerance
+        # Initialize current_error_tolerance based on switch time behavior
+        if switch_time_ps is not None:
+            # Inverted behavior: start with high tolerance before switch
+            self.current_error_tolerance = self.target_error_tolerance
+        else:
+            # Original behavior: start with low tolerance for immediate ramping
+            self.current_error_tolerance = self.initial_error_tolerance
         self.time_constant_ps = time_constant_ps
         self.accumulated_time_ps = 0.0  # Fallback for backward compatibility
         self.last_timestep = 0  # Will be set correctly in first act() call
@@ -29,6 +36,16 @@ class AdaptiveTimestepUpdater(hoomd.custom.Action):
         self.molecular_thermostat_tau = molecular_thermostat_tau
         self.cavity_thermostat_tau = cavity_thermostat_tau
         self.time_tracker = time_tracker  # Reference to ElapsedTimeTracker for accurate timing
+        self.switch_time_ps = switch_time_ps  # Time when ramping should start
+        
+        # Log the ramping behavior
+        if self.switch_time_ps is not None:
+            print(f"Error tolerance ramping will start at t = {self.switch_time_ps} ps")
+            print(f"Before switch: error_tolerance = {self.target_error_tolerance:.2e} (final tolerance for efficiency)")
+            print(f"At switch: error_tolerance drops to {self.initial_error_tolerance:.2e} (high precision)")
+            print(f"After switch: error_tolerance ramps from {self.initial_error_tolerance:.2e} to {self.target_error_tolerance:.2e} with τ = {time_constant_ps} ps")
+        else:
+            print("Error tolerance ramping starts immediately from t = 0 ps")
 
     def act(self, timestep):
         """
@@ -54,12 +71,40 @@ class AdaptiveTimestepUpdater(hoomd.custom.Action):
         else:
             current_elapsed_time_ps = self.accumulated_time_ps
         
+        # DEBUG: Print debug information every 1000 steps
+        if timestep % 1000 == 0:
+            print(f"DEBUG AdaptiveTimestepUpdater at timestep {timestep}:")
+            print(f"  current_elapsed_time_ps: {current_elapsed_time_ps:.6f}")
+            print(f"  self.switch_time_ps: {self.switch_time_ps}")
+            print(f"  self.adaptiveerror: {self.adaptiveerror}")
+            print(f"  switch_time_ps is not None: {self.switch_time_ps is not None}")
+            if self.switch_time_ps is not None:
+                print(f"  current_elapsed_time_ps < switch_time_ps: {current_elapsed_time_ps < self.switch_time_ps}")
+        
         # Update error tolerance based on exponential approach
-        # formula: current = target - (target - initial) * exp(-t/tau)
         if self.adaptiveerror:
-            exp_factor = np.exp(-current_elapsed_time_ps / self.time_constant_ps)
-            self.current_error_tolerance = self.target_error_tolerance - \
-                                          (self.target_error_tolerance - self.initial_error_tolerance) * exp_factor
+            if self.switch_time_ps is not None:
+                # INVERTED BEHAVIOR: Use final tolerance before switch, then drop and ramp back up
+                if current_elapsed_time_ps < self.switch_time_ps:
+                    # Before switch: use final (target) error tolerance for efficiency
+                    self.current_error_tolerance = self.target_error_tolerance
+                    if timestep % 1000 == 0:
+                        print(f"  Using BEFORE switch logic: error_tolerance = {self.current_error_tolerance:.6f} (final tolerance)")
+                else:
+                    # After switch: start ramping FROM reduced tolerance TO final tolerance
+                    ramping_time = current_elapsed_time_ps - self.switch_time_ps
+                    exp_factor = np.exp(-ramping_time / self.time_constant_ps)
+                    self.current_error_tolerance = self.target_error_tolerance - \
+                                                  (self.target_error_tolerance - self.initial_error_tolerance) * exp_factor
+                    if timestep % 1000 == 0:
+                        print(f"  Using AFTER switch logic: ramping_time = {ramping_time:.6f}, error_tolerance = {self.current_error_tolerance:.6f}")
+            else:
+                # Original behavior: start ramping immediately from t=0
+                exp_factor = np.exp(-current_elapsed_time_ps / self.time_constant_ps)
+                self.current_error_tolerance = self.target_error_tolerance - \
+                                              (self.target_error_tolerance - self.initial_error_tolerance) * exp_factor
+                if timestep % 1000 == 0:
+                    print(f"  Using IMMEDIATE ramping logic: error_tolerance = {self.current_error_tolerance:.6f}")
         else:
             self.current_error_tolerance = self.target_error_tolerance
         
@@ -110,7 +155,7 @@ class AdaptiveTimestepUpdater(hoomd.custom.Action):
                         molecular_method.thermostat.tau = molecular_tau_au  # Use configurable tau
             
             # Update cavity method thermostat parameters if present
-            if len(self.integrator.methods) > 1:  # Cavity particle present
+            if len(self.integrator.methods) > 1:
                 cavity_method = self.integrator.methods[1]
                 if hasattr(cavity_method, 'default_gamma'):  # Langevin or Brownian thermostat
                     if hasattr(cavity_method, 'gamma'):  # Brownian dynamics

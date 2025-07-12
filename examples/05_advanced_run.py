@@ -658,7 +658,7 @@ class CavityMDSimulation:
             
             # Create time-varying coupling and dissipation if switch_time is specified
             if self.switch_time_ps is not None:
-                # Import variants from hoomd.cavitymd
+                # Import variants from plugin
                 from hoomd.cavitymd import StepVariant
                 
                 # Create step variants for instantaneous switching
@@ -963,13 +963,10 @@ class CavityMDSimulation:
             self.log_info("CavityParticleDisplacer not needed (constant coupling or q=0 mode)")
 
     def thermalize_system(self):
-        """Initialize particle velocities and thermostat degrees of freedom."""
+        """Initialize particle velocities using HOOMD State for molecular particles and manual Maxwell-Boltzmann for cavity particle."""
         
         if not self.restart_velocities:
             self.log_info("Velocity restart disabled - keeping existing velocities from GSD file")
-            # Still need to initialize reservoir energy tracking (requires at least one simulation step)
-            # Defer this to avoid Bussi thermostat issues
-            self.log_info("Will initialize reservoir energy tracking after optimal timestep computation")
             return
         
         kT = self.kB * self.temperature
@@ -979,49 +976,48 @@ class CavityMDSimulation:
             np.random.seed(self.seed + 1)  # Use seed+1 to differentiate from HOOMD seed
             self.log_info(f"Using seed {self.seed + 1} for thermalization randomness")
         
-        # Thermalize particle momenta
+        molecular_filter = hoomd.filter.Type(['O', 'N'])  # Molecular particles only
+        
         if self.incavity:
-            # Only thermalize molecular particles, not cavity particle
-            molecular_filter = hoomd.filter.Type(['O', 'N'])
+            # Use HOOMD's State.thermalize_particle_momenta for molecular system
             self.sim.state.thermalize_particle_momenta(kT=kT, filter=molecular_filter)
-            self.log_info("Thermalized molecular particles only (cavity particle excluded)")
+            self.log_info("Thermalized molecular particles using HOOMD State object")
             
-            # Initialize cavity particle velocity based on thermostat type
-            with self.sim.state.cpu_local_snapshot as snap:
-                cavity_indices = np.where(snap.particles.typeid == 2)[0]
-                if len(cavity_indices) > 0:
-                    cavity_idx = cavity_indices[0]  # Get first cavity particle
-                    
-                    # For 3D Maxwell-Boltzmann: each component has variance kT/m
-                    # With mass = 1.0 a.u., std dev per component = sqrt(kT)
-                    cavity_velocity = np.random.normal(0.0, np.sqrt(kT), size=3)
-                    
-                    # Calculate expected kinetic energy and temperature
-                    expected_ke = 0.5 * 1.0 * np.sum(cavity_velocity**2)  # KE = (1/2) * m * v²
-                    expected_temp = (2.0/3.0) * expected_ke / self.kB  # T = (2/3) * KE / kB for 3D
-
-                    self.log_info(f"Cavity particle thermalization:")
-                    self.log_info(f"  Target temperature: {self.temperature:.1f} K")
-                    self.log_info(f"  kT = {kT:.6f} a.u.")
-                    self.log_info(f"  Initial velocity: {cavity_velocity}")
-                    self.log_info(f"  Initial KE: {expected_ke:.6f} a.u.")
-                    self.log_info(f"  Expected temperature: {expected_temp:.1f} K")
-                    self.log_info(f"  Thermostat: {self.cavity_thermostat}")
-                    
-                    snap.particles.velocity[cavity_idx] = cavity_velocity
-                    
-                else:
-                    self.log_info("WARNING: No cavity particle found for thermalization!")
+            # Manual thermalization for cavity particle
+            self._thermalize_cavity_particle_manually(kT)
+            
         else:
             # No cavity particle, thermalize all particles
             self.sim.state.thermalize_particle_momenta(kT=kT, filter=hoomd.filter.All())
             self.log_info("Thermalized all molecular particles")
         
-        # Ensure no particles have exactly zero velocity (Bussi thermostat requirement)
-        self.ensure_nonzero_velocities(kT)
-        
-        # Defer reservoir energy initialization to avoid Bussi thermostat issues
-        self.log_info("Deferring reservoir energy initialization to after optimal timestep computation")
+        self.log_info("Thermalization completed - velocities properly initialized")
+
+    def _thermalize_cavity_particle_manually(self, kT):
+        """Manually thermalize cavity particle using Maxwell-Boltzmann distribution."""
+        with self.sim.state.cpu_local_snapshot as snap:
+            cavity_indices = np.where(snap.particles.typeid == 2)[0]
+            if len(cavity_indices) > 0:
+                cavity_idx = cavity_indices[0]  # Get first cavity particle
+                
+                # Maxwell-Boltzmann distribution: each component has variance kT/m
+                # With mass = 1.0 a.u., std dev per component = sqrt(kT)
+                cavity_velocity = np.random.normal(0.0, np.sqrt(kT), size=3)
+                
+                # Calculate expected kinetic energy and temperature for logging
+                expected_ke = 0.5 * 1.0 * np.sum(cavity_velocity**2)  # KE = (1/2) * m * v²
+                expected_temp = (2.0/3.0) * expected_ke / self.kB  # T = (2/3) * KE / kB for 3D
+
+                self.log_info(f"Cavity particle manually thermalized:")
+                self.log_info(f"  Target temperature: {self.temperature:.1f} K")
+                self.log_info(f"  Initial velocity: {cavity_velocity}")
+                self.log_info(f"  Expected KE: {expected_ke:.6f} a.u.")
+                self.log_info(f"  Expected temperature: {expected_temp:.1f} K")
+                
+                snap.particles.velocity[cavity_idx] = cavity_velocity
+                
+            else:
+                self.log_info("WARNING: No cavity particle found for thermalization!")
 
     def ensure_nonzero_velocities(self, kT):
         """Ensure all particles have non-zero velocities for Bussi thermostat compatibility."""
@@ -1079,7 +1075,7 @@ class CavityMDSimulation:
             self.sim.run(1)
             
             # Use initial error tolerance
-            initial_error_tolerance = self.error_tolerance * 1e-3  # initial_fraction = 1e-3
+            initial_error_tolerance = self.error_tolerance #* 1e-3  # initial_fraction = 1e-3
             
             # Collect forces and masses
             particle_data = self.sim.state.get_snapshot().particles
@@ -1143,7 +1139,8 @@ class CavityMDSimulation:
                 cavity_damping_factor=self.cavity_damping_factor,
                 molecular_thermostat_tau=self.molecular_thermostat_tau,
                 cavity_thermostat_tau=self.cavity_thermostat_tau,
-                time_tracker=self.time_tracker
+                time_tracker=self.time_tracker,
+                switch_time_ps=self.switch_time_ps
             )
             
             # Add adaptive updater - use energy period for adaptive timestep updates
@@ -1607,7 +1604,7 @@ class CavityMDSimulation:
         if self.molecular_thermostat.lower() == 'bussi' or self.cavity_thermostat.lower() == 'bussi':
             self.log_info("Performing final velocity check for Bussi thermostat compatibility...")
             kT = self.kB * self.temperature
-            self.ensure_nonzero_velocities(kT)
+            # self.ensure_nonzero_velocities(kT)  # No longer needed - proper thermalization already done
         
         # Run the simulation
         self.sim.run(total_steps, write_at_start=True)
