@@ -5,6 +5,7 @@
 
 import hoomd.variant
 import numpy as np
+from .utils import PhysicalConstants
 
 
 class StepVariant(hoomd.variant.Variant):
@@ -38,12 +39,13 @@ class StepVariant(hoomd.variant.Variant):
     
     def __call__(self, timestep):
         """Evaluate the step function at the given timestep."""
-        # Get current elapsed time from the time tracker
+        # Use the actual elapsed time from the ElapsedTimeTracker
+        # This is accurate even with adaptive timesteps
+        
         if self.time_tracker is not None:
             current_time_ps = self.time_tracker.elapsed_time
         else:
-            # Fallback to timestep-based calculation (less accurate for adaptive timestep)
-            # This should not be used in normal operation
+            # Fallback: assume zero time if no time tracker
             current_time_ps = 0.0
             
         # Step function: 0 before switch_time, target_value after

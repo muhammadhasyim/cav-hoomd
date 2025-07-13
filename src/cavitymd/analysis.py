@@ -973,15 +973,10 @@ class EnergyTracker(BaseTracker):
                 if self.verbose == "verbose":
                     print("=== CAVITY ENERGY COMPONENTS ===")
                 try:
-                    self.current_cavity_harmonic_energy = getattr(
-                        cavityforce, "harmonic_energy", 0.0
-                    )
-                    self.current_cavity_coupling_energy = getattr(
-                        cavityforce, "coupling_energy", 0.0
-                    )
-                    self.current_cavity_dipole_self_energy = getattr(
-                        cavityforce, "dipole_self_energy", 0.0
-                    )
+                    # Use the logged property methods directly instead of getattr
+                    self.current_cavity_harmonic_energy = cavityforce.harmonic_energy
+                    self.current_cavity_coupling_energy = cavityforce.coupling_energy
+                    self.current_cavity_dipole_self_energy = cavityforce.dipole_self_energy
 
                     if self.verbose == "verbose":
                         print(
@@ -1018,6 +1013,9 @@ class EnergyTracker(BaseTracker):
                     self.current_cavity_total_potential_energy = 0.0
                     if self.verbose in ["normal", "verbose"]:
                         print(f"ERROR accessing cavity energy components: {e}")
+                        print(f"  This might indicate a timing issue with the logged properties")
+                        print(f"  Cavity force implementation: {getattr(cavityforce, 'implementation', 'unknown')}")
+                        print(f"  Cavity force object: {type(cavityforce)}")
             else:
                 if self.verbose == "verbose":
                     print("No cavity force object - cavity energies set to zero")

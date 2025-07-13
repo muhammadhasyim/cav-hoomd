@@ -25,7 +25,7 @@ done
 
 echo "Building with GPU support: $ENABLE_GPU"
 
-rm -rf build
+#rm -rf build
 cmake -B build -S . -DENABLE_GPU=$ENABLE_GPU
 cmake --build build
 cmake --install build

@@ -97,6 +97,14 @@ void CavityForceComputeGPU::computeForces(uint64_t timestep)
         throw std::runtime_error("GPU computation required but not available");
     }
     
+    // CRITICAL FIX: Update parameters from variants (missing in original GPU implementation)
+    // This is essential for time-varying coupling strength and dissipation
+    m_params.couplstr = (*m_couplstr)(timestep);
+    if (m_dissipation)
+    {
+        m_params.dissipation = (*m_dissipation)(timestep);
+    }
+    
     unsigned int N = m_pdata->getN();
     
     // Get the typeid for 'L' type first

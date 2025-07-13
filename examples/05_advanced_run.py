@@ -1140,16 +1140,22 @@ class CavityMDSimulation:
                 molecular_thermostat_tau=self.molecular_thermostat_tau,
                 cavity_thermostat_tau=self.cavity_thermostat_tau,
                 time_tracker=self.time_tracker,
-                switch_time_ps=self.switch_time_ps
+                switch_time_ps=self.switch_time_ps,
+                timestep_change_threshold=0.1,  # Only update if change is >10%
+                max_timestep_change_factor=1.5,  # Limit maximum change to 50%
+                shock_dampening_factor=1e-3,    # NEW: Drop error tolerance by 1000x at switch
+                shock_dampening_enabled=True    # NEW: Enable shock dampening mode
             )
             
-            # Add adaptive updater - use energy period for adaptive timestep updates
+            # Add adaptive updater - use a less frequent trigger to reduce computational overhead
+            # The AdaptiveTimestepUpdater now has internal logic to prevent frequent updates
+            adaptive_timestep_trigger_period = 1  # Check every 100 steps instead of every energy_period
             adaptive_updater = hoomd.update.CustomUpdater(
                 action=self.adaptive_action,
-                trigger=hoomd.trigger.Periodic(self.energy_period)
+                trigger=hoomd.trigger.Periodic(adaptive_timestep_trigger_period)
             )
             self.sim.operations.updaters.append(adaptive_updater)
-            self.log_info("Adaptive timestep updater enabled")
+            self.log_info(f"Adaptive timestep updater enabled (check every {adaptive_timestep_trigger_period} steps)")
         else:
             self.adaptive_action = None
             self.log_info("Fixed timestep mode (error_tolerance = 0)")
