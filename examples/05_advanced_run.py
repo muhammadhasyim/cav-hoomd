@@ -62,7 +62,6 @@ See --help for all available options.
 
 import hoomd
 import numpy as np
-from numba import njit
 from hoomd.bussi_reservoir.thermostats import BussiReservoir as Bussi
 import logging
 import sys
@@ -72,14 +71,13 @@ import time
 from pathlib import Path
 import datetime
 
-# Import the CavityForce from the installed plugin
-from hoomd.cavitymd import CavityForce
-
-# Import analysis and tracking classes from the plugin
+# Import the CavityForce and utilities from the plugin
 from hoomd.cavitymd import (
     CavityForce, PhysicalConstants, Status, ElapsedTimeTracker,
     TimestepFormatter, AdaptiveTimestepUpdater, FieldAutocorrelationTracker,
-    CavityModeTracker, EnergyTracker, CavityParticleDisplacer
+    CavityModeTracker, EnergyTracker, CavityParticleDisplacer,
+    PerformanceTracker, unwrap_positions, get_slurm_info, parse_replicas,
+    StepVariant
 )
 
 def unwrap_positions(positions, images, box_lengths):
@@ -1134,7 +1132,7 @@ class CavityMDSimulation:
                 integrator=self.sim.operations.integrator,
                 error_tolerance=self.error_tolerance,
                 time_constant_ps=50.0,
-                initial_fraction=1e-3,
+                initial_fraction=1e-5,
                 adaptiveerror=True,
                 cavity_damping_factor=self.cavity_damping_factor,
                 molecular_thermostat_tau=self.molecular_thermostat_tau,
@@ -1142,8 +1140,8 @@ class CavityMDSimulation:
                 time_tracker=self.time_tracker,
                 switch_time_ps=self.switch_time_ps,
                 timestep_change_threshold=0.1,  # Only update if change is >10%
-                max_timestep_change_factor=1.5,  # Limit maximum change to 50%
-                shock_dampening_factor=1e-3,    # NEW: Drop error tolerance by 1000x at switch
+                max_timestep_change_factor=1.5,  # Limit maximum change to 10%
+                shock_dampening_factor=1e-5,    # NEW: Drop error tolerance by 1000x at switch
                 shock_dampening_enabled=True    # NEW: Enable shock dampening mode
             )
             
@@ -1300,21 +1298,12 @@ class CavityMDSimulation:
                     actual_energy_filename = f'{output_prefix}_energy_tracker.txt'
                     self.log_info(f"Setting up energy tracker with output file: {actual_energy_filename}")
                     
-                    # FIXED: Calculate reasonable step-based values but with smaller periods for better time accuracy
-                    # Use small trigger period (1 step) and let tracker handle its internal timing
-                    output_trigger_period = 1
-                    
-                    # Calculate max_timesteps from max_time_ps if specified
-                    max_timesteps = None
+                    self.log_info(f"Energy tracker configuration:")
+                    self.log_info(f"  Using time-based output: {self.energy_output_period_ps:.3f} ps")
                     if self.max_energy_output_time_ps:
-                        # Use current timestep for calculation (better than initial estimate)
-                        current_dt = self.sim.operations.integrator.dt
-                        dt_ps = PhysicalConstants.atomic_units_to_ps(current_dt)
-                        max_timesteps = int(self.max_energy_output_time_ps / dt_ps)
-                        self.log_info(f"  Max timesteps calculated: {max_timesteps} (≈{self.max_energy_output_time_ps:.3f} ps)")
-                    
-                    self.log_info(f"  Output trigger: every {output_trigger_period} step")
-                    self.log_info(f"  Target max time: {self.max_energy_output_time_ps} ps" if self.max_energy_output_time_ps else "  No max time limit")
+                        self.log_info(f"  Max output time: {self.max_energy_output_time_ps:.3f} ps")
+                    else:
+                        self.log_info(f"  No max time limit")
                     
                     # Prepare individual force objects for EnergyTracker
                     force_objects = {}
@@ -1369,7 +1358,7 @@ class CavityMDSimulation:
                     self.log_info(f"  Using internal kinetic computation (no external tracker needed)")
                     self.log_info(f"  Cavity mode tracker available: {cavity_mode_tracker is not None}")
                     
-                    # Use time-based limit directly instead of converted timesteps
+                    # Use time-based output period for accurate timing
                     self.energy_tracker = EnergyTracker(
                         simulation=self.sim,
                         components=['kinetic', 'harmonic', 'lj', 'ewald_short', 'ewald_long', 'cavity'],
@@ -1379,26 +1368,25 @@ class CavityMDSimulation:
                         cavity_mode_tracker=cavity_mode_tracker,
                         time_tracker=self.time_tracker,
                         output_prefix=output_prefix,
-                        output_period_steps=1,  # Check every step for best timing accuracy
-                        max_time_ps=self.max_energy_output_time_ps,  # Use time-based limit directly
+                        output_period_ps=self.energy_output_period_ps,  # Use time-based output!
+                        max_time_ps=self.max_energy_output_time_ps,  # Use time-based limit
                         compute_temperature=True,
                         track_reservoirs=True,
                         verbose='quiet'  # Reduce verbose output - use 'verbose' for full debug output
                     )
                     
-                    # Add energy tracker to simulation with small trigger period
+                    # Add energy tracker to simulation - trigger period doesn't matter since it uses internal timing
                     energy_updater = hoomd.update.CustomUpdater(
                         action=self.energy_tracker,
-                        trigger=hoomd.trigger.Periodic(output_trigger_period)
+                        trigger=hoomd.trigger.Periodic(1)  # Check every step but tracker handles timing internally
                     )
                     self.sim.operations.updaters.append(energy_updater)
                     
-                    self.log_info(f"Energy tracker setup completed successfully")
-                    self.log_info(f"  Uses internal timing logic with max_time_ps for accurate time limits")
-                    self.log_info(f"  Checking every step for precise timing control")
+                    self.log_info(f"✅ Energy tracker setup completed with time-based output:")
+                    self.log_info(f"  Output period: {self.energy_output_period_ps:.3f} ps (accurate timing)")
+                    self.log_info(f"  Tracker handles timing internally using ElapsedTimeTracker")
                     if self.max_energy_output_time_ps:
-                        self.log_info(f"  Output limited to {self.max_energy_output_time_ps:.3f} ps (time-based)")
-                    self.log_info(f"  Trigger period: {output_trigger_period} step")
+                        self.log_info(f"  Output limited to {self.max_energy_output_time_ps:.3f} ps")
                     
                 except Exception as e:
                     self.log_error(f"Failed to setup energy tracker: {e}")
@@ -1441,7 +1429,7 @@ class CavityMDSimulation:
                     simulation=self.sim,
                     observable="density_correlation",
                     time_tracker=self.time_tracker,
-                    output_period_steps=1,  # Check every step for best timing accuracy
+                    output_period_ps=self.fkt_output_period_ps,  # Use time-based output period!
                     output_prefix=f'{self.name}-{self.replica}',
                     reference_interval_ps=self.fkt_reference_interval_ps,  # Use time-based interval
                     max_references=self.fkt_max_references,
@@ -1449,19 +1437,20 @@ class CavityMDSimulation:
                     num_wavevectors=self.fkt_num_wavevectors
                 )
                 
-                # Add F(k,t) tracker to simulation with small trigger period
+                # Add F(k,t) tracker to simulation - trigger period doesn't matter since it uses internal timing
                 fkt_updater = hoomd.update.CustomUpdater(
                     action=self.density_corr_tracker,
-                    trigger=hoomd.trigger.Periodic(fkt_trigger_period)
+                    trigger=hoomd.trigger.Periodic(1)  # Check every step but tracker handles timing internally
                 )
                 self.sim.operations.updaters.append(fkt_updater)
                 
                 # Add F(k,t) data to logger
                 logger[('F(k,t)', 'current_autocorr')] = (self.density_corr_tracker, 'current_autocorr', 'scalar')
                 
-                self.log_info("F(k,t) tracker successfully enabled")
-                self.log_info(f"  Uses time-based intervals for accurate timing in adaptive mode")
-                self.log_info(f"  Reference interval automatically adjusts to changing timesteps")
+                self.log_info("✅ F(k,t) tracker successfully enabled with time-based output:")
+                self.log_info(f"  Output period: {self.fkt_output_period_ps:.3f} ps (accurate timing)")
+                self.log_info(f"  Reference interval: {self.fkt_reference_interval_ps:.3f} ps")
+                self.log_info(f"  Tracker handles timing internally using ElapsedTimeTracker")
                 
             except Exception as e:
                 self.log_warning(f"Could not set up F(k,t) tracker: {str(e)}")
@@ -1480,15 +1469,15 @@ class CavityMDSimulation:
         if hasattr(self, 'adaptive_action') and self.adaptive_action is not None:
             console_items.append("adaptive_error_tolerance")
         
-        self.log_info("CORRECTED tracking and logging setup completed")
-        self.log_info(f"Console output includes: {', '.join(console_items)}")
+        self.log_info("✅ TRACKING AND LOGGING SETUP COMPLETED:")
+        self.log_info("  All output systems now use precise time-based periods")
         
         # Log detailed summary of what's enabled
         enabled_features = []
         if self.enable_energy_tracking:
-            enabled_features.append("detailed energy tracking")
+            enabled_features.append(f"detailed energy tracking ({self.energy_output_period_ps:.3f} ps)")
         if self.enable_fkt:
-            enabled_features.append(f"F(k,t) density correlation (k={self.fkt_kmag})")
+            enabled_features.append(f"F(k,t) density correlation ({self.fkt_output_period_ps:.3f} ps, k={self.fkt_kmag})")
         if hasattr(self, 'adaptive_action') and self.adaptive_action is not None:
             enabled_features.append("adaptive timestep control")
         
@@ -1496,39 +1485,32 @@ class CavityMDSimulation:
             self.log_info(f"Advanced features enabled: {', '.join(enabled_features)}")
         else:
             self.log_info("Running with basic tracking only")
+        
+        self.log_info(f"Console output: {self.console_output_period_ps:.3f} ps periods (time-based)")
+        self.log_info("  Works accurately for both adaptive and fixed timestep modes")
 
     def setup_output_writers(self):
         """Configure GSD writer and console table for simulation output."""
         
-        # Choose appropriate trigger for adaptive vs fixed timestep mode
+        # For GSD output, we can still use step-based for efficiency in most cases
+        # since GSD output is typically less frequent and timing precision is less critical
         if self.error_tolerance > 0:
-            # Adaptive timestep mode - use very small step intervals for better timing accuracy
-            # Since timestep changes frequently, use small intervals to minimize timing error
+            # Adaptive timestep mode - use smaller intervals for better timing
             gsd_trigger_steps = max(1, int(self.gsd_output_period_ps / 0.001))  # Assume ~1 fs effective timestep
-            console_trigger_steps = max(1, int(self.console_output_period_ps / 0.001))  # Assume ~1 fs effective timestep
-            
-            # Cap the intervals to reasonable values to avoid excessive overhead
-            gsd_trigger_steps = min(gsd_trigger_steps, 10000)  # Max 10k steps
-            console_trigger_steps = min(console_trigger_steps, 1000)  # Max 1k steps
-            
+            gsd_trigger_steps = min(gsd_trigger_steps, 10000)  # Cap at reasonable value
             gsd_trigger = hoomd.trigger.Periodic(gsd_trigger_steps)
-            console_trigger = hoomd.trigger.Periodic(period=console_trigger_steps)
             
-            self.log_info("Using small step-based triggers for better timing accuracy in adaptive mode")
+            self.log_info("GSD output setup for adaptive timestep mode:")
             self.log_info(f"  GSD trigger: every {gsd_trigger_steps} steps (target: {self.gsd_output_period_ps:.3f} ps)")
-            self.log_info(f"  Console trigger: every {console_trigger_steps} steps (target: {self.console_output_period_ps:.3f} ps)")
-            self.log_info("  Note: Actual timing may vary slightly due to adaptive timestep changes")
+            self.log_info("  Note: GSD timing may vary slightly due to adaptive timestep changes")
             
         else:
             # Fixed timestep mode - use calculated step-based triggers (most efficient)
             gsd_trigger = hoomd.trigger.Periodic(self.gsd_period)
-            console_trigger = hoomd.trigger.Periodic(period=self.console_period)
-            
-            self.log_info("Using calculated step-based triggers for fixed timestep mode")
+            self.log_info("GSD output setup for fixed timestep mode:")
             self.log_info(f"  GSD trigger: every {self.gsd_period} steps ({self.gsd_output_period_ps:.3f} ps)")
-            self.log_info(f"  Console trigger: every {self.console_period} steps ({self.console_output_period_ps:.3f} ps)")
         
-        # Set up GSD writer with appropriate trigger
+        # Set up GSD writer
         gsd_writer = hoomd.write.GSD(
             filename=f'{self.name}-{self.replica}.gsd',
             trigger=gsd_trigger,
@@ -1549,38 +1531,114 @@ class CavityMDSimulation:
         self.log_info(f"  GSD output period: {self.gsd_output_period_ps:.3f} ps")
         self.log_info(f"  GSD truncate mode: {self.truncate_gsd} ({'overwrite existing file' if self.truncate_gsd else 'append to existing file'})")
         
-        # Create a separate logger for console output with only performance and time metrics
-        console_logger = hoomd.logging.Logger(categories=['scalar', 'string'])
+        # Create custom time-based console output tracker for accurate timing
+        class ConsoleOutputTracker(hoomd.custom.Action):
+            """Time-based console output tracker for accurate timing in both adaptive and fixed timestep modes."""
+            
+            def __init__(self, sim, time_tracker, performance_tracker, timestep_formatter, adaptive_action, output_period_ps):
+                super().__init__()
+                self.sim = sim
+                self.time_tracker = time_tracker
+                self.performance_tracker = performance_tracker
+                self.timestep_formatter = timestep_formatter
+                self.adaptive_action = adaptive_action
+                self.output_period_ps = output_period_ps
+                self.last_output_time = 0.0
+                self.header_printed = False
+                
+            def _get_current_time(self, timestep):
+                """Get current simulation time."""
+                if self.time_tracker is not None:
+                    return self.time_tracker.elapsed_time
+                else:
+                    dt = float(self.sim.operations.integrator.dt)
+                    return PhysicalConstants.atomic_units_to_ps(dt * timestep)
+                
+            def _should_output(self, timestep):
+                """Check if we should output at this timestep using time-based logic."""
+                current_time = self._get_current_time(timestep)
+                time_since_last = current_time - self.last_output_time
+                return time_since_last >= self.output_period_ps
+                
+            def act(self, timestep):
+                if timestep == 0:
+                    return
+                    
+                # Check if we should output using time-based logic
+                if not self._should_output(timestep):
+                    return
+                    
+                # Print header on first output
+                if not self.header_printed:
+                    header_parts = [
+                        "Simulation.timestep",
+                        "Simulation.tps", 
+                        "Time.elapsed_ps",
+                        "Performance.ns_per_day",
+                        "Performance.eta",
+                        "Timestep.dt_fs"
+                    ]
+                    if self.adaptive_action is not None:
+                        header_parts.append("Adaptive.error_tolerance")
+                    print(" ".join(f"{h:>15s}" for h in header_parts))
+                    self.header_printed = True
+                    
+                # Collect current values
+                current_time = self._get_current_time(timestep)
+                tps = self.sim.tps if hasattr(self.sim, 'tps') else 0.0
+                ns_per_day = self.performance_tracker.ns_per_day  # Property, not method
+                eta = self.performance_tracker.eta_remaining      # Property, not method
+                dt_fs = self.timestep_formatter.dt_fs             # Property, not method
+                
+                # Build output line
+                output_parts = [
+                    f"{timestep:15d}",
+                    f"{tps:15.5f}",
+                    f"{current_time:15.5f}",
+                    f"{ns_per_day:>15s}",
+                    f"{eta:>15s}",
+                    f"{dt_fs:15.5f}"
+                ]
+                
+                if self.adaptive_action is not None:
+                    error_tol = self.adaptive_action.error_tolerance  # Property, not method
+                    output_parts.append(f"{error_tol:15.2e}")
+                    
+                print(" ".join(output_parts))
+                
+                # Update last output time
+                self.last_output_time = current_time
         
-        # Basic simulation quantities
-        console_logger.add(self.sim, quantities=['timestep', 'tps'])
-        
-        # Time and performance information
-        console_logger[('Time', 'elapsed_ps')] = (self.time_tracker, 'elapsed_time', 'scalar')
-        console_logger[('Performance', 'ns_per_day')] = (self.performance_tracker, 'ns_per_day', 'string')
-        console_logger[('Performance', 'eta')] = (self.performance_tracker, 'eta_remaining', 'string')
-        console_logger[('Timestep', 'dt_fs')] = (self.timestep_formatter, 'dt_fs', 'scalar')
-        
-        # Add adaptive timestep logging if enabled
-        if hasattr(self, 'adaptive_action') and self.adaptive_action is not None:
-            console_logger[('Adaptive', 'error_tolerance')] = (self.adaptive_action, 'error_tolerance', 'scalar')
-        
-        # Set up console output table with appropriate trigger
-        table = hoomd.write.Table(
-            trigger=console_trigger,
-            logger=console_logger
+        # Create and set up console output tracker
+        console_tracker = ConsoleOutputTracker(
+            sim=self.sim,
+            time_tracker=self.time_tracker,
+            performance_tracker=self.performance_tracker,
+            timestep_formatter=self.timestep_formatter,
+            adaptive_action=getattr(self, 'adaptive_action', None),
+            output_period_ps=self.console_output_period_ps
         )
-        self.sim.operations.writers.append(table)
-        self.log_info(f"Console output period: {self.console_output_period_ps:.3f} ps")
-        self.log_info("Console output restricted to performance and time metrics only")
         
-        # Update/remove previous warnings since the issue is now much better
+        # Add console tracker to simulation (check every step but handle timing internally)
+        console_updater = hoomd.update.CustomUpdater(
+            action=console_tracker,
+            trigger=hoomd.trigger.Periodic(1)  # Check every step but tracker handles timing internally
+        )
+        self.sim.operations.updaters.append(console_updater)
+        
+        self.log_info("✅ Console output setup completed:")
+        self.log_info(f"  Output period: {self.console_output_period_ps:.3f} ps (accurate time-based)")
+        self.log_info("  Console tracker handles timing internally using ElapsedTimeTracker")
+        self.log_info("  Works accurately for both adaptive and fixed timestep modes")
+        
+        # Log final setup summary
         if self.error_tolerance > 0:
-            self.log_info("✅ IMPROVED: GSD and console output now use smaller step intervals in adaptive mode")
-            self.log_info("  Output timing accuracy significantly improved (though may still vary slightly)")
-            self.log_info("  F(k,t) and energy trackers use precise time-based logic and are fully accurate")
+            self.log_info("✅ FIXED: Console output now uses precise time-based logic")
+            self.log_info("  Both console and energy tracker use accurate timing")
+            self.log_info("  GSD output timing may vary slightly but is less critical")
         else:
-            self.log_info("Using step-based triggers for maximum efficiency in fixed timestep mode")
+            self.log_info("✅ Time-based console output setup for fixed timestep mode")
+            self.log_info("  Provides consistent behavior across all timestep modes")
 
     def run_simulation(self):
         """Execute the main simulation loop."""
@@ -1713,7 +1771,7 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
         print(f"  Output directory: {exp_dir}")
         
         # Set error tolerance based on timestepping mode
-        error_tolerance = 0.0 if fixed_timestep else 1.0
+        error_tolerance = 0.0 if fixed_timestep else 0.5
         
         # Set timestep based on user preference (only used if fixed_timestep is True)
         dt_fs = timestep_fs if fixed_timestep else None

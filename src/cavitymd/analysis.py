@@ -1778,3 +1778,78 @@ class DipoleAutocorrelation(AutocorrelationTracker):
             output_prefix=output_prefix,
             output_period_steps=output_period_steps,
         )
+
+
+# =============================================================================
+# PERFORMANCE TRACKER
+# =============================================================================
+
+
+class PerformanceTracker(hoomd.custom.Action):
+    """Custom performance tracker to display ns/day and other metrics.
+    
+    This tracker provides:
+    - Nanoseconds per day (ns/day) performance metric
+    - Estimated time to completion (ETA)
+    - Dynamic precision for small ns/day values
+    """
+    
+    def __init__(self, simulation, runtime_ps, time_tracker=None):
+        """Initialize performance tracker.
+        
+        Args:
+            simulation: HOOMD simulation object
+            runtime_ps: Total runtime in picoseconds
+            time_tracker: Optional time tracker for accurate timing
+        """
+        super().__init__()
+        self.sim = simulation
+        self.runtime_ps = runtime_ps
+        self.time_tracker = time_tracker
+        self.start_time = datetime.datetime.now().timestamp()
+        self.last_timestep = 0
+        self.current_ns_per_day = 0.0
+        self.current_eta = ""
+        
+    def act(self, timestep):
+        """Update performance metrics at each timestep."""
+        # Calculate simulation progress
+        if self.time_tracker is not None:
+            simulation_time_ps = self.time_tracker.elapsed_time
+        else:
+            dt = float(self.sim.operations.integrator.dt)
+            simulation_time_ps = PhysicalConstants.atomic_units_to_ps(dt * timestep)
+        
+        # Calculate wall time elapsed
+        wall_time_elapsed = datetime.datetime.now().timestamp() - self.start_time
+        
+        # Calculate performance metrics (even if potentially unreliable early on)
+        if wall_time_elapsed > 0 and simulation_time_ps > 0:
+            # Calculate ns/day
+            ps_per_second = simulation_time_ps / wall_time_elapsed
+            ns_per_second = ps_per_second / 1000.0
+            self.current_ns_per_day = ns_per_second * 86400
+            
+            # Calculate ETA
+            total_wall_time_needed = (self.runtime_ps / simulation_time_ps) * wall_time_elapsed
+            seconds_remaining = total_wall_time_needed - wall_time_elapsed
+            
+            if seconds_remaining > 0:
+                eta_td = datetime.timedelta(seconds=int(seconds_remaining))
+                self.current_eta = str(eta_td)
+            else:
+                self.current_eta = "0:00:00"
+
+    @hoomd.logging.log
+    def ns_per_day(self):
+        """Return ns/day performance metric with appropriate precision."""
+        # Use more decimal places for small values
+        if self.current_ns_per_day < 0.01:
+            return f"{self.current_ns_per_day:.4f}"
+        else:
+            return f"{self.current_ns_per_day:.2f}"
+    
+    @hoomd.logging.log
+    def eta_remaining(self):
+        """Return estimated time to completion."""
+        return self.current_eta

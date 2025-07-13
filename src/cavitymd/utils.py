@@ -84,3 +84,58 @@ def unwrap_positions(positions, images, box_lengths):
     
     # Unwrap by adding box lengths multiplied by image flags
     return pos + img * box[None, :] 
+
+
+# =============================================================================
+# JOB MANAGEMENT UTILITIES
+# =============================================================================
+
+import os
+
+
+def get_slurm_info():
+    """Get SLURM job information from environment variables.
+    
+    Returns:
+        tuple: (task_id, job_id) where:
+            - task_id: SLURM array task ID (int) or None if not in array job
+            - job_id: SLURM job ID (str) or 'unknown' if not in SLURM
+    """
+    task_id = os.environ.get('SLURM_ARRAY_TASK_ID')
+    job_id = os.environ.get('SLURM_JOB_ID', 'unknown')
+    
+    if task_id is None:
+        return None, job_id
+    else:
+        return int(task_id), job_id
+
+
+def parse_replicas(replicas_str):
+    """Parse replica specification string into list of integers.
+    
+    Supports formats like:
+    - Single replica: "1" -> [1]
+    - List: "1,2,5" -> [1, 2, 5]
+    - Range: "1-5" -> [1, 2, 3, 4, 5]
+    - Mixed: "1,3-5,7" -> [1, 3, 4, 5, 7]
+    
+    Args:
+        replicas_str: String specification of replicas
+        
+    Returns:
+        list: Sorted list of unique replica numbers
+    """
+    if not replicas_str:
+        return [1]  # Default single replica
+    
+    replicas = []
+    parts = replicas_str.split(',')
+    for part in parts:
+        part = part.strip()
+        if '-' in part:
+            start, end = part.split('-', 1)
+            start, end = int(start.strip()), int(end.strip())
+            replicas.extend(range(start, end + 1))
+        else:
+            replicas.append(int(part))
+    return sorted(list(set(replicas))) 
