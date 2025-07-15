@@ -15,7 +15,8 @@ import numpy as np
 from unittest.mock import Mock, patch, MagicMock
 
 # Import both the new and old implementations for comparison
-from hoomd.cavitymd import CavityMDExperiment, CavitySimulationParams
+from hoomd.cavitymd.experiment import CavityMDExperiment
+from hoomd.cavitymd.validation import CavitySimulationParams
 from hoomd.cavitymd.experiment import CavityMDExperiment as ExperimentClass
 from hoomd.cavitymd.simulation import CavityMDSimulation
 from hoomd.cavitymd.validation import CavitySimulationParams
@@ -234,7 +235,7 @@ class TestPhase3Integration:
         experiment = CavityMDExperiment(**kwargs)
         
         # Expected dissipation calculation
-        from hoomd.cavitymd.analysis import PhysicalConstants
+        from hoomd.cavitymd.utils import PhysicalConstants
         phmass = 1.0
         omegac = 2000.0 / PhysicalConstants.HARTREE_TO_CM_MINUS1
         expected_dissipation = 2 * 0.1 * phmass * omegac

@@ -15,7 +15,6 @@ from .utils import PhysicalConstants, unwrap_positions
 # OBSERVABLE LIBRARY
 # =============================================================================
 
-
 def compute_total_dipole_moment(snapshot):
     """Compute total dipole moment with proper position unwrapping."""
     box_lengths = np.array(
@@ -532,22 +531,162 @@ class FieldAutocorrelationTracker(BaseTracker):
 
 
 class EnergyTracker(BaseTracker):
-    """
-    Energy tracking that exactly follows the working EnergyContributionTracker pattern.
-
-    **REFACTORED VERSION**: Now supports internal kinetic energy computation.
-
-    **KEY IMPROVEMENTS:**
-
-    1. **Internal Kinetic Computation**: Can compute kinetic energy internally when
-       'kinetic' is in components and kinetic_tracker=None
-
-    2. **Backward Compatibility**: Still accepts kinetic_tracker parameter for compatibility
-
-    3. **Standard Component**: 'kinetic' is now a standard component like 'harmonic', 'lj', etc.
-
-    4. **Eliminates Redundancy**: No need for separate SimpleKineticEnergyTracker when
-       using internal computation
+    r"""
+    Comprehensive energy tracking for cavity molecular dynamics simulations.
+    
+    Monitors all energy components in the system to verify energy conservation
+    and analyze energy redistribution during cavity coupling experiments. This
+    is crucial for validating the physics and understanding energy flow in
+    time-varying coupling scenarios.
+    
+    **Energy Components:**
+    
+    The total system energy in cavity MD includes:
+    
+    .. math::
+        
+        E_{\text{total}} = E_{\text{kinetic}} + E_{\text{potential}} + E_{\text{cavity}} + E_{\text{reservoir}}
+    
+    where:
+    
+    - :math:`E_{\text{kinetic}} = \frac{1}{2} \sum_i m_i \vec{v}_i^2` (molecular kinetic energy)
+    - :math:`E_{\text{potential}}` includes harmonic bonds, LJ, Coulomb interactions
+    - :math:`E_{\text{cavity}} = E_{\text{harmonic}} + E_{\text{coupling}} + E_{\text{dipole}}` (cavity contributions)
+    - :math:`E_{\text{reservoir}}` is thermostat reservoir energy (if tracked)
+    
+    **Cavity Energy Components:**
+    
+    The cavity energy decomposes as:
+    
+    .. math::
+        
+        E_{\text{harmonic}} &= \frac{1}{2} K \tilde{q}_{0,\lambda}^2 \\
+        E_{\text{coupling}} &= \tilde{\varepsilon}_{0,\lambda}(t) \tilde{q}_{0,\lambda} \sum_{n=1}^{N_{\text{sub}}} d_{ng,\lambda} \\
+        E_{\text{dipole}} &= \frac{\tilde{\varepsilon}_{0,\lambda}(t)^2}{2K} \left(\sum_{n=1}^{N_{\text{sub}}} d_{ng,\lambda}\right)^2
+    
+    **Energy Conservation in Time-Varying Systems:**
+    
+    During coupling switching, individual components change but total energy is conserved:
+    
+    .. math::
+        
+        \frac{dE_{\text{total}}}{dt} = 0 \quad \text{(for conservative dynamics)}
+    
+    Energy redistribution occurs between molecular and cavity modes according to the new coupling.
+    
+    Parameters
+    ----------
+    simulation : hoomd.Simulation
+        HOOMD simulation object
+    components : List[str]
+        Energy components to track. Options include:
+        
+        - 'kinetic': Molecular kinetic energy
+        - 'harmonic': Harmonic bond energy  
+        - 'lj': Lennard-Jones potential energy
+        - 'ewald_short': Short-range electrostatic energy
+        - 'ewald_long': Long-range electrostatic energy
+        - 'cavity': Total cavity energy (all components)
+        - Individual cavity components: 'cavity_harmonic', 'cavity_coupling', 'cavity_dipole'
+    force_objects : Dict[str, hoomd.md.force.Force], optional
+        Dictionary mapping component names to force objects for energy extraction
+    thermostat_objects : Dict[str, object], optional  
+        Dictionary of thermostat objects for reservoir energy tracking
+    kinetic_tracker : object, optional
+        External kinetic energy tracker (deprecated - use internal computation)
+    cavity_mode_tracker : CavityModeTracker, optional
+        Cavity mode tracker for additional cavity properties
+    time_tracker : ElapsedTimeTracker, optional
+        Time tracker for accurate timing
+    output_prefix : str, optional
+        Prefix for output files. Default: 'energy'
+    output_period_steps : int, optional
+        Output frequency in timesteps (for fixed timestep mode)
+    output_period_ps : float, optional
+        Output frequency in picoseconds (preferred for adaptive timestep)
+    max_timesteps : int, optional
+        Maximum timesteps to track (deprecated)
+    max_time_ps : float, optional
+        Maximum time to track in picoseconds
+    compute_temperature : bool, optional
+        Whether to compute temperature from kinetic energy. Default: True
+    track_reservoirs : bool, optional  
+        Whether to track thermostat reservoir energies. Default: True
+    verbose : str, optional
+        Verbosity level ('quiet', 'normal', 'verbose'). Default: 'normal'
+        
+    Attributes
+    ----------
+    output_file_path : str
+        Path to the energy output file
+    total_energy : float
+        Current total system energy (logged)
+    kinetic_energy : float
+        Current kinetic energy (logged)
+    potential_energy : float
+        Current potential energy (logged)
+    cavity_energy : float
+        Current total cavity energy (logged)
+    temperature : float
+        Current temperature in Kelvin (logged, if computed)
+        
+    Examples
+    --------
+    **Basic energy tracking:**
+    
+    >>> from hoomd.cavitymd.analysis import EnergyTracker
+    >>> 
+    >>> # Track key energy components
+    >>> energy_tracker = EnergyTracker(
+    ...     simulation=sim,
+    ...     components=['kinetic', 'harmonic', 'lj', 'cavity'],
+    ...     force_objects={'cavity': cavity_force, 'harmonic': harmonic_force},
+    ...     output_period_ps=0.1
+    ... )
+    >>> 
+    >>> # Add to simulation
+    >>> sim.operations.updaters.append(
+    ...     hoomd.update.CustomUpdater(
+    ...         action=energy_tracker,
+    ...         trigger=hoomd.trigger.Periodic(energy_tracker.output_period_steps)
+    ...     )
+    ... )
+    
+    **Detailed cavity energy tracking:**
+    
+    >>> # Track individual cavity components
+    >>> detailed_tracker = EnergyTracker(
+    ...     simulation=sim,
+    ...     components=['kinetic', 'cavity_harmonic', 'cavity_coupling', 'cavity_dipole'],
+    ...     force_objects={'cavity': cavity_force},
+    ...     verbose='verbose'
+    ... )
+    
+    **Time-varying coupling validation:**
+    
+    >>> # Monitor energy conservation during switching
+    >>> conservation_tracker = EnergyTracker(
+    ...     simulation=sim,
+    ...     components=['kinetic', 'harmonic', 'cavity'],
+    ...     force_objects={'cavity': cavity_force, 'harmonic': harmonic_force},
+    ...     time_tracker=time_tracker,
+    ...     max_time_ps=switch_time_ps + 50.0,  # Track through switching
+    ...     output_period_ps=0.01  # High frequency during switch
+    ... )
+    
+    Notes
+    -----
+    - Essential for validating energy conservation in cavity MD simulations
+    - Automatically computes kinetic energy internally when requested
+    - Supports both detailed component tracking and total energy monitoring
+    - Critical for debugging time-varying coupling experiments
+    - Output files contain timestep, time, and all tracked energy components
+    
+    See Also
+    --------
+    CavityModeTracker : For detailed cavity mode properties
+    hoomd.cavitymd.forces.CavityForce : For cavity energy components
+    ElapsedTimeTracker : For accurate timing
     """
 
     def __init__(
@@ -1513,37 +1652,134 @@ class Status:
 
 
 class ElapsedTimeTracker(hoomd.custom.Action):
-    """Track elapsed simulation time in physical units and exit when runtime is reached."""
-
-    def __init__(self, simulation, runtime):
-        super().__init__()
-        self.simulation = simulation
-        self.runtime = runtime  # Target runtime in ps
-        self.total_time = 0.0  # Store in atomic units like cavitymd.py
-        self.last_timestep = 0  # Track previous timestep for proper accumulation
-        self.initial_timestep = (
-            None  # Track the starting timestep to handle inheritance
-        )
-
-    def time_to_steps(self, time_ps):
-        """Convert time in picoseconds to simulation steps.
-
-        Args:
-            time_ps (float): Time in picoseconds
-
-        Returns:
-            int: Number of simulation steps corresponding to the given time
+    r"""
+    Track elapsed simulation time in physical units and exit when runtime is reached.
+    
+    This class provides accurate time tracking for adaptive timestep simulations,
+    where the timestep size :math:`\Delta t` may vary during the simulation. It
+    accumulates the actual elapsed time by integrating timestep increments:
+    
+    .. math::
+        
+        t_{\text{elapsed}} = \sum_{i=1}^{n} \Delta t_i
+    
+    where :math:`\Delta t_i` is the timestep size at step :math:`i`.
+    
+    **Adaptive Timestep Compatibility:**
+    
+    Unlike simple step counting, this tracker accounts for variable timesteps
+    in adaptive integration schemes, ensuring accurate timing for:
+    
+    - Time-varying coupling experiments
+    - Runtime termination conditions  
+    - Performance metrics (ns/day calculations)
+    - Output period controls
+    
+    **Integration with Time-Varying Parameters:**
+    
+    This tracker is essential for StepVariant and other time-dependent parameters
+    that need to know the actual simulation time, not just the timestep number.
+    
+    Parameters
+    ----------
+    simulation : hoomd.Simulation
+        HOOMD simulation object to track
+    runtime : float
+        Target runtime in picoseconds. Simulation exits when this time is reached.
+        
+    Attributes
+    ----------
+    runtime : float
+        Target runtime in picoseconds
+    total_time : float
+        Current elapsed time in atomic units
+    initial_timestep : int
+        Starting timestep number (for inherited simulations)
+    last_timestep : int
+        Last processed timestep number
+        
+    Methods
+    -------
+    elapsed_time : float
+        Current elapsed time in picoseconds (logged property)
+    act(timestep) : None
+        Update elapsed time and check for runtime completion
+        
+    Examples
+    --------
+    **Basic usage:**
+    
+    >>> from hoomd.cavitymd.analysis import ElapsedTimeTracker
+    >>> 
+    >>> # Track a 1000 ps simulation
+    >>> time_tracker = ElapsedTimeTracker(sim, runtime=1000.0)
+    >>> 
+    >>> # Add to simulation updaters
+    >>> sim.operations.updaters.append(
+    ...     hoomd.update.CustomUpdater(
+    ...         action=time_tracker, 
+    ...         trigger=hoomd.trigger.Periodic(1)  # Update every step
+    ...     )
+    ... )
+    
+    **With time-varying coupling:**
+    
+    >>> # Use for accurate timing in step variants
+    >>> time_tracker = ElapsedTimeTracker(sim, runtime=500.0)
+    >>> coupling_variant = StepVariant(
+    ...     target_value=0.001,
+    ...     switch_time_ps=100.0,
+    ...     time_tracker=time_tracker
+    ... )
+    
+    Notes
+    -----
+    - Must be updated every timestep for accurate timing
+    - Automatically exits simulation when runtime is reached
+    - Handles inherited timesteps from restart simulations
+    - Essential for time-varying parameter variants
+    - Works correctly with both fixed and adaptive timestep schemes
+    
+    See Also
+    --------
+    hoomd.cavitymd.variants.StepVariant : For time-varying parameters
+    PerformanceTracker : For simulation performance monitoring
+    """
+    
+    def __init__(self, simulation: hoomd.Simulation, runtime: float) -> None:
         """
-        # Get current timestep size in atomic units
-        dt_au = self.simulation.operations.integrator.dt
-        # Convert time from ps to atomic units
-        time_au = PhysicalConstants.ps_to_atomic_units(time_ps)
-        # Calculate number of steps
-        steps = int(time_au / dt_au)
-        return steps
+        Initialize the elapsed time tracker.
+        
+        Parameters
+        ----------
+        simulation : hoomd.Simulation
+            HOOMD simulation object to track
+        runtime : float
+            Target runtime in picoseconds
+        """
+        super().__init__()
+        self.simulation: hoomd.Simulation = simulation
+        self.runtime: float = runtime
+        
+        # Initialize timing variables
+        self.total_time: float = 0.0  # Total elapsed time in atomic units
+        self.initial_timestep: int = 0  # Starting timestep (for inherited sims)
+        self.last_timestep: int = 0  # Last processed timestep
+        
+        print(f"ElapsedTimeTracker initialized: target runtime = {runtime:.1f} ps")
 
-    def act(self, timestep):
-        """Update the total elapsed time by accumulating time increments."""
+    def act(self, timestep: int) -> None:
+        """
+        Update the total elapsed time by accumulating time increments.
+        
+        This method is called by HOOMD at each timestep to update the elapsed time.
+        For adaptive timestep simulations, it properly accounts for varying timestep sizes.
+        
+        Parameters
+        ----------
+        timestep : int
+            Current simulation timestep number
+        """
         # Get current timestep size
         dt = self.simulation.operations.integrator.dt
 
@@ -1573,12 +1809,23 @@ class ElapsedTimeTracker(hoomd.custom.Action):
         if PhysicalConstants.atomic_units_to_ps(self.total_time) >= self.runtime:
             print(f"Runtime {self.runtime} ps reached. Exiting simulation.")
             import sys
-
             sys.exit(0)
 
     @hoomd.logging.log
-    def elapsed_time(self):
-        """Expose the total elapsed time as a property in (ps)."""
+    def elapsed_time(self) -> float:
+        """
+        Current elapsed time in picoseconds.
+        
+        Returns
+        -------
+        float
+            Elapsed simulation time in picoseconds
+            
+        Notes
+        -----
+        This property is logged and can be accessed by other components
+        that need accurate timing information.
+        """
         return PhysicalConstants.atomic_units_to_ps(self.total_time)
 
 

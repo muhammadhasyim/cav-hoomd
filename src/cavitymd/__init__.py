@@ -1,30 +1,32 @@
 # Copyright (c) 2009-2025 The Regents of the University of Michigan.
 # Part of HOOMD-blue, released under the BSD 3-Clause License.
 
-"""Cavity molecular dynamics simulation components."""
+"""Cavity molecular dynamics simulation components.
 
-from .forces import CavityForce
-from .utils import PhysicalConstants, unwrap_positions, get_slurm_info, parse_replicas
-from .analysis import (
-    Status, ElapsedTimeTracker, TimestepFormatter, CavityModeTracker,
-    AutocorrelationTracker, FieldAutocorrelationTracker, EnergyTracker,
-    DipoleAutocorrelation, PerformanceTracker
-)
-from .simulation import AdaptiveTimestepUpdater, CavityMDSimulation
-from .updaters import CavityParticleDisplacer
-from .variants import StepVariant, ConstantVariant
+This package provides components for cavity molecular dynamics simulations.
+To use the components, import from the specific submodules:
 
-__all__ = [
-    # Forces
-    'CavityForce',
-    # Utilities
-    'PhysicalConstants', 'unwrap_positions', 'get_slurm_info', 'parse_replicas',
-    # Analysis and tracking
-    'Status', 'ElapsedTimeTracker', 'TimestepFormatter', 'CavityModeTracker',
-    'AutocorrelationTracker', 'FieldAutocorrelationTracker', 'EnergyTracker',
-    'DipoleAutocorrelation', 'PerformanceTracker',
-    # Simulation framework
-    'AdaptiveTimestepUpdater', 'CavityMDSimulation', 'CavityParticleDisplacer',
-    # Variants
-    'StepVariant', 'ConstantVariant',
-] 
+- cavitymd.forces: Force implementations
+- cavitymd.utils: Utility functions and constants
+- cavitymd.analysis: Analysis and tracking tools
+- cavitymd.simulation: Simulation framework components
+- cavitymd.updaters: Particle updaters
+- cavitymd.variants: Parameter variants
+
+Example:
+    from cavitymd.forces import CavityForce
+    from cavitymd.utils import PhysicalConstants
+    from cavitymd.analysis import EnergyTracker
+"""
+
+# Version compatibility check
+import hoomd
+_REQUIRED_HOOMD_VERSION = "5.2.0"
+
+if hoomd.version.version != _REQUIRED_HOOMD_VERSION:
+    raise ImportError(
+        f"HOOMD-blue version mismatch: "
+        f"CavityMD requires exactly version {_REQUIRED_HOOMD_VERSION}, "
+        f"but found version {hoomd.version.version}. "
+        f"Please install HOOMD-blue {_REQUIRED_HOOMD_VERSION} from source."
+    ) 

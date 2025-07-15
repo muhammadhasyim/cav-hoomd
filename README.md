@@ -8,6 +8,10 @@ A HOOMD-blue plugin for cavity-coupled molecular dynamics simulations. Study how
 
 ### Installation
 
+**⚠️ IMPORTANT: This plugin requires exactly HOOMD-blue version 5.2.0**
+
+You must build HOOMD-blue 5.2.0 from source first (see documentation for details).
+
 ```bash
 # Build and install
 ./build_install.sh
@@ -15,6 +19,8 @@ A HOOMD-blue plugin for cavity-coupled molecular dynamics simulations. Study how
 # Or for CPU-only build
 ./build_install.sh --no-gpu
 ```
+
+The build script automatically verifies HOOMD version compatibility before building.
 
 ### Run Your First Simulation
 
@@ -105,7 +111,7 @@ For programmatic access:
 
 ```python
 import hoomd
-from hoomd.cavitymd import CavityForce
+from hoomd.cavitymd.forces import CavityForce
 from hoomd.bussi_reservoir import BussiReservoir
 
 # Create simulation
@@ -157,7 +163,7 @@ sim.run(10000)
 
 ## Requirements
 
-- HOOMD-blue 4.0+
+- HOOMD-blue 5.2.0
 - Python 3.8+
 - NumPy
 - For GPU support: CUDA toolkit

@@ -14,7 +14,8 @@ import pytest
 
 # Try to import from the plugin
 try:
-    from hoomd.cavitymd import ElapsedTimeTracker, PerformanceTracker, PhysicalConstants
+    from hoomd.cavitymd.analysis import ElapsedTimeTracker, PerformanceTracker
+    from hoomd.cavitymd.utils import PhysicalConstants
 
     PLUGIN_AVAILABLE = True
 except ImportError:

@@ -2,7 +2,7 @@
 Theory
 ======
 
-Cavity HOOMD simulates molecules interacting with optical cavity modes. This enables study of light-matter interactions where molecular vibrations couple strongly to photons.
+Cavity HOOMD simulates molecules interacting with optical cavity modes. This enables study of light-matter interactions where molecular vibrations couple strongly to photons. The plugin now supports both constant and time-varying coupling for dynamic experiments.
 
 Mathematical Formulation
 ========================
@@ -99,6 +99,94 @@ This single-mode approximation captures the essential physics of cavity-molecule
 
 This reduction is particularly useful for studying strong coupling phenomena, polariton formation, and cavity-enhanced molecular dynamics in systems where one cavity mode dominates the interaction.
 
+Time-Varying Coupling Theory
+=============================
+
+**NEW: Dynamic Coupling Control**
+
+The plugin now supports time-varying coupling strength, enabling study of dynamic cavity-molecule interactions. The coupling strength becomes a function of time:
+
+.. math::
+
+   \tilde{\varepsilon}_{0,\lambda}(t) = g(t) \sqrt{\frac{N_{\text{cell}} m_{0,\lambda}\omega_{0,\lambda}^2}{\Omega\varepsilon_0}}
+
+where :math:`g(t)` is a time-dependent coupling function.
+
+**Step Function Coupling**
+
+The most commonly implemented time-varying coupling is a step function:
+
+.. math::
+
+   g(t) = \begin{cases}
+   0 & \text{if } t < t_{\text{switch}} \\
+   g_{\text{target}} & \text{if } t \geq t_{\text{switch}}
+   \end{cases}
+
+This simulates experiments where cavity coupling is suddenly activated.
+
+**Modified Equations of Motion**
+
+With time-varying coupling, the equations become:
+
+**Nuclear Motion:**
+
+.. math::
+
+   M_{nj}\ddot{R}_{nj} = F_{nj}^{(0)} - g(t)\tilde{\varepsilon}_{0,\lambda}^{(0)}\tilde{q}_{0,\lambda} + \frac{g(t)^2(\tilde{\varepsilon}_{0,\lambda}^{(0)})^2}{m_{0,\lambda}\omega_{0,\lambda}^2} \sum_{l=1}^{N_{\text{sub}}} d_{lg,\lambda} \frac{\partial d_{ng,\lambda}}{\partial R_{nj}}
+
+**Photonic Mode Dynamics:**
+
+.. math::
+
+   m_{0,\lambda}\ddot{\tilde{q}}_{0,\lambda} = -m_{0,\lambda}\omega_{0,\lambda}^2 \tilde{q}_{0,\lambda} - g(t)\tilde{\varepsilon}_{0,\lambda}^{(0)} \sum_{n=1}^{N_{\text{sub}}} d_{ng,\lambda}
+
+where :math:`\tilde{\varepsilon}_{0,\lambda}^{(0)}` is the base coupling strength.
+
+**Energy Conservation in Time-Varying Systems**
+
+Total energy is conserved during coupling switching:
+
+.. math::
+
+   E_{\text{total}}(t) = E_{\text{molecular}}(t) + \frac{1}{2}K\tilde{q}_{0,\lambda}^2(t) + g(t)\tilde{\varepsilon}_{0,\lambda}^{(0)}\tilde{q}_{0,\lambda}(t) \sum_{n=1}^{N_{\text{sub}}} d_{ng,\lambda}(t) + \frac{g(t)^2(\tilde{\varepsilon}_{0,\lambda}^{(0)})^2}{2K} \left(\sum_{n=1}^{N_{\text{sub}}} d_{ng,\lambda}(t)\right)^2
+
+**Finite-q Cavity Particle Displacement**
+
+When coupling switches from 0 to :math:`g_{\text{target}}` in finite-q mode, the cavity particle position jumps to its new equilibrium:
+
+.. math::
+
+   \vec{q}_{\text{new}} = -\frac{g_{\text{target}}}{K} \vec{d}_{\text{total}}(\vec{r}_{\text{molecular}})
+
+where :math:`\vec{d}_{\text{total}}` is the total molecular dipole moment and :math:`K = m_{0,\lambda}\omega_{0,\lambda}^2`.
+
+**Dissipation in Time-Varying Systems**
+
+Optional cavity dissipation can also be time-varying:
+
+.. math::
+
+   m_{0,\lambda}\ddot{\tilde{q}}_{0,\lambda} = -m_{0,\lambda}\omega_{0,\lambda}^2 \tilde{q}_{0,\lambda} - \gamma(t)\dot{\tilde{q}}_{0,\lambda} - g(t)\tilde{\varepsilon}_{0,\lambda}^{(0)} \sum_{n=1}^{N_{\text{sub}}} d_{ng,\lambda}
+
+where :math:`\gamma(t)` is the time-dependent damping coefficient.
+
+**Physical Interpretation of Time-Varying Coupling**
+
+Time-varying coupling simulates realistic experimental scenarios:
+
+1. **Pump-probe experiments**: Cavity coupling activated by external laser pulse
+2. **Cavity tuning**: Real-time adjustment of cavity-molecule resonance
+3. **Switching dynamics**: Study of non-equilibrium cavity-molecule interactions
+4. **Relaxation processes**: System equilibration after sudden coupling changes
+
+**Advantages of Time-Varying Coupling**
+
+- **Dynamic studies**: Investigate non-equilibrium cavity-molecule dynamics
+- **Energy redistribution**: Study energy flow between molecular and cavity modes
+- **Switching protocols**: Optimize coupling activation strategies
+- **Realistic simulations**: Model experimental pump-probe scenarios
+
 Physical Interpretation
 =======================
 
@@ -151,6 +239,16 @@ Strong coupling creates hybrid light-matter states (polaritons) with energy spli
 
    \Omega_R = 2g_{\text{eff}}
 
+**Time-Varying Strong Coupling**
+
+With time-varying coupling, the Rabi splitting becomes time-dependent:
+
+.. math::
+
+   \Omega_R(t) = 2g(t)\sqrt{N}
+
+This enables study of polariton dynamics during coupling activation.
+
 Applications and Observables
 ============================
 
@@ -161,16 +259,20 @@ With the single-mode implementation:
 - Energy transfer between molecules and single cavity mode
 - Collective vibrational strong coupling
 - Modified molecular dynamics under cavity influence
+- **NEW**: Dynamic coupling switching and non-equilibrium processes
+- **NEW**: Cavity particle displacement in finite-q modes
+- **NEW**: Energy conservation during coupling transitions
 
 **Typical Parameters**
 
 - Coupling strength: :math:`10^{-5}` to :math:`10^{-2}` (atomic units)
 - Cavity frequency: 1000-3000 cm⁻¹ (molecular vibrations)
 - Temperature: 50-300 K
+- **NEW**: Switch times: 0.1-10 ps for dynamic experiments
 
 **Energy Conservation**
 
-The total energy is conserved:
+The total energy is conserved, including during coupling switching:
 
 .. math::
 
@@ -182,5 +284,16 @@ The total energy is conserved:
 - Cavity mode position and momentum
 - Molecular trajectory and total dipole moment
 - Energy conservation and thermodynamic quantities
+- **NEW**: Time-resolved cavity particle displacement
+- **NEW**: Energy redistribution during coupling switching
+- **NEW**: Polariton formation dynamics
 
-This single-mode framework provides a computationally tractable approach to study cavity quantum electrodynamics effects in realistic molecular systems, while maintaining the essential physics of light-matter strong coupling. 
+**Advanced Analysis Features**
+
+- **Energy tracking**: Detailed monitoring of all energy components
+- **Correlation functions**: F(k,t) density correlation analysis
+- **Performance metrics**: Simulation efficiency and scaling
+- **Adaptive timestep**: Automatic timestep optimization
+- **GPU acceleration**: High-performance computing support
+
+This enhanced single-mode framework provides a comprehensive platform for studying both equilibrium and non-equilibrium cavity quantum electrodynamics effects in realistic molecular systems, while maintaining computational tractability and rigorous energy conservation. 

@@ -1,6 +1,6 @@
 # Cavity HOOMD Documentation
 
-Simple, focused documentation for the Cavity HOOMD molecular dynamics plugin.
+Comprehensive, up-to-date documentation for the advanced Cavity HOOMD molecular dynamics plugin with time-varying coupling capabilities.
 
 ## 🚀 Quick Setup
 
@@ -16,27 +16,93 @@ The documentation will be in `docs/_build/html/`.
 
 ## 📚 Documentation Structure
 
-The documentation is now streamlined and focused on the single main example:
+The documentation has been completely updated to reflect all new features and capabilities:
 
 ```
 docs/
-├── index.rst              # Main documentation page
-├── quickstart.rst         # Quick start guide
-├── installation.rst       # Installation instructions
-├── theory.rst             # Simplified theory background
+├── index.rst              # Main documentation page with time-varying coupling
+├── quickstart.rst         # Comprehensive quick start guide
+├── installation.rst       # Updated installation with simplified architecture
+├── theory.rst             # Extended theory with time-varying coupling
 ├── license.rst            # License information
 ├── conf.py               # Sphinx configuration
 ├── requirements.txt      # Documentation dependencies
+├── api/
+│   └── index.rst         # Complete API reference with all new components
 └── Makefile             # Build commands
 ```
 
-## 🎯 Focus
+## 🎯 Documentation Updates
 
-The documentation centers around the `examples/05_advanced_run.py` script, which provides:
+### Major Feature Additions
 
-- Complete command-line interface for cavity MD simulations
-- Built-in parameter sweeps and replica management
-- Comprehensive output and analysis
+**Time-Varying Coupling**
+- Complete mathematical formulation for dynamic coupling control
+- Step-function coupling switching theory and implementation
+- Energy conservation during coupling transitions
+- Finite-q cavity particle displacement mechanics
+
+**GPU Acceleration**
+- Optimized CUDA kernel documentation
+- Performance comparisons and benchmarks
+- GPU-specific installation and usage instructions
+
+**Advanced Analysis Framework**
+- Energy conservation testing and validation
+- Correlation function analysis (F(k,t))
+- Cavity mode tracking and monitoring
+- Performance profiling and optimization
+
+**Simulation Framework**
+- CavityMDSimulation class with comprehensive features
+- Smart cavity particle handling and validation
+- Parameter validation following scientific best practices
+- SLURM integration for high-performance computing
+
+**Adaptive Timestep Control**
+- Automatic timestep optimization algorithms
+- Stability and performance balancing
+- Integration with time-varying coupling systems
+
+### Documentation Sections Updated
+
+**1. Main Page (index.rst)**
+- Added time-varying coupling introduction
+- Comprehensive feature overview
+- Updated quick start examples
+- Enhanced mathematical formulation
+
+**2. Quick Start Guide (quickstart.rst)**
+- Time-varying coupling examples
+- Energy conservation testing procedures
+- GPU acceleration usage
+- Advanced analysis options
+- Jupyter notebook integration
+- Comprehensive parameter reference
+
+**3. Installation Guide (installation.rst)**
+- Simplified architecture overview
+- Automated installation procedures
+- GPU support configuration
+- HPC environment setup
+- Troubleshooting guide
+- Development installation
+
+**4. Theory Section (theory.rst)**
+- Time-varying coupling mathematical framework
+- Step-function coupling theory
+- Energy conservation in dynamic systems
+- Finite-q cavity particle displacement
+- Dissipation in time-varying systems
+- Physical interpretation of dynamic coupling
+
+**5. API Reference (api/index.rst)**
+- Complete component documentation
+- Time-varying coupling variants
+- Simulation framework classes
+- Analysis and tracking components
+- Validation and setup utilities
+- Migration guide from previous versions
 
 ## 🛠️ Build Commands
 
@@ -46,47 +112,116 @@ cd docs
 # Build HTML documentation
 make html
 
-# Serve locally
+# Serve locally for development
 make serve
 
-# Clean build
+# Clean build artifacts
 make clean
+
+# Build and serve (development workflow)
+make html && make serve
 ```
 
-## ✨ Architecture Improvements
+## ✨ Key Features Documented
 
-The project has been restructured with a simplified architecture that provides several benefits:
+### Core Capabilities
+- **Time-varying coupling**: Step-function coupling switching for dynamic simulations
+- **Multiple thermostats**: Bussi and Langevin thermostats with reservoir energy tracking
+- **GPU acceleration**: Optimized CUDA kernels for high-performance simulations
+- **Flexible coupling**: Support for both q=0 and finite-q cavity modes
+- **HOOMD integration**: Native HOOMD-blue plugins with full ecosystem compatibility
 
-**Simplified Structure**: Plugins are now directly under `src/cavitymd/` and `src/bussi_reservoir/` instead of the previous nested `src/hoomd/plugin/` structure.
+### Advanced Analysis
+- **Energy tracking**: Comprehensive energy component monitoring
+- **Correlation functions**: F(k,t) density correlation analysis
+- **Cavity mode monitoring**: Real-time cavity particle tracking
+- **Performance tracking**: Detailed performance metrics and benchmarking
+- **Adaptive timestep**: Automatic timestep optimization for stability
 
-**Streamlined Documentation**: The build process now uses conda-installed HOOMD with minimal C++ mocking, eliminating complex import workarounds and ensuring real docstrings are preserved.
+### Simulation Framework
+- **Smart particle handling**: Automatic cavity particle detection and validation
+- **Replica management**: Built-in support for multiple independent simulations
+- **SLURM integration**: Native high-performance computing support
+- **Parameter validation**: Scientific accuracy and reproducibility validation
+- **Modular architecture**: Clean separation of components
 
-**Better Read the Docs Integration**: The simplified approach works seamlessly with Read the Docs' conda environment, providing reliable documentation builds.
-
-**Cleaner Development**: Developers no longer need to deal with complex namespace management or extensive mocking systems.
+### Time-Varying Experiments
+- **Coupling switching**: Instantaneous coupling activation at specified times
+- **Dissipation ramping**: Time-dependent cavity damping
+- **Finite-q displacement**: Automatic cavity particle repositioning
+- **Energy conservation**: Rigorous energy conservation testing
 
 ## 🌐 Deployment
 
 ### GitHub Pages
 
-1. Enable GitHub Pages in repository settings
-2. Set source to "Deploy from a branch" 
-3. Select `gh-pages` branch
-4. Push changes to trigger automatic deployment
+The documentation is automatically deployed to GitHub Pages on commits to the main branch.
 
 ### ReadTheDocs
 
-1. Import project at readthedocs.org
-2. Link to your GitHub repository
-3. Documentation builds automatically on commits
+The documentation is configured for ReadTheDocs deployment with:
+- Conda environment support
+- Real docstring preservation
+- Automatic API documentation generation
 
 ## 📋 Content Guidelines
 
-The simplified documentation focuses on:
+The updated documentation follows these principles:
 
-1. **Getting Started** - Quick installation and first simulation
-2. **Essential Usage** - Core command-line options and examples  
-3. **Basic Theory** - Accessible physics background
-4. **Reference** - Installation and licensing information
+1. **Scientific Accuracy** - All mathematical formulations are rigorous and correct
+2. **Comprehensive Coverage** - Every new feature is fully documented with examples
+3. **Practical Usage** - Real-world examples and use cases for all features
+4. **Performance Focus** - Optimization guidance and performance considerations
+5. **Accessibility** - Clear explanations for users at all levels
 
-This streamlined approach makes it easier for users to quickly understand and use the software without getting overwhelmed by excessive detail. 
+## 🔧 Architecture Improvements
+
+The documentation now reflects the simplified plugin architecture:
+
+**Simplified Structure**: Direct imports from `hoomd.cavitymd` and `hoomd.bussi_reservoir`
+**Streamlined Documentation**: Uses conda-installed HOOMD with real docstrings
+**Better Integration**: Seamless ReadTheDocs and GitHub Pages deployment
+**Enhanced API**: Complete documentation of all components and their interactions
+
+## 🧪 Testing and Validation
+
+The documentation includes comprehensive testing guidance:
+
+- Energy conservation validation procedures
+- Time-varying coupling verification methods
+- GPU vs CPU performance comparisons
+- Parameter validation and error handling
+- Troubleshooting common issues
+
+## 📊 Examples and Use Cases
+
+All documentation sections now include:
+
+- **Basic usage examples** for quick start
+- **Advanced coupling switching scenarios**
+- **Energy conservation testing procedures**
+- **GPU acceleration examples**
+- **HPC deployment guidance**
+- **Analysis and visualization workflows**
+
+## 🔄 Migration Support
+
+The documentation provides clear migration paths:
+
+- From previous plugin versions
+- Import statement updates
+- New feature adoption guidance
+- Performance optimization tips
+- Best practice recommendations
+
+## 🎓 Educational Content
+
+The documentation now serves as a comprehensive educational resource:
+
+- **Theoretical background** for cavity QED simulations
+- **Mathematical formulations** for time-varying coupling
+- **Physical interpretations** of simulation results
+- **Best practices** for scientific computing
+- **Performance optimization** strategies
+
+This enhanced documentation provides a complete guide for researchers and developers working with cavity molecular dynamics simulations, from basic usage to advanced time-varying coupling experiments with comprehensive analysis capabilities. 

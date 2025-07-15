@@ -111,6 +111,31 @@ extensions = [
     'sphinx_tabs.tabs',
 ]
 
+# Suppress specific warnings
+suppress_warnings = [
+    'autodoc.duplicate_object',
+    'autosummary.duplicate_object',
+    'ref.duplicate',
+    'toc.not_included',
+    'duplicate_object',
+    'py.duplicate_object',
+    'duplicate',
+]
+
+# Autodoc configuration to handle duplicates better
+autodoc_member_order = 'bysource'
+autodoc_inherit_docstrings = True
+autodoc_default_options = {
+    'members': True,
+    'member-order': 'bysource',
+    'special-members': '__init__',
+    'undoc-members': True,
+    'exclude-members': '__weakref__'
+}
+
+# Additional configuration to handle the duplicate object issue
+nitpicky = False
+
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
 
