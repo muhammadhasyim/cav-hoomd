@@ -218,7 +218,7 @@ The documentation provides clear migration paths:
 
 The documentation now serves as a comprehensive educational resource:
 
-- **Theoretical background** for cavity QED simulations
+- **Theoretical background** for cavity-coupled molecular dynamics simulations
 - **Mathematical formulations** for time-varying coupling
 - **Physical interpretations** of simulation results
 - **Best practices** for scientific computing

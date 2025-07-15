@@ -351,7 +351,7 @@ class CavityForce(hoomd.md.force.Force):
         -----
         This energy component represents the "photonic" contribution to the total
         cavity energy and corresponds to the kinetic + potential energy of a
-        quantum harmonic oscillator in the classical limit.
+        classical harmonic oscillator.
         """
         if self._implementation in ["cpp", "cuda"]:
             return self._force_impl.getHarmonicEnergy() if self._force_impl else 0.0

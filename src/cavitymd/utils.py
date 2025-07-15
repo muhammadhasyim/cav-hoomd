@@ -13,7 +13,7 @@ class PhysicalConstants:
     
     This class provides fundamental physical constants in atomic units and
     conversion functions between different unit systems commonly used in
-    cavity QED and molecular dynamics simulations.
+    cavity-coupled molecular dynamics simulations.
     
     **Atomic Units Convention:**
     
@@ -85,7 +85,7 @@ class PhysicalConstants:
     Notes
     -----
     These constants are fundamental to ensuring proper unit consistency
-    between HOOMD-blue (which uses reduced units) and the cavity QED
+    between HOOMD-blue (which uses reduced units) and the cavity-molecular coupling
     formulation (which uses atomic units).
     """
     

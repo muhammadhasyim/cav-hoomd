@@ -73,7 +73,7 @@ class CavityMDSimulation:
         g_{\text{target}} & \text{if } t \geq t_{\text{switch}}
         \end{cases}
     
-    This enables study of non-equilibrium cavity QED phenomena.
+    This enables study of non-equilibrium cavity-coupling phenomena.
     
     Parameters
     ----------

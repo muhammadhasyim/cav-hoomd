@@ -296,4 +296,4 @@ The total energy is conserved, including during coupling switching:
 - **Adaptive timestep**: Automatic timestep optimization
 - **GPU acceleration**: High-performance computing support
 
-This enhanced single-mode framework provides a comprehensive platform for studying both equilibrium and non-equilibrium cavity quantum electrodynamics effects in realistic molecular systems, while maintaining computational tractability and rigorous energy conservation. 
+This enhanced single-mode framework provides a comprehensive platform for studying both equilibrium and non-equilibrium cavity-molecular coupling effects in realistic molecular systems, while maintaining computational tractability and rigorous energy conservation. 

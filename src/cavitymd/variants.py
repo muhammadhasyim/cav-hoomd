@@ -40,7 +40,7 @@ class StepVariant(hoomd.variant.Variant):
     - Pump-probe experiments with laser activation
     - Sudden cavity tuning into molecular resonance  
     - Dynamic switching protocols
-    - Non-equilibrium cavity QED studies
+    - Non-equilibrium cavity-coupling studies
     
     **Energy Conservation:**
     

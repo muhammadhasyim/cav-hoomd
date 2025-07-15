@@ -4,7 +4,7 @@ Cavity HOOMD Documentation
 
 **Cavity HOOMD** enables molecular dynamics simulations with optical cavity coupling using HOOMD-blue.
 
-This package provides advanced tools for studying light-matter interactions in molecular systems through cavity quantum electrodynamics (QED) simulations with comprehensive analysis and time-varying coupling capabilities.
+This package provides advanced tools for studying light-matter interactions in molecular systems through cavity-coupled molecular dynamics simulations with comprehensive analysis and time-varying coupling capabilities.
 
 Quick Start
 ===========
