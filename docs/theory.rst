@@ -187,26 +187,58 @@ Time-varying coupling simulates realistic experimental scenarios:
 - **Switching protocols**: Optimize coupling activation strategies
 - **Realistic simulations**: Model experimental pump-probe scenarios
 
-Physical Interpretation
-=======================
+Cavity Dissipation Theory
+==========================
 
-**Why Single Mode?**
+**Mathematical Formulation of Dissipation**
 
-1. **Computational Efficiency**: Single-mode calculations are much faster than multimode
-2. **Dominant Physics**: The lowest cavity mode often dominates the coupling
-3. **Proof of Concept**: Establishes the methodology before extending to multimode
+Cavity dissipation is implemented as a velocity-dependent damping term in the cavity mode equation of motion:
 
-**Limitations of Single-Mode Approximation**
+.. math::
 
-- Cannot capture mode-specific effects
-- Misses higher-order mode coupling
-- Limited to cavities where one mode dominates
+   m_{0,\lambda}\ddot{\tilde{q}}_{0,\lambda} = -m_{0,\lambda}\omega_{0,\lambda}^2 \tilde{q}_{0,\lambda} - \gamma \dot{\tilde{q}}_{0,\lambda} - \tilde{\varepsilon}_{0,\lambda} \sum_{n=1}^{N_{\text{sub}}} d_{ng,\lambda}
 
-**When Single-Mode is Valid**
+where:
 
-- Strong coupling to fundamental cavity mode
-- Molecular transitions resonant with lowest mode
-- Initial studies of cavity effects
+- :math:`\gamma`: Damping coefficient (inverse time, atomic units)
+- :math:`\dot{\tilde{q}}_{0,\lambda}`: Cavity mode velocity
+
+**Time-Varying Dissipation**
+
+The dissipation coefficient can be time-dependent:
+
+.. math::
+
+   \gamma(t) = \begin{cases}
+   \gamma_{\text{initial}} & \text{if } t < t_{\text{switch}} \\
+   \gamma_{\text{final}} & \text{if } t \geq t_{\text{switch}}
+   \end{cases}
+
+**Complete Equation with Time-Varying Parameters**
+
+The full cavity mode equation including both time-varying coupling and dissipation:
+
+.. math::
+
+   m_{0,\lambda}\ddot{\tilde{q}}_{0,\lambda} = -m_{0,\lambda}\omega_{0,\lambda}^2 \tilde{q}_{0,\lambda} - \gamma(t)\dot{\tilde{q}}_{0,\lambda} - g(t)\tilde{\varepsilon}_{0,\lambda}^{(0)} \sum_{n=1}^{N_{\text{sub}}} d_{ng,\lambda}
+
+**Energy Dissipation Rate**
+
+The power dissipated from the cavity mode is:
+
+.. math::
+
+   P_{\text{diss}} = \gamma \left\langle \dot{\tilde{q}}_{0,\lambda}^2 \right\rangle
+
+**Implementation**
+
+The dissipation term is implemented as a velocity-dependent force on the cavity particle:
+
+.. math::
+
+   \vec{F}_{\text{diss}} = -\gamma(t) \vec{v}_{\text{cavity}}
+
+where :math:`\vec{v}_{\text{cavity}}` is the cavity particle velocity.
 
 Strong Coupling Regime
 ======================
