@@ -62,18 +62,50 @@ if on_rtd:
         sys.modules['hoomd.cavitymd'] = cavitymd
         sys.modules['hoomd.bussi_reservoir'] = bussi_reservoir
         
-        # Register all submodules for autosummary
+        # Register all submodules and their classes for autosummary
         for module_name in ['analysis', 'forces', 'simulation', 'utils', 'variants', 'updaters']:
             if hasattr(cavitymd, module_name):
-                sys.modules[f'hoomd.cavitymd.{module_name}'] = getattr(cavitymd, module_name)
+                submodule = getattr(cavitymd, module_name)
+                # Register the submodule
+                setattr(hoomd.cavitymd, module_name, submodule)
+                sys.modules[f'hoomd.cavitymd.{module_name}'] = submodule
+                
+                # Also register individual classes within each submodule
+                for attr_name in dir(submodule):
+                    attr = getattr(submodule, attr_name)
+                    # Register classes and functions (not internal attributes)
+                    if not attr_name.startswith('_') and (
+                        (hasattr(attr, '__call__') and hasattr(attr, '__name__')) or  # Functions
+                        (hasattr(attr, '__module__') and not callable(attr)) or        # Classes
+                        type(attr).__name__ in ['type', 'ABCMeta']                     # Class types
+                    ):
+                        # Make the class available through the hoomd namespace
+                        if not hasattr(getattr(hoomd.cavitymd, module_name), attr_name):
+                            setattr(getattr(hoomd.cavitymd, module_name), attr_name, attr)
         
+        # Special handling for commonly used classes - make them directly accessible
+        # This ensures classes like CavityForce are available as hoomd.cavitymd.forces.CavityForce
+        if hasattr(cavitymd.forces, 'CavityForce'):
+            hoomd.cavitymd.forces.CavityForce = cavitymd.forces.CavityForce
+        if hasattr(cavitymd.simulation, 'CavityMDSimulation'):
+            hoomd.cavitymd.simulation.CavityMDSimulation = cavitymd.simulation.CavityMDSimulation
+        if hasattr(cavitymd.simulation, 'AdaptiveTimestepUpdater'):
+            hoomd.cavitymd.simulation.AdaptiveTimestepUpdater = cavitymd.simulation.AdaptiveTimestepUpdater
+        if hasattr(bussi_reservoir, 'BussiReservoir'):
+            hoomd.bussi_reservoir.BussiReservoir = bussi_reservoir.BussiReservoir
+            
         print("✅ Successfully imported and registered plugin modules")
-        print(f"  CavityForce available: {hasattr(hoomd.cavitymd, 'CavityForce')}")
+        print(f"  CavityForce available: {hasattr(hoomd.cavitymd.forces, 'CavityForce') if hasattr(hoomd.cavitymd, 'forces') else False}")
         print(f"  BussiReservoir available: {hasattr(hoomd.bussi_reservoir, 'BussiReservoir')}")
         print(f"  Analysis module available: {hasattr(hoomd.cavitymd, 'analysis')}")
+        print(f"  Simulation module available: {hasattr(hoomd.cavitymd, 'simulation')}")
+        print(f"  AdaptiveTimestepUpdater available: {hasattr(hoomd.cavitymd.simulation, 'AdaptiveTimestepUpdater') if hasattr(hoomd.cavitymd, 'simulation') else False}")
         
     except Exception as e:
         print(f"❌ Failed to import plugins: {e}")
+        import traceback
+        traceback.print_exc()
+        
         # Create fallback empty modules to prevent autosummary errors
         from types import ModuleType
         
@@ -81,10 +113,41 @@ if on_rtd:
         mock_cavitymd = ModuleType('cavitymd')
         mock_bussi = ModuleType('bussi_reservoir')
         
-        # Create mock submodules
+        # Create mock submodules and classes
         for submodule in ['analysis', 'forces', 'simulation', 'utils', 'variants', 'updaters']:
-            setattr(mock_cavitymd, submodule, ModuleType(f'cavitymd.{submodule}'))
-            sys.modules[f'hoomd.cavitymd.{submodule}'] = getattr(mock_cavitymd, submodule)
+            mock_submodule = ModuleType(f'cavitymd.{submodule}')
+            setattr(mock_cavitymd, submodule, mock_submodule)
+            sys.modules[f'hoomd.cavitymd.{submodule}'] = mock_submodule
+            
+            # Add mock classes for each submodule
+            if submodule == 'forces':
+                mock_submodule.CavityForce = type('CavityForce', (), {})
+            elif submodule == 'simulation':
+                mock_submodule.CavityMDSimulation = type('CavityMDSimulation', (), {})
+                mock_submodule.AdaptiveTimestepUpdater = type('AdaptiveTimestepUpdater', (), {})
+            elif submodule == 'analysis':
+                mock_submodule.Status = type('Status', (), {})
+                mock_submodule.ElapsedTimeTracker = type('ElapsedTimeTracker', (), {})
+                mock_submodule.TimestepFormatter = type('TimestepFormatter', (), {})
+                mock_submodule.CavityModeTracker = type('CavityModeTracker', (), {})
+                mock_submodule.AutocorrelationTracker = type('AutocorrelationTracker', (), {})
+                mock_submodule.FieldAutocorrelationTracker = type('FieldAutocorrelationTracker', (), {})
+                mock_submodule.EnergyTracker = type('EnergyTracker', (), {})
+                mock_submodule.DipoleAutocorrelation = type('DipoleAutocorrelation', (), {})
+                mock_submodule.PerformanceTracker = type('PerformanceTracker', (), {})
+            elif submodule == 'variants':
+                mock_submodule.StepVariant = type('StepVariant', (), {})
+                mock_submodule.ConstantVariant = type('ConstantVariant', (), {})
+            elif submodule == 'updaters':
+                mock_submodule.CavityParticleDisplacer = type('CavityParticleDisplacer', (), {})
+            elif submodule == 'utils':
+                mock_submodule.PhysicalConstants = type('PhysicalConstants', (), {})
+                mock_submodule.unwrap_positions = lambda x, y, z: x
+                mock_submodule.get_slurm_info = lambda: {}
+                mock_submodule.parse_replicas = lambda x: [1]
+        
+        # Add mock BussiReservoir
+        mock_bussi.BussiReservoir = type('BussiReservoir', (), {})
         
         hoomd.cavitymd = mock_cavitymd
         hoomd.bussi_reservoir = mock_bussi
@@ -92,8 +155,6 @@ if on_rtd:
         sys.modules['hoomd.bussi_reservoir'] = mock_bussi
         
         print("✅ Created fallback mock modules for documentation build")
-        import traceback
-        traceback.print_exc()
     
     print("✅ Plugin setup complete")
 else:
