@@ -83,6 +83,9 @@ class CavityForce(hoomd.md.force.Force):
     dissipation : float or hoomd.variant.Variant, optional
         Dissipation coefficient :math:`\gamma` in atomic units (inverse time). 
         Can be time-varying for dynamic damping experiments. Default: 0.0 (no damping).
+    force_python : bool, optional
+        Force use of Python implementation instead of C++/CUDA. Useful for debugging 
+        or when compiled extensions are unavailable. Default: False (auto-select best implementation).
     
     Attributes
     ----------
@@ -168,7 +171,8 @@ class CavityForce(hoomd.md.force.Force):
                  couplstr: Union[float, hoomd.variant.Variant], 
                  omegac: float, 
                  phmass: float = 1.0, 
-                 dissipation: Union[float, hoomd.variant.Variant] = 0.0) -> None:
+                 dissipation: Union[float, hoomd.variant.Variant] = 0.0,
+                 force_python: bool = False) -> None:
         # Initialize the base class FIRST - this creates empty _param_dict and _typeparam_dict
         super().__init__()
         
@@ -216,10 +220,11 @@ class CavityForce(hoomd.md.force.Force):
         self.kvector = np.array(kvector)
         self.omegac = omegac
         self.phmass = phmass
+        self.force_python = force_python
         
         # Use C++ implementation (will be initialized during _attach_hook)
         self._force_impl = None
-        self._implementation = "cpp"
+        self._implementation = "python" if force_python else "cpp"
     
         print(f"CavityForce initialized using {self._implementation} implementation")
         if self.uses_variant_coupling:
@@ -285,17 +290,30 @@ class CavityForce(hoomd.md.force.Force):
                     UserWarning
                 )
                 # Fallback to Python implementation
+                from .cavity_force_python import CavityForcePython
                 self._force_impl = CavityForcePython(
                     kvector=self.kvector,
-                    couplstr=self.couplstr,
+                    couplstr=self.couplstr_variant,
                     omegac=self.omegac,
                     phmass=self.phmass,
-                    dissipation=self.dissipation
+                    dissipation=self.dissipation_variant
                 )
                 self._implementation = "python_fallback"
         
         # For Python implementation, set up as a Custom force
         if self._implementation in ["python", "python_fallback"]:
+            # Initialize the Python implementation if not done already
+            if self._force_impl is None:
+                from .cavity_force_python import CavityForcePython
+                self._force_impl = CavityForcePython(
+                    kvector=self.kvector,
+                    couplstr=self.couplstr_variant,
+                    omegac=self.omegac,
+                    phmass=self.phmass,
+                    dissipation=self.dissipation_variant
+                )
+                print(f"Python CavityForcePython initialized by user request")
+            
             # Initialize the Python implementation with simulation state
             if hasattr(self._force_impl, '_simulation') and self._force_impl._simulation is None:
                 self._force_impl._simulation = self._simulation

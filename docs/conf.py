@@ -37,6 +37,8 @@ if on_rtd:
     from unittest.mock import MagicMock
     sys.modules['hoomd.cavitymd._cavitymd'] = MagicMock()
     sys.modules['hoomd.bussi_reservoir._bussi_reservoir'] = MagicMock()
+    sys.modules['cavitymd._cavitymd'] = MagicMock()
+    sys.modules['bussi_reservoir._bussi_reservoir'] = MagicMock()
     print("✅ Mocked C++ extensions")
     
     # Import HOOMD (available via conda)
@@ -45,6 +47,10 @@ if on_rtd:
     
     # Import our plugins directly and register them in the hoomd namespace
     try:
+        # Set environment variable to bypass version check in plugin
+        os.environ['RTD_ENV_NAME'] = 'docs'
+        os.environ['READTHEDOCS'] = 'True'
+        
         import cavitymd
         import bussi_reservoir
         
@@ -56,12 +62,36 @@ if on_rtd:
         sys.modules['hoomd.cavitymd'] = cavitymd
         sys.modules['hoomd.bussi_reservoir'] = bussi_reservoir
         
+        # Register all submodules for autosummary
+        for module_name in ['analysis', 'forces', 'simulation', 'utils', 'variants', 'updaters']:
+            if hasattr(cavitymd, module_name):
+                sys.modules[f'hoomd.cavitymd.{module_name}'] = getattr(cavitymd, module_name)
+        
         print("✅ Successfully imported and registered plugin modules")
         print(f"  CavityForce available: {hasattr(hoomd.cavitymd, 'CavityForce')}")
         print(f"  BussiReservoir available: {hasattr(hoomd.bussi_reservoir, 'BussiReservoir')}")
+        print(f"  Analysis module available: {hasattr(hoomd.cavitymd, 'analysis')}")
         
     except Exception as e:
         print(f"❌ Failed to import plugins: {e}")
+        # Create fallback empty modules to prevent autosummary errors
+        from types import ModuleType
+        
+        # Create mock plugin modules
+        mock_cavitymd = ModuleType('cavitymd')
+        mock_bussi = ModuleType('bussi_reservoir')
+        
+        # Create mock submodules
+        for submodule in ['analysis', 'forces', 'simulation', 'utils', 'variants', 'updaters']:
+            setattr(mock_cavitymd, submodule, ModuleType(f'cavitymd.{submodule}'))
+            sys.modules[f'hoomd.cavitymd.{submodule}'] = getattr(mock_cavitymd, submodule)
+        
+        hoomd.cavitymd = mock_cavitymd
+        hoomd.bussi_reservoir = mock_bussi
+        sys.modules['hoomd.cavitymd'] = mock_cavitymd
+        sys.modules['hoomd.bussi_reservoir'] = mock_bussi
+        
+        print("✅ Created fallback mock modules for documentation build")
         import traceback
         traceback.print_exc()
     
