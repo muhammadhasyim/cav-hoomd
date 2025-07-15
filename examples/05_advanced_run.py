@@ -84,7 +84,9 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
                          energy_output_period_ps=0.1, fkt_output_period_ps=1.0, 
                          gsd_output_period_ps=50.0, console_output_period_ps=1.0, 
                          truncate_gsd=False, seed=None, restart_velocities=True,
-                         switch_time_ps=None, damping_ratio=0.0):
+                         switch_time_ps=None, damping_ratio=0.0,
+                         enable_dipole_autocorr=False, dipole_ref_interval=1.0, dipole_max_refs=10, 
+                         dipole_output_period_ps=1.0):
     """
     Run a single experiment using the CavityMDSimulation class from the plugin.
     """
@@ -176,7 +178,11 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
             seed=seed,
             restart_velocities=restart_velocities,
             switch_time_ps=switch_time_ps,
-            dissipation=dissipation
+            dissipation=dissipation,
+            enable_dipole_autocorr=enable_dipole_autocorr,
+            dipole_reference_interval_ps=dipole_ref_interval,
+            dipole_max_references=dipole_max_refs,
+            dipole_output_period_ps=dipole_output_period_ps
         )
         
         # Run the simulation
@@ -257,6 +263,17 @@ def main():
                        help='F(k,t) reference interval in ps (default: 1.0)')
     parser.add_argument('--fkt-max-refs', type=int, default=10, 
                        help='F(k,t) maximum references (default: 10)')
+    
+    # Dipole autocorrelation options
+    parser.add_argument('--enable-dipole-autocorr', action='store_true', 
+                       help='Enable dipole autocorrelation calculation')
+    parser.add_argument('--dipole-ref-interval', type=float, default=1.0, 
+                       help='Dipole autocorrelation reference interval in ps (default: 1.0)')
+    parser.add_argument('--dipole-max-refs', type=int, default=10, 
+                       help='Dipole autocorrelation maximum references (default: 10)')
+    parser.add_argument('--dipole-output-period-ps', type=float, default=1.0, 
+                       help='Dipole autocorrelation output period in ps (default: 1.0)')
+    
     parser.add_argument('--max-energy-output-time', type=float, 
                        help='Maximum energy output time in ps (default: no limit)')
     
@@ -367,7 +384,11 @@ def main():
             seed=args.seed,
             restart_velocities=not args.no_restart_velocities,
             switch_time_ps=args.switch_time,
-            damping_ratio=args.damping_ratio
+            damping_ratio=args.damping_ratio,
+            enable_dipole_autocorr=args.enable_dipole_autocorr,
+            dipole_ref_interval=args.dipole_ref_interval,
+            dipole_max_refs=args.dipole_max_refs,
+            dipole_output_period_ps=args.dipole_output_period_ps
         )
         
         if success:

@@ -198,6 +198,10 @@ class AutocorrelationTracker(BaseTracker):
         time_tracker=None,
         output_prefix=None,
         output_period_steps=1000,
+        output_period_ps=None,
+        reference_interval_steps=10000,
+        max_references=10,
+        reference_interval_ps=None,
     ):
         """Initialize autocorrelation tracker.
 
@@ -207,6 +211,10 @@ class AutocorrelationTracker(BaseTracker):
             time_tracker: Optional time tracker for accurate timing
             output_prefix: Prefix for output files
             output_period_steps: Output frequency in simulation steps
+            output_period_ps: Output frequency in picoseconds (preferred for adaptive timestep)
+            reference_interval_steps: Interval between new references in steps (DEPRECATED in adaptive mode)
+            max_references: Maximum number of reference states to keep
+            reference_interval_ps: Interval between new references in ps (PREFERRED for adaptive mode)
         """
         if observable not in SIMPLE_OBSERVABLES:
             raise ValueError(
@@ -215,96 +223,122 @@ class AutocorrelationTracker(BaseTracker):
 
         self.observable = observable
         self.observable_func = SIMPLE_OBSERVABLES[observable]
+        self.reference_interval_steps = reference_interval_steps  # Fallback for fixed timestep
+        self.reference_interval_ps = reference_interval_ps  # Preferred for adaptive timestep
+        self.max_references = max_references
 
         if output_prefix is None:
             output_prefix = f"{observable}_autocorr"
 
         super().__init__(
-            simulation, time_tracker, output_prefix, output_period_steps, None
+            simulation, time_tracker, output_prefix, output_period_steps, output_period_ps
         )
 
-        # Initialize autocorrelation tracking
-        self.output_file_number = 0
-        self.output_file_path = f"{self.output_prefix}_{self.output_file_number}.txt"
-        self.reference_time = 0.0
-        self.reference_value = None
-        self.current_autocorr_value = None
+        # Initialize autocorrelation tracking with multiple references
+        self.references = []  # List of reference states
+        self.last_reference_step = 0
+        self.last_reference_time_ps = 0.0  # Track time of last reference for time-based intervals
 
-        # Initialize reference value and output file
-        self._initialize_reference()
+        # Initialize first reference and output files
+        self._initialize_new_reference_file(0)
 
-    def _initialize_reference(self):
-        """Initialize reference value at t=0."""
+    def _initialize_new_reference_file(self, ref_number):
+        """Initialize a new reference file."""
+        filename = f"{self.output_prefix}_{ref_number}.txt"
         with self.sim.state.cpu_local_snapshot as snap:
-            self.reference_value = self.observable_func(snap)
-            self.current_autocorr_value = np.dot(
-                self.reference_value, self.reference_value
-            )
-
-            # Write header and t=0 value
-            with open(self.output_file_path, "w") as f:
+            reference_value = self.observable_func(snap)
+            current_time = self._get_current_time(self.sim.timestep)
+            
+            # Store reference information
+            ref_info = {
+                "number": ref_number,
+                "filename": filename,
+                "value": reference_value,
+                "time": current_time
+            }
+            self.references.append(ref_info)
+            
+            # Update last reference tracking
+            self.last_reference_time_ps = current_time
+            
+            # Write header and t=0 value for this reference
+            with open(filename, "w") as f:
                 f.write(f"# {self.observable.capitalize()} autocorrelation data\n")
-                f.write(f"# Reference number: {self.output_file_number}\n")
-                f.write(f"# Output period: {self.output_period_steps} steps\n")
-                f.write("# timestep t(ps) C(t)\n")
-                f.write(f"{0} {0.0:.6f} {self.current_autocorr_value:.6f}\n")
+                f.write(f"# Reference number: {ref_number}\n")
+                f.write(f"# Reference time: {current_time:.6f} ps\n")
+                
+                # Write the correct output period based on which mode is being used
+                if self.use_time_based_output:
+                    f.write(f"# Output period: {self.output_period_ps:.6f} ps (time-based)\n")
+                else:
+                    f.write(f"# Output period: {self.output_period_steps} steps (step-based)\n")
+                    
+                f.write("# timestep lag_time(ps) C(t)\n")
+                
+                # Compute autocorrelation at t=0 (should be C(0) = |reference|^2)
+                autocorr_value = np.dot(reference_value, reference_value)
+                f.write(f"{self.sim.timestep} 0.000000 {autocorr_value:.6f}\n")
                 f.flush()
+        
+        print(f"Initialized {self.observable} autocorr reference {ref_number}")
 
-        print(
-            f"{self.observable.capitalize()} autocorrelation tracker initialized. C(0) = {self.current_autocorr_value:.6e}"
-        )
-        print(f"Output period: {self.output_period_steps} steps")
-        print(f"Writing to file: {self.output_file_path}")
+    def _should_create_new_reference(self, current_time_ps, timestep):
+        """Determine if a new reference should be created based on time or step interval."""
+        if len(self.references) >= self.max_references:
+            return False
+
+        # Prefer time-based intervals for accuracy in adaptive timestep mode
+        if self.reference_interval_ps is not None:
+            time_since_last = current_time_ps - self.last_reference_time_ps
+            return time_since_last >= self.reference_interval_ps
+        else:
+            # Fallback to step-based for fixed timestep mode
+            step_since_last = timestep - self.last_reference_step
+            return step_since_last >= self.reference_interval_steps
 
     def _initialize_logging_values(self):
         """Initialize logging values."""
         self.current_autocorr_value = 0.0
 
-    def compute_autocorr(self, current_value):
+    def compute_autocorr(self, reference_value, current_value):
         """Compute autocorrelation C(t) = observable(0)·observable(t)."""
-        return np.dot(self.reference_value, current_value)
-
-    def _start_new_reference(self, timestep):
-        """Start a new reference file."""
-        self.output_file_number += 1
-        self.output_file_path = f"{self.output_prefix}_{self.output_file_number}.txt"
-        with self.sim.state.cpu_local_snapshot as snap:
-            self.reference_value = self.observable_func(snap)
-            self.current_autocorr_value = np.dot(
-                self.reference_value, self.reference_value
-            )
-
-            # Write header and t=0 value for new reference
-            with open(self.output_file_path, "w") as f:
-                f.write(f"# {self.observable.capitalize()} autocorrelation data\n")
-                f.write(f"# Reference number: {self.output_file_number}\n")
-                f.write(f"# Output period: {self.output_period_steps} steps\n")
-                f.write("# timestep t(ps) C(t)\n")
-                f.write(
-                    f"{timestep} {self._get_current_time(timestep):.6f} {self.current_autocorr_value:.6f}\n"
-                )
-                f.flush()
+        return np.dot(reference_value, current_value)
 
     def act(self, timestep):
+        # Get current time FIRST, outside snapshot context
+        current_time = self._get_current_time(timestep)
+
         if timestep == 0:
             return
 
+        # Compute current observable value
         with self.sim.state.cpu_local_snapshot as snap:
             current_value = self.observable_func(snap)
-            autocorr_value = self.compute_autocorr(current_value)
-            self.current_autocorr_value = autocorr_value
+
+        # Update autocorrelations for all active references
+        for ref in self.references:
+            lag_time = current_time - ref["time"]
+            autocorr_value = self.compute_autocorr(ref["value"], current_value)
+
+            # Update current autocorr for first reference (for logging)
+            if ref["number"] == 0:
+                self.current_autocorr_value = autocorr_value
 
             # Output periodically
             if self._should_output(timestep):
-                current_time = self._get_current_time(timestep)
-                with open(self.output_file_path, "a") as f:
-                    f.write(f"{timestep} {current_time:.6f} {autocorr_value:.6f}\n")
+                with open(ref["filename"], "a") as f:
+                    f.write(f"{timestep} {lag_time:.6f} {autocorr_value:.6f}\n")
                     f.flush()
-                self._update_output_step(timestep)
 
-                # Start new reference file every 10000 steps
-                if timestep % 10000 == 0:
-                    self._start_new_reference(timestep)
+        # Add new reference if interval has passed and we haven't hit max
+        if self._should_create_new_reference(current_time, timestep):
+            ref_number = len(self.references)
+            self._initialize_new_reference_file(ref_number)
+            self.last_reference_step = timestep
+
+        # Update output step
+        if self._should_output(timestep):
+            self._update_output_step(timestep)
 
     @hoomd.logging.log
     def current_autocorr(self):

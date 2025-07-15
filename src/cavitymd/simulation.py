@@ -18,7 +18,7 @@ from .utils import PhysicalConstants, unwrap_positions
 from .forces import CavityForce
 from .analysis import (
     Status, ElapsedTimeTracker, TimestepFormatter, FieldAutocorrelationTracker,
-    CavityModeTracker, EnergyTracker, PerformanceTracker
+    CavityModeTracker, EnergyTracker, PerformanceTracker, AutocorrelationTracker
 )
 from .updaters import CavityParticleDisplacer
 from .variants import StepVariant
@@ -275,6 +275,9 @@ class CavityMDSimulation:
                  fkt_num_wavevectors: int = 50, 
                  fkt_reference_interval_ps: float = 1.0, 
                  fkt_max_references: int = 10,
+                 enable_dipole_autocorr: bool = False,
+                 dipole_reference_interval_ps: float = 1.0,
+                 dipole_max_references: int = 10,
                  max_energy_output_time_ps: Optional[float] = None, 
                  enable_energy_tracking: bool = False, 
                  dt_fs: Optional[float] = None, 
@@ -282,6 +285,7 @@ class CavityMDSimulation:
                  gpu_id: int = 0,
                  energy_output_period_ps: float = 0.1, 
                  fkt_output_period_ps: float = 1.0, 
+                 dipole_output_period_ps: float = 1.0,
                  gsd_output_period_ps: float = 50.0, 
                  console_output_period_ps: float = 1.0,
                  enable_text_output: bool = False, 
@@ -327,6 +331,11 @@ class CavityMDSimulation:
         self.fkt_reference_interval_ps = fkt_reference_interval_ps
         self.fkt_max_references = fkt_max_references
         
+        # Dipole autocorrelation parameters
+        self.enable_dipole_autocorr = enable_dipole_autocorr
+        self.dipole_reference_interval_ps = dipole_reference_interval_ps
+        self.dipole_max_references = dipole_max_references
+        
         # Energy output limit parameter
         self.max_energy_output_time_ps = max_energy_output_time_ps
         
@@ -349,13 +358,18 @@ class CavityMDSimulation:
         # Physical constants
         self.kB = PhysicalConstants.KB_HARTREE_PER_K
         
-        # Output control parameters - separate periods for different observables
+        # Output period parameters - detailed control for each observable
         self.energy_output_period_ps = energy_output_period_ps
         self.fkt_output_period_ps = fkt_output_period_ps
+        self.dipole_output_period_ps = dipole_output_period_ps
         self.gsd_output_period_ps = gsd_output_period_ps
         self.console_output_period_ps = console_output_period_ps
+        
+        # Text output parameters (deprecated but kept for compatibility)
         self.enable_text_output = enable_text_output
         self.text_output_file = text_output_file
+        
+        # GSD file control
         self.truncate_gsd = truncate_gsd
         
         # Initialize simulation components (will be set during setup)
@@ -1342,6 +1356,54 @@ class CavityMDSimulation:
             self.density_corr_tracker = None
             self.log_info("F(k,t) tracking disabled")
         
+        # ===== DIPOLE AUTOCORRELATION TRACKER SETUP =====
+        if self.enable_dipole_autocorr:
+            try:
+                self.log_info("Setting up dipole autocorrelation tracker...")
+                self.log_info(f"  Reference interval: {self.dipole_reference_interval_ps:.3f} ps")
+                self.log_info(f"  Max references: {self.dipole_max_references}")
+                self.log_info(f"  Output period: {self.dipole_output_period_ps:.3f} ps")
+                
+                # Use time-based intervals for adaptive timestep compatibility
+                dipole_trigger_period = 1  # Check every step for best timing
+                
+                self.log_info(f"  Using time-based reference intervals for adaptive timestep compatibility")
+                self.log_info(f"  Reference interval: {self.dipole_reference_interval_ps:.3f} ps")
+                self.log_info(f"  Trigger period: {dipole_trigger_period} step")
+                
+                # Create dipole autocorrelation tracker with time-based reference interval
+                self.dipole_autocorr_tracker = AutocorrelationTracker(
+                    simulation=self.sim,
+                    observable="dipole",
+                    time_tracker=self.time_tracker,
+                    output_period_ps=self.dipole_output_period_ps,  # Use time-based output period!
+                    output_prefix=f'{name}-{replica}_dipole_autocorr',
+                    reference_interval_ps=self.dipole_reference_interval_ps,  # Use time-based interval
+                    max_references=self.dipole_max_references
+                )
+                
+                # Add dipole autocorrelation tracker to simulation - trigger period doesn't matter since it uses internal timing
+                dipole_updater = hoomd.update.CustomUpdater(
+                    action=self.dipole_autocorr_tracker,
+                    trigger=hoomd.trigger.Periodic(1)  # Check every step but tracker handles timing internally
+                )
+                self.sim.operations.updaters.append(dipole_updater)
+                
+                # Add dipole autocorrelation data to logger
+                logger[('Dipole', 'current_autocorr')] = (self.dipole_autocorr_tracker, 'current_autocorr', 'scalar')
+                
+                self.log_info("✅ Dipole autocorrelation tracker successfully enabled with time-based output:")
+                self.log_info(f"  Output period: {self.dipole_output_period_ps:.3f} ps (accurate timing)")
+                self.log_info(f"  Reference interval: {self.dipole_reference_interval_ps:.3f} ps")
+                self.log_info(f"  Tracker handles timing internally using ElapsedTimeTracker")
+                
+            except Exception as e:
+                self.log_warning(f"Could not set up dipole autocorrelation tracker: {str(e)}")
+                self.dipole_autocorr_tracker = None
+        else:
+            self.dipole_autocorr_tracker = None
+            self.log_info("Dipole autocorrelation tracking disabled")
+        
         # Store logger for later use
         self.logger_hoomd = logger
         
@@ -1360,11 +1422,14 @@ class CavityMDSimulation:
         energy_output_period_ps = getattr(self, 'energy_output_period_ps', 0.1)
         fkt_output_period_ps = getattr(self, 'fkt_output_period_ps', 1.0)
         fkt_kmag = getattr(self, 'fkt_kmag', 1.0)
+        dipole_output_period_ps = getattr(self, 'dipole_output_period_ps', 1.0)
         
-        if enable_energy_tracking:
+        if self.enable_energy_tracking:
             enabled_features.append(f"detailed energy tracking ({energy_output_period_ps:.3f} ps)")
-        if enable_fkt:
+        if self.enable_fkt:
             enabled_features.append(f"F(k,t) density correlation ({fkt_output_period_ps:.3f} ps, k={fkt_kmag})")
+        if self.enable_dipole_autocorr:
+            enabled_features.append(f"dipole autocorrelation ({dipole_output_period_ps:.3f} ps)")
         if hasattr(self, 'adaptive_action') and self.adaptive_action is not None:
             enabled_features.append("adaptive timestep control")
         
