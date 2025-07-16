@@ -18,7 +18,7 @@ from .utils import PhysicalConstants, unwrap_positions
 from .forces import CavityForce
 from .analysis import (
     Status, ElapsedTimeTracker, TimestepFormatter, FieldAutocorrelationTracker,
-    CavityModeTracker, EnergyTracker, PerformanceTracker, AutocorrelationTracker
+    EnergyTracker, PerformanceTracker, AutocorrelationTracker
 )
 from .updaters import CavityParticleDisplacer
 from .variants import StepVariant
@@ -496,21 +496,21 @@ class CavityMDSimulation:
         if hasattr(self, 'logger') and self.logger:
             self.logger.info(message)
         else:
-            print(f"INFO: {message}")
+            print(f"INFO: {message}", flush=True)
     
     def log_warning(self, message):
         """Log a warning message."""
         if hasattr(self, 'logger') and self.logger:
             self.logger.warning(message)
         else:
-            print(f"WARNING: {message}")
+            print(f"WARNING: {message}", flush=True)
     
     def log_error(self, message):
         """Log an error message."""
         if hasattr(self, 'logger') and self.logger:
             self.logger.error(message)
         else:
-            print(f"ERROR: {message}")
+            print(f"ERROR: {message}", flush=True)
 
     def setup_force_parameters(self, dt, rcut=15):
         """Set up force parameters for the simulation."""
@@ -751,7 +751,7 @@ class CavityMDSimulation:
                         return  # Still zero, nothing to do
                     
                     # Coupling has switched ON! Perform displacement
-                    print(f"CavityParticleDisplacer: Coupling switched ON at timestep {timestep}, g = {g_current}")
+                    print(f"CavityParticleDisplacer: Coupling switched ON at timestep {timestep}, g = {g_current}", flush=True)
                     
                     # Get system snapshot
                     snap = self._state.get_snapshot()
@@ -761,7 +761,7 @@ class CavityMDSimulation:
                         cavity_indices = [i for i in range(snap.particles.N) if snap.particles.typeid[i] == 2]
                         
                         if len(cavity_indices) == 0:
-                            print("Warning: No cavity particle found for displacement")
+                            print("Warning: No cavity particle found for displacement", flush=True)
                             self.has_run = True
                             return
                         
@@ -789,9 +789,9 @@ class CavityMDSimulation:
                         # Get current cavity position
                         q_old = unwrapped_pos[cavity_idx]
                         
-                        print(f"  Dipole moment (xy): {dipole_xy}")
-                        print(f"  Old cavity position: {q_old}")
-                        print(f"  New equilibrium position: {q_eq}")
+                        print(f"  Dipole moment (xy): {dipole_xy}", flush=True)
+                        print(f"  Old cavity position: {q_old}", flush=True)
+                        print(f"  New equilibrium position: {q_eq}", flush=True)
                         
                         # Create new position (preserve z coordinate)
                         new_pos_unwrapped = np.array([q_eq[0], q_eq[1], q_old[2]])
@@ -805,13 +805,13 @@ class CavityMDSimulation:
                         snap.particles.image[cavity_idx] = new_image
                         
                         displacement_xy = np.linalg.norm(new_pos_unwrapped[:2] - q_old[:2])
-                        print(f"  Displacement magnitude (xy): {displacement_xy}")
-                        print(f"  Final position: {new_pos_wrapped}")
+                        print(f"  Displacement magnitude (xy): {displacement_xy}", flush=True)
+                        print(f"  Final position: {new_pos_wrapped}", flush=True)
                     
                     # Set updated snapshot back to system
                     self._state.set_snapshot(snap)
                     
-                    print("CavityParticleDisplacer: Displacement completed and system state updated")
+                    print("CavityParticleDisplacer: Displacement completed and system state updated", flush=True)
                     self.has_run = True
             
             # Create and add the custom updater
@@ -1139,41 +1139,6 @@ class CavityMDSimulation:
                 
                 self.log_info(f"Energy tracking setup completed: {method_count} methods, {force_count} forces")
                 
-                # Set up cavity mode tracking if in cavity simulation
-                incavity = getattr(self, 'incavity', False)
-                if incavity:
-                    # Find the cavity force object to pass to CavityModeTracker
-                    cavityforce = None
-                    for force in self.sim.operations.integrator.forces:
-                        if 'cavity' in type(force).__name__.lower():
-                            cavityforce = force
-                            break
-                    
-                    if cavityforce is not None:
-                        name = getattr(self, 'name', 'sim')
-                        replica = getattr(self, 'replica', 0)
-                        self.cavity_mode_tracker = CavityModeTracker(
-                            simulation=self.sim,
-                            cavityforce=cavityforce,
-                            time_tracker=self.time_tracker,
-                            output_prefix=f'{name}-{replica}',
-                            output_period_steps=1
-                        )
-                        
-                        # Add cavity mode tracker as updater
-                        cavity_mode_updater = hoomd.update.CustomUpdater(
-                            action=self.cavity_mode_tracker,
-                            trigger=hoomd.trigger.Periodic(1)
-                        )
-                        self.sim.operations.updaters.append(cavity_mode_updater)
-                        self.log_info("CavityModeTracker created and added to simulation")
-                    else:
-                        self.cavity_mode_tracker = None
-                        self.log_warning("Cavity simulation requested but no cavity force found - cavity mode tracker disabled")
-                else:
-                    self.cavity_mode_tracker = None
-                    self.log_info("No cavity simulation - cavity mode tracker not created")
-
                 # Set up energy tracker from plugin for proper reservoir energy tracking
                 try:
                     name = getattr(self, 'name', 'sim')
@@ -1238,13 +1203,11 @@ class CavityMDSimulation:
                     
                     # Get kinetic trackers 
                     kinetic_tracker = None  # Use internal kinetic computation
-                    cavity_mode_tracker = getattr(self, 'cavity_mode_tracker', None) if incavity else None
                     
                     self.log_info(f"Energy tracker configuration:")
                     self.log_info(f"  Force objects: {list(force_objects.keys())}")
                     self.log_info(f"  Thermostat objects: {list(thermostat_objects.keys())}")
                     self.log_info(f"  Using internal kinetic computation (no external tracker needed)")
-                    self.log_info(f"  Cavity mode tracker available: {cavity_mode_tracker is not None}")
                     
                     # Use time-based output period for accurate timing
                     self.energy_tracker = EnergyTracker(
@@ -1253,7 +1216,6 @@ class CavityMDSimulation:
                         force_objects=force_objects,
                         thermostat_objects=thermostat_objects,
                         kinetic_tracker=kinetic_tracker,  # Use internal kinetic computation
-                        cavity_mode_tracker=cavity_mode_tracker,
                         time_tracker=self.time_tracker,
                         output_prefix=output_prefix,
                         output_period_ps=energy_output_period_ps,  # Use time-based output!
@@ -1533,7 +1495,7 @@ class CavityMDSimulation:
                     ]
                     if self.adaptive_action is not None:
                         header_parts.append("Adaptive.error_tolerance")
-                    print(" ".join(f"{h:>15s}" for h in header_parts))
+                    print(" ".join(f"{h:>15s}" for h in header_parts), flush=True)
                     self.header_printed = True
                     
                 # Collect current values
@@ -1557,7 +1519,7 @@ class CavityMDSimulation:
                     error_tol = self.adaptive_action.error_tolerance  # Property, not method
                     output_parts.append(f"{error_tol:15.2e}")
                     
-                print(" ".join(output_parts))
+                print(" ".join(output_parts), flush=True)
                 
                 # Update last output time
                 self.last_output_time = current_time
@@ -1964,26 +1926,26 @@ class AdaptiveTimestepUpdater(hoomd.custom.Action):
         
         # Log the shock dampening behavior
         if shock_dampening_enabled and switch_time_ps is not None:
-            print(f"Shock dampening enabled with time constant {time_constant_ps} ps")
-            print(f"Before switch: error_tolerance = {self.target_error_tolerance:.2e} (normal tolerance)")
-            print(f"At switch: error_tolerance drops to {self.shock_error_tolerance:.2e} (shock dampening factor: {shock_dampening_factor:.2e})")
-            print(f"After switch: error_tolerance ramps from {self.shock_error_tolerance:.2e} to {self.target_error_tolerance:.2e} with τ = {time_constant_ps} ps")
-            print(f"Switch detection: immediate timestep adjustment within {self.switch_detection_tolerance} ps of switch")
+            print(f"Shock dampening enabled with time constant {time_constant_ps} ps", flush=True)
+            print(f"Before switch: error_tolerance = {self.target_error_tolerance:.2e} (normal tolerance)", flush=True)
+            print(f"At switch: error_tolerance drops to {self.shock_error_tolerance:.2e} (shock dampening factor: {shock_dampening_factor:.2e})", flush=True)
+            print(f"After switch: error_tolerance ramps from {self.shock_error_tolerance:.2e} to {self.target_error_tolerance:.2e} with τ = {time_constant_ps} ps", flush=True)
+            print(f"Switch detection: immediate timestep adjustment within {self.switch_detection_tolerance} ps of switch", flush=True)
         elif switch_time_ps is not None:
-            print(f"Error tolerance ramping will start at t = {self.switch_time_ps} ps")
-            print(f"Before switch: error_tolerance = {self.target_error_tolerance:.2e} (final tolerance for efficiency)")
-            print(f"At switch: error_tolerance drops to {self.initial_error_tolerance:.2e} (high precision)")
-            print(f"After switch: error_tolerance ramps from {self.initial_error_tolerance:.2e} to {self.target_error_tolerance:.2e} with τ = {time_constant_ps} ps")
-            print(f"Switch detection: immediate timestep adjustment within {self.switch_detection_tolerance} ps of switch")
+            print(f"Error tolerance ramping will start at t = {self.switch_time_ps} ps", flush=True)
+            print(f"Before switch: error_tolerance = {self.target_error_tolerance:.2e} (final tolerance for efficiency)", flush=True)
+            print(f"At switch: error_tolerance drops to {self.initial_error_tolerance:.2e} (high precision)", flush=True)
+            print(f"After switch: error_tolerance ramps from {self.initial_error_tolerance:.2e} to {self.target_error_tolerance:.2e} with τ = {time_constant_ps} ps", flush=True)
+            print(f"Switch detection: immediate timestep adjustment within {self.switch_detection_tolerance} ps of switch", flush=True)
         else:
-            print("Error tolerance ramping starts immediately from t = 0 ps")
+            print("Error tolerance ramping starts immediately from t = 0 ps", flush=True)
         
         # Log conservative timestep parameters
-        print(f"Conservative timestep parameters:")
-        print(f"  Change threshold: {self.timestep_change_threshold:.1%}")
-        print(f"  Max change factor: {self.max_timestep_change_factor:.1f}")
-        print(f"  Min update interval: {self.min_update_interval} steps")
-        print(f"  Switch detection tolerance: {self.switch_detection_tolerance} ps")
+        print(f"Conservative timestep parameters:", flush=True)
+        print(f"  Change threshold: {self.timestep_change_threshold:.1%}", flush=True)
+        print(f"  Max change factor: {self.max_timestep_change_factor:.1f}", flush=True)
+        print(f"  Min update interval: {self.min_update_interval} steps", flush=True)
+        print(f"  Switch detection tolerance: {self.switch_detection_tolerance} ps", flush=True)
 
     def act(self, timestep):
         """
@@ -2017,8 +1979,8 @@ class AdaptiveTimestepUpdater(hoomd.custom.Action):
             # We've just crossed the switch time!
             self.switch_detected = True
             force_immediate_update = True
-            print(f"SWITCH DETECTED at timestep {timestep}: t = {current_elapsed_time_ps:.6f} ps")
-            print(f"  Forcing immediate timestep adjustment for shock dampening")
+            print(f"SWITCH DETECTED at timestep {timestep}: t = {current_elapsed_time_ps:.6f} ps", flush=True)
+            print(f"  Forcing immediate timestep adjustment for shock dampening", flush=True)
         
         # Update last elapsed time for next iteration
         self.last_elapsed_time_ps = current_elapsed_time_ps
@@ -2120,21 +2082,21 @@ class AdaptiveTimestepUpdater(hoomd.custom.Action):
                 # Log the timestep change (always log for forced updates, otherwise reduced frequency)
                 if force_immediate_update or timestep % 5000 == 0 or clamped:
                     update_type = "FORCED (switch)" if force_immediate_update else "regular"
-                    print(f"Timestep updated at step {timestep} ({update_type}): {PhysicalConstants.atomic_units_to_ps(current_dt)*1e15:.1f} → {PhysicalConstants.atomic_units_to_ps(new_dt)*1e15:.1f} fs (error_tol: {self.current_error_tolerance:.2e})")
+                    print(f"Timestep updated at step {timestep} ({update_type}): {PhysicalConstants.atomic_units_to_ps(current_dt)*1e15:.1f} → {PhysicalConstants.atomic_units_to_ps(new_dt)*1e15:.1f} fs (error_tol: {self.current_error_tolerance:.2e})", flush=True)
                     if clamped:
-                        print(f"  CLAMPED by max change factor")
+                        print(f"  CLAMPED by max change factor", flush=True)
                     if force_immediate_update:
-                        print(f"  Switch-triggered update: error_tolerance dropped to {self.current_error_tolerance:.2e}")
+                        print(f"  Switch-triggered update: error_tolerance dropped to {self.current_error_tolerance:.2e}", flush=True)
                 
                 # Update thermostat parameters only when timestep actually changes
                 self._update_thermostat_parameters()
             else:
                 # Timestep change is too small, don't update
                 if timestep % 5000 == 0:  # Less frequent logging
-                    print(f"Timestep change too small at step {timestep}: {dt_ratio:.3f} (threshold: {effective_change_threshold:.3f})")
+                    print(f"Timestep change too small at step {timestep}: {dt_ratio:.3f} (threshold: {effective_change_threshold:.3f})", flush=True)
         else:
             if timestep % 5000 == 0:
-                print(f"WARNING: Zero force detected at step {timestep} - keeping current timestep")
+                print(f"WARNING: Zero force detected at step {timestep} - keeping current timestep", flush=True)
 
     def _update_thermostat_parameters(self):
         """Update thermostat parameters when timestep changes."""

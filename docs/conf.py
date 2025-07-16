@@ -129,7 +129,6 @@ if on_rtd:
                 mock_submodule.Status = type('Status', (), {})
                 mock_submodule.ElapsedTimeTracker = type('ElapsedTimeTracker', (), {})
                 mock_submodule.TimestepFormatter = type('TimestepFormatter', (), {})
-                mock_submodule.CavityModeTracker = type('CavityModeTracker', (), {})
                 mock_submodule.AutocorrelationTracker = type('AutocorrelationTracker', (), {})
                 mock_submodule.FieldAutocorrelationTracker = type('FieldAutocorrelationTracker', (), {})
                 mock_submodule.EnergyTracker = type('EnergyTracker', (), {})
