@@ -19,6 +19,26 @@ from .forces import CavityForce
 from .variants import StepVariant
 
 
+def convert_to_numpy_array(array_data):
+    """
+    Convert array data to NumPy array, handling both CPU (NumPy) and GPU (CuPy) arrays.
+    
+    Parameters
+    ----------
+    array_data : array-like
+        Array data from local snapshot (could be NumPy or CuPy)
+        
+    Returns
+    -------
+    np.ndarray
+        NumPy array
+    """
+    if hasattr(array_data, 'get'):  # CuPy array (GPU)
+        return array_data.get()
+    else:  # NumPy array (CPU) or other array-like
+        return np.asarray(array_data)
+
+
 class DeviceSetup:
     """Handles HOOMD device configuration and setup."""
     
@@ -237,16 +257,27 @@ class ParticleSetup:
         if 'L' not in particle_types:
             raise ValueError("Cavity particle type 'L' not found in simulation")
         
-        # Check particle count
-        with sim.state.cpu_local_snapshot as snap:
-            if 2 not in snap.particles.typeid:
+        # Check particle count - use device-aware local snapshot access
+        # Detect device type from simulation
+        device = sim.device
+        if hasattr(device, 'gpu_ids') or 'GPU' in str(type(device)):
+            local_snapshot = sim.state.gpu_local_snapshot
+        else:
+            local_snapshot = sim.state.cpu_local_snapshot
+            
+        with local_snapshot as snap:
+            # Convert to numpy array for robust handling across CPU/GPU
+            typeid_array = convert_to_numpy_array(snap.particles.typeid)
+            
+            if 2 not in typeid_array:
                 raise ValueError("No cavity particles found in simulation")
             
-            cavity_count = np.sum(snap.particles.typeid == 2)
+            cavity_count = np.sum(typeid_array == 2)
             if cavity_count != 1:
                 raise ValueError(f"Expected exactly 1 cavity particle, found {cavity_count}")
             
-            cavity_index = np.where(snap.particles.typeid == 2)[0][0]
+            cavity_indices = np.where(typeid_array == 2)[0]
+            cavity_index = cavity_indices[0]
             cavity_position = snap.particles.position[cavity_index]
             logging.info(f"Cavity particle validated at index {cavity_index}, position {cavity_position}")
 
@@ -654,12 +685,23 @@ class ThermalizationSetup:
         kT : float
             Thermal energy in atomic units
         """
-        with sim.state.cpu_local_snapshot as snap:
+        # Use device-aware local snapshot access
+        device = sim.device
+        if hasattr(device, 'gpu_ids') or 'GPU' in str(type(device)):
+            local_snapshot = sim.state.gpu_local_snapshot
+        else:
+            local_snapshot = sim.state.cpu_local_snapshot
+            
+        with local_snapshot as snap:
+            # Convert to numpy array for robust handling across CPU/GPU
+            typeid_array = convert_to_numpy_array(snap.particles.typeid)
             # Find cavity particle
-            cavity_indices = np.where(snap.particles.typeid == 2)[0]
-            if len(cavity_indices) == 0:
+            cavity_mask = typeid_array == 2
+            if not np.any(cavity_mask):
                 logging.warning("No cavity particle found for thermalization")
                 return
+            
+            cavity_indices = np.where(cavity_mask)[0]
             
             cavity_idx = cavity_indices[0]
             cavity_mass = snap.particles.mass[cavity_idx]
@@ -668,7 +710,17 @@ class ThermalizationSetup:
             sigma = np.sqrt(kT / cavity_mass)
             cavity_velocities = np.random.normal(0.0, sigma, 3)
             
-            # Set cavity particle velocities
+            # Follow CuPy guidelines for CPU/GPU agnostic code
+            # Get the appropriate array module based on snapshot arrays
+            try:
+                import cupy as cp
+                xp = cp.get_array_module(snap.particles.velocity)
+                HAS_CUPY_LOCAL = True
+            except ImportError:
+                xp = np
+                HAS_CUPY_LOCAL = False
+            
+            # Set cavity particle velocities (HOOMD snapshots ALWAYS expect NumPy arrays)
             snap.particles.velocity[cavity_idx] = cavity_velocities
             
             logging.debug(f"Manually thermalized cavity particle: mass={cavity_mass:.3f}, sigma={sigma:.6f}")
@@ -735,12 +787,14 @@ class TimestepSetup:
         
         # Sum forces from all force objects
         for force in sim.operations.integrator.forces:
-            try:
+            if hasattr(force, 'forces'):
                 particle_forces = force.forces
                 if particle_forces is not None and len(particle_forces) == n_particles:
                     total_forces += np.asarray(particle_forces)
-            except (AttributeError, RuntimeError):
-                continue
+                else:
+                    logging.debug(f"Force object {type(force).__name__} has no forces or wrong size")
+            else:
+                logging.debug(f"Force object {type(force).__name__} does not have forces attribute")
         
         # Calculate optimal timestep
         force_norm = np.array([np.linalg.norm(f) for f in total_forces])
@@ -790,12 +844,14 @@ class TimestepSetup:
         
         # Sum forces from all force objects
         for force in sim.operations.integrator.forces:
-            try:
+            if hasattr(force, 'forces'):
                 particle_forces = force.forces
                 if particle_forces is not None and len(particle_forces) == n_particles:
                     total_forces += np.asarray(particle_forces)
-            except (AttributeError, RuntimeError):
-                continue
+                else:
+                    logging.debug(f"Force object {type(force).__name__} has no forces or wrong size")
+            else:
+                logging.debug(f"Force object {type(force).__name__} does not have forces attribute")
         
         # Calculate optimal timestep
         force_norm = np.array([np.linalg.norm(f) for f in total_forces])

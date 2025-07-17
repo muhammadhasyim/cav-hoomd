@@ -86,7 +86,8 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
                          truncate_gsd=False, seed=None, restart_velocities=True,
                          switch_time_ps=None, damping_ratio=0.0,
                          enable_dipole_autocorr=False, dipole_ref_interval=1.0, dipole_max_refs=10, 
-                         dipole_output_period_ps=1.0):
+                         dipole_output_period_ps=1.0, error_tolerance=5.0, initial_fraction=1e-5, 
+                         time_constant_ps=50.0):
     """
     Run a single experiment using the CavityMDSimulation class from the plugin.
     """
@@ -133,7 +134,7 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
         print(f"  Output directory: {exp_dir}")
         
         # Set error tolerance based on timestepping mode
-        error_tolerance = 0.0 if fixed_timestep else 0.5
+        error_tolerance = 0.0 if fixed_timestep else error_tolerance
         
         # Set timestep based on user preference (only used if fixed_timestep is True)
         dt_fs = timestep_fs if fixed_timestep else None
@@ -182,7 +183,9 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
             enable_dipole_autocorr=enable_dipole_autocorr,
             dipole_reference_interval_ps=dipole_ref_interval,
             dipole_max_references=dipole_max_refs,
-            dipole_output_period_ps=dipole_output_period_ps
+            dipole_output_period_ps=dipole_output_period_ps,
+            initial_fraction=initial_fraction,
+            time_constant_ps=time_constant_ps
         )
         
         # Run the simulation
@@ -237,6 +240,14 @@ def main():
                        help='Use fixed timestep instead of adaptive')
     parser.add_argument('--timestep', type=float, default=1.0, 
                        help='Fixed timestep in fs (default: 1.0)')
+    
+    # Adaptive timestep control
+    parser.add_argument('--error-tolerance', type=float, default=5.0,
+                       help='Target error tolerance for adaptive timestep (default: 5.0)')
+    parser.add_argument('--initial-fraction', type=float, default=1e-5,
+                       help='Initial fraction for shock dampening (ratio of initial to target error tolerance, default: 1e-5)')
+    parser.add_argument('--time-constant-ps', type=float, default=50.0,
+                       help='Time constant for error tolerance ramping in ps (default: 50.0)')
     
     # Energy tracking
     parser.add_argument('--enable-energy-tracker', action='store_true', 
@@ -388,7 +399,10 @@ def main():
             enable_dipole_autocorr=args.enable_dipole_autocorr,
             dipole_ref_interval=args.dipole_ref_interval,
             dipole_max_refs=args.dipole_max_refs,
-            dipole_output_period_ps=args.dipole_output_period_ps
+            dipole_output_period_ps=args.dipole_output_period_ps,
+            error_tolerance=args.error_tolerance,
+            initial_fraction=args.initial_fraction,
+            time_constant_ps=args.time_constant_ps
         )
         
         if success:

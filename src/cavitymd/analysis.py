@@ -9,6 +9,14 @@ import numpy as np
 import traceback
 import sys
 
+# CuPy import with fallback for CPU/GPU agnostic code
+try:
+    import cupy as cp
+    HAS_CUPY = True
+except ImportError:
+    cp = None
+    HAS_CUPY = False
+
 from .utils import PhysicalConstants, unwrap_positions
 
 # =============================================================================
@@ -20,22 +28,40 @@ def compute_total_dipole_moment(snapshot):
     box_lengths = np.array(
         [snapshot.global_box.L[0], snapshot.global_box.L[1], snapshot.global_box.L[2]]
     )
-    unwrapped_positions = unwrap_positions(
-        snapshot.particles.position, snapshot.particles.image, box_lengths
-    )
+    
+    # Convert snapshot arrays to NumPy following CuPy guidelines
+    if HAS_CUPY:
+        # Use CuPy's asnumpy function for robust conversion
+        positions_np = cp.asnumpy(snapshot.particles.position)
+        images_np = cp.asnumpy(snapshot.particles.image)
+        charges_np = cp.asnumpy(snapshot.particles.charge)
+    else:
+        # Fallback to NumPy arrays
+        positions_np = np.asarray(snapshot.particles.position)
+        images_np = np.asarray(snapshot.particles.image)
+        charges_np = np.asarray(snapshot.particles.charge)
+    
+    unwrapped_positions = unwrap_positions(positions_np, images_np, box_lengths)
     # Dipole = charges × positions
-    return np.dot(snapshot.particles.charge, unwrapped_positions)
+    return np.dot(charges_np, unwrapped_positions)
 
 
 def compute_density_field(snapshot, wavevectors):
     """Compute density field ρ(k) for given wavevectors."""
-    positions = snapshot.particles.position
+    # Convert snapshot arrays to NumPy following CuPy guidelines
+    if HAS_CUPY:
+        # Use CuPy's asnumpy function for robust conversion
+        positions_np = cp.asnumpy(snapshot.particles.position)
+    else:
+        # Fallback to NumPy arrays
+        positions_np = np.asarray(snapshot.particles.position)
+    
     rhok_real = np.zeros(len(wavevectors))
     rhok_imag = np.zeros(len(wavevectors))
 
     for i, k_vec in enumerate(wavevectors):
         # Compute k·r for all particles
-        kr = np.dot(positions, k_vec)
+        kr = np.dot(positions_np, k_vec)
         # Compute ρ(k) = sum_j exp(i k·r_j)
         rhok_real[i] = np.sum(np.cos(kr))
         rhok_imag[i] = np.sum(np.sin(kr))
@@ -182,6 +208,118 @@ class BaseTracker(hoomd.custom.Action):
         if self.use_time_based_output:
             self.last_output_time = self._get_current_time(timestep)
 
+    def get_local_snapshot(self):
+        """
+        Get the appropriate local snapshot context manager based on simulation device type.
+        
+        Returns
+        -------
+        Local snapshot context manager (CPU or GPU)
+        """
+        # Detect device type from simulation
+        device = self.sim.device
+        if hasattr(device, 'gpu_ids') or 'GPU' in str(type(device)):
+            return self.sim.state.gpu_local_snapshot
+        else:
+            return self.sim.state.cpu_local_snapshot
+
+    def get_particle_count(self, snap):
+        """
+        Get the number of particles from a local snapshot in a device-agnostic way.
+        
+        Parameters
+        ----------
+        snap : Local snapshot object
+            Either CPU or GPU local snapshot
+            
+        Returns
+        -------
+        int
+            Number of particles
+        """
+        # Detect device type from simulation
+        device = self.sim.device
+        if hasattr(device, 'gpu_ids') or 'GPU' in str(type(device)):
+            # GPU snapshots don't have .N attribute, use length of an array
+            return len(snap.particles.typeid)
+        else:
+            # CPU snapshots have .N attribute
+            return snap.particles.N
+
+    def get_array_module(self, *arrays):
+        """
+        Get the appropriate array module (numpy or cupy) based on the input arrays.
+        
+        This follows CuPy's guidelines for writing CPU/GPU agnostic code.
+        If any input array is on GPU, returns cupy module, otherwise numpy.
+        
+        Parameters
+        ----------
+        *arrays : array-like
+            Input arrays to check
+            
+        Returns
+        -------
+        module
+            Either numpy or cupy module
+        """
+        if not HAS_CUPY:
+            return np
+            
+        # Use CuPy's get_array_module for proper detection
+        return cp.get_array_module(*arrays)
+
+    def to_device_array(self, array_data, target_arrays=None):
+        """
+        Convert array to the appropriate device format (NumPy for CPU, CuPy for GPU).
+        
+        This follows CuPy's guidelines using cupy.asarray() for device conversion.
+        
+        Parameters
+        ----------
+        array_data : array-like
+            Input array data
+        target_arrays : array-like, optional
+            Target arrays to match device type. If provided, uses their device.
+            
+        Returns
+        -------
+        array
+            Array on the appropriate device (NumPy for CPU, CuPy for GPU)
+        """
+        if not HAS_CUPY:
+            # Always use NumPy for CPU
+            return np.asarray(array_data)
+        
+        if target_arrays is not None:
+            # Use get_array_module to determine the appropriate module
+            xp = self.get_array_module(target_arrays)
+            return xp.asarray(array_data)
+        else:
+            # Fallback to cupy.asarray which handles both CPU and GPU cases
+            return cp.asarray(array_data)
+
+    def to_numpy(self, array_data):
+        """
+        Convert array to NumPy array, following CuPy guidelines using cupy.asnumpy().
+        
+        Parameters
+        ----------
+        array_data : array-like
+            Input array data (NumPy or CuPy)
+            
+        Returns
+        -------
+        np.ndarray
+            NumPy array
+        """
+        if HAS_CUPY:
+            # Use cupy.asnumpy() for robust conversion
+            return cp.asnumpy(array_data)
+        else:
+            # Fallback to numpy.asarray
+            return np.asarray(array_data)
+
 
 # =============================================================================
 # AUTOCORRELATION TRACKER (Simple Observables)
@@ -245,7 +383,7 @@ class AutocorrelationTracker(BaseTracker):
     def _initialize_new_reference_file(self, ref_number):
         """Initialize a new reference file."""
         filename = f"{self.output_prefix}_{ref_number}.txt"
-        with self.sim.state.cpu_local_snapshot as snap:
+        with self.get_local_snapshot() as snap:
             reference_value = self.observable_func(snap)
             current_time = self._get_current_time(self.sim.timestep)
             
@@ -312,7 +450,7 @@ class AutocorrelationTracker(BaseTracker):
             return
 
         # Compute current observable value
-        with self.sim.state.cpu_local_snapshot as snap:
+        with self.get_local_snapshot() as snap:
             current_value = self.observable_func(snap)
 
         # Update autocorrelations for all active references
@@ -451,7 +589,7 @@ class FieldAutocorrelationTracker(BaseTracker):
         ref_filename = f"{self.output_prefix}_ref{ref_number}.txt"
 
         # Initialize reference state
-        with self.sim.state.cpu_local_snapshot as snap:
+        with self.get_local_snapshot() as snap:
             reference_field = self._call_observable_func(snap)
             current_time = self._get_current_time(self.sim.timestep)
 
@@ -522,7 +660,7 @@ class FieldAutocorrelationTracker(BaseTracker):
             return
 
         # Compute current field value
-        with self.sim.state.cpu_local_snapshot as snap:
+        with self.get_local_snapshot() as snap:
             current_field = self._call_observable_func(snap)
 
         # Update autocorrelations for all active references
@@ -639,7 +777,7 @@ class EnergyTracker(BaseTracker):
     max_timesteps : int, optional
         Maximum timesteps to track (deprecated)
     max_time_ps : float, optional
-        Maximum time to track in picoseconds
+        Maximum simulation time in ps to track (more accurate than max_timesteps)
     compute_temperature : bool, optional
         Whether to compute temperature from kinetic energy. Default: True
     track_reservoirs : bool, optional  
@@ -826,43 +964,162 @@ class EnergyTracker(BaseTracker):
         # Initialize output file
         self._initialize_output_file()
 
+    def get_local_snapshot(self):
+        """
+        Get the appropriate local snapshot context manager based on simulation device type.
+        
+        Returns
+        -------
+        Local snapshot context manager (CPU or GPU)
+        """
+        # Detect device type from simulation
+        device = self.sim.device
+        if hasattr(device, 'gpu_ids') or 'GPU' in str(type(device)):
+            return self.sim.state.gpu_local_snapshot
+        else:
+            return self.sim.state.cpu_local_snapshot
+
+    def get_particle_count(self, snap):
+        """
+        Get the number of particles from a local snapshot in a device-agnostic way.
+        
+        Parameters
+        ----------
+        snap : Local snapshot object
+            Either CPU or GPU local snapshot
+            
+        Returns
+        -------
+        int
+            Number of particles
+        """
+        # Detect device type from simulation
+        device = self.sim.device
+        if hasattr(device, 'gpu_ids') or 'GPU' in str(type(device)):
+            # GPU snapshots don't have .N attribute, use length of an array
+            return len(snap.particles.typeid)
+        else:
+            # CPU snapshots have .N attribute
+            return snap.particles.N
+
+    def get_array_module(self, *arrays):
+        """
+        Get the appropriate array module (numpy or cupy) based on the input arrays.
+        
+        This follows CuPy's guidelines for writing CPU/GPU agnostic code.
+        If any input array is on GPU, returns cupy module, otherwise numpy.
+        
+        Parameters
+        ----------
+        *arrays : array-like
+            Input arrays to check
+            
+        Returns
+        -------
+        module
+            Either numpy or cupy module
+        """
+        if not HAS_CUPY:
+            return np
+            
+        # Use CuPy's get_array_module for proper detection
+        return cp.get_array_module(*arrays)
+
+    def to_device_array(self, array_data, target_arrays=None):
+        """
+        Convert array to the appropriate device format (NumPy for CPU, CuPy for GPU).
+        
+        This follows CuPy's guidelines using cupy.asarray() for device conversion.
+        
+        Parameters
+        ----------
+        array_data : array-like
+            Input array data
+        target_arrays : array-like, optional
+            Target arrays to match device type. If provided, uses their device.
+            
+        Returns
+        -------
+        array
+            Array on the appropriate device (NumPy for CPU, CuPy for GPU)
+        """
+        if not HAS_CUPY:
+            # Always use NumPy for CPU
+            return np.asarray(array_data)
+        
+        if target_arrays is not None:
+            # Use get_array_module to determine the appropriate module
+            xp = self.get_array_module(target_arrays)
+            return xp.asarray(array_data)
+        else:
+            # Fallback to cupy.asarray which handles both CPU and GPU cases
+            return cp.asarray(array_data)
+
+    def to_numpy(self, array_data):
+        """
+        Convert array to NumPy array, following CuPy guidelines using cupy.asnumpy().
+        
+        Parameters
+        ----------
+        array_data : array-like
+            Input array data (NumPy or CuPy)
+            
+        Returns
+        -------
+        np.ndarray
+            NumPy array
+        """
+        if HAS_CUPY:
+            # Use cupy.asnumpy() for robust conversion
+            return cp.asnumpy(array_data)
+        else:
+            # Fallback to numpy.asarray
+            return np.asarray(array_data)
+
     def _compute_molecular_kinetic_energy(self):
         """
-        Compute kinetic energy of molecular particles internally.
+        Compute molecular kinetic energy and temperature internally.
 
-        This replaces the need for external SimpleKineticEnergyTracker.
+        Computes directly from simulation state, excluding cavity particles.
 
         Returns:
-            tuple: (kinetic_energy, temperature) in atomic units and Kelvin
+            tuple: (kinetic_energy, temperature) in atomic units
         """
-        try:
-            with self.sim.state.cpu_local_snapshot as snap:
-                # Filter to molecular particles only (exclude cavity particle type 'L')
-                molecular_mask = snap.particles.typeid != 2  # Type 2 is 'L' (cavity)
+        with self.get_local_snapshot() as snap:
+            # Convert to numpy array for robust handling across CPU/GPU
+            typeid_array = self.to_numpy(snap.particles.typeid)
+            # Filter to molecular particles only (exclude cavity particle type 'L')
+            molecular_mask = typeid_array != 2  # Type 2 is 'L' (cavity)
 
-                if not np.any(molecular_mask):
-                    return 0.0, 0.0
+            if not np.any(molecular_mask):
+                return 0.0, 0.0
 
-                velocities = snap.particles.velocity[molecular_mask]
-                masses = snap.particles.mass[molecular_mask]
+            # Convert HOOMD arrays to NumPy first, then apply mask, then convert to device arrays
+            velocities_np = self.to_numpy(snap.particles.velocity)[molecular_mask]
+            masses_np = self.to_numpy(snap.particles.mass)[molecular_mask]
+            
+            # Get the appropriate array module for device-agnostic operations
+            xp = self.get_array_module(snap.particles.velocity, snap.particles.mass)
+            
+            # Convert to device-appropriate arrays for operations
+            velocities_device = self.to_device_array(velocities_np, snap.particles.velocity)
+            masses_device = self.to_device_array(masses_np, snap.particles.mass)
 
-                # Compute kinetic energy: KE = 0.5 * sum(m_i * v_i^2)
-                kinetic_energy = 0.5 * np.sum(masses[:, np.newaxis] * velocities**2)
+            # Compute kinetic energy using device-appropriate arrays: KE = 0.5 * sum(m_i * v_i^2)
+            kinetic_energy = 0.5 * xp.sum(masses_device[:, xp.newaxis] * velocities_device**2)
 
-                # Compute temperature: T = (2/3) * KE / (N * k_B)
-                N_dof = 3 * len(masses)  # 3 degrees of freedom per particle
-                temperature = (
-                    (2.0)
-                    * kinetic_energy
-                    / (N_dof * PhysicalConstants.KB_HARTREE_PER_K)
-                )
+            # Convert result back to NumPy for final calculations
+            kinetic_energy = self.to_numpy(kinetic_energy)
 
-                return kinetic_energy, temperature
+            # Compute temperature: T = (2/3) * KE / (N * k_B)
+            N_dof = 3 * len(masses_device)  # 3 degrees of freedom per particle
+            temperature = (
+                (2.0)
+                * kinetic_energy
+                / (N_dof * PhysicalConstants.KB_HARTREE_PER_K)
+            )
 
-        except Exception as e:
-            if self.verbose in ["normal", "verbose"]:
-                print(f"Error computing molecular kinetic energy internally: {e}")
-            return 0.0, 0.0
+            return float(kinetic_energy), float(temperature)
 
     def _compute_cavity_kinetic_energy(self):
         """
@@ -874,26 +1131,33 @@ class EnergyTracker(BaseTracker):
             float: cavity kinetic energy in atomic units
         """
         # Compute directly from simulation state
-        try:
-            with self.sim.state.cpu_local_snapshot as snap:
-                # Find cavity particle (type 'L', typeid 2)
-                cavity_mask = snap.particles.typeid == 2
+        with self.get_local_snapshot() as snap:
+            # Convert to numpy array for robust handling across CPU/GPU
+            typeid_array = self.to_numpy(snap.particles.typeid)
+            # Find cavity particle (type 'L', typeid 2)
+            cavity_mask = typeid_array == 2
 
-                if not np.any(cavity_mask):
-                    return 0.0
+            if not np.any(cavity_mask):
+                return 0.0
 
-                cavity_velocity = snap.particles.velocity[cavity_mask][0]
-                cavity_mass = snap.particles.mass[cavity_mask][0]
+            # Convert HOOMD arrays to NumPy first, then apply mask, then convert to device arrays
+            cavity_velocity_np = self.to_numpy(snap.particles.velocity)[cavity_mask][0]
+            cavity_mass_np = self.to_numpy(snap.particles.mass)[cavity_mask][0]
+            
+            # Get the appropriate array module for device-agnostic operations
+            xp = self.get_array_module(snap.particles.velocity, snap.particles.mass)
+            
+            # Convert to device-appropriate arrays for operations
+            cavity_velocity_device = self.to_device_array(cavity_velocity_np, snap.particles.velocity)
+            cavity_mass_device = self.to_device_array(cavity_mass_np, snap.particles.mass)
 
-                # Compute cavity kinetic energy: KE = 0.5 * m * v^2
-                kinetic_energy = 0.5 * cavity_mass * np.sum(cavity_velocity**2)
+            # Compute cavity kinetic energy using device-appropriate arrays: KE = 0.5 * m * v^2
+            kinetic_energy = 0.5 * cavity_mass_device * xp.sum(cavity_velocity_device**2)
 
-                return kinetic_energy
+            # Convert result back to NumPy for final calculations
+            kinetic_energy = self.to_numpy(kinetic_energy)
 
-        except Exception as e:
-            if self.verbose in ["normal", "verbose"]:
-                print(f"Error computing cavity kinetic energy internally: {e}")
-            return 0.0
+            return float(kinetic_energy)
 
     def _initialize_logging_values(self):
         """Initialize energy values for logging."""

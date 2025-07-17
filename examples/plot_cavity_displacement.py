@@ -192,11 +192,16 @@ def main():
     # Extract switch time from directory name if possible
     switch_time_ps = 1.0  # Default
     if 'switch' in cavity_dir.name:
-        try:
-            switch_part = cavity_dir.name.split('switch_')[1]
-            switch_time_ps = float(switch_part.replace('ps', ''))
-        except (IndexError, ValueError):
-            pass
+        parts = cavity_dir.name.split('switch_')
+        if len(parts) > 1:
+            switch_part = parts[1].replace('ps', '')
+            if switch_part.replace('.', '').isdigit():
+                switch_time_ps = float(switch_part)
+                print(f"Extracted switch time: {switch_time_ps} ps")
+            else:
+                print(f"Could not parse switch time from '{switch_part}', using default: {switch_time_ps} ps")
+        else:
+            print(f"Directory contains 'switch' but couldn't extract time, using default: {switch_time_ps} ps")
     
     # Analyze trajectory
     times, positions, displacement_frame, displacement_time = analyze_cavity_trajectory(

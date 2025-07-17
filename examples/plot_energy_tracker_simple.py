@@ -86,15 +86,15 @@ def plot_energy_and_temperature(data, columns, output_file=None):
     molecular_total, cavity_total, reservoir_total, universe_total = calculate_energy_components(data, columns)
     
     # Create figure with two subplots
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10), sharex=True)
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 6), sharex=True)
     
     # Panel 1: Energy components
     time_ps = data[:, columns['time(ps)']]
     
-    ax1.plot(time_ps, molecular_total, label='Total Molecular Energy', linewidth=2, color='blue')
-    ax1.plot(time_ps, cavity_total, label='Total Cavity Energy', linewidth=2, color='red')
-    ax1.plot(time_ps, reservoir_total, label='Total Reservoir Energy', linewidth=2, color='green')
-    ax1.plot(time_ps, universe_total, label='Universe Energy (Conserved)', linewidth=2, color='black', linestyle='--')
+    ax1.plot(time_ps, molecular_total, label='Total Molecular Energy', linewidth=1, color='blue')
+    ax1.plot(time_ps, cavity_total, label='Total Cavity Energy', linewidth=1, color='red')
+    ax1.plot(time_ps, reservoir_total, label='Total Reservoir Energy', linewidth=1, color='green')
+    ax1.plot(time_ps, universe_total, label='Universe Energy (Conserved)', linewidth=1, color='black', linestyle='-')
     
     ax1.set_ylabel('Energy (Hartree)', fontsize=12)
     ax1.set_title('Energy Components vs Time', fontsize=14, fontweight='bold')
@@ -111,7 +111,7 @@ def plot_energy_and_temperature(data, columns, output_file=None):
     
     # Panel 2: Temperature
     temperature = data[:, columns['temperature']]
-    ax2.plot(time_ps, temperature, label='System Temperature', linewidth=2, color='orange')
+    ax2.plot(time_ps, temperature, label='System Temperature', linewidth=1, color='orange', linestyle='-')
     
     ax2.set_xlabel('Time (ps)', fontsize=12)
     ax2.set_ylabel('Temperature (K)', fontsize=12)

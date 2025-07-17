@@ -1,7 +1,7 @@
 # Copyright (c) 2009-2025 The Regents of the University of Michigan.
 # Part of HOOMD-blue, released under the BSD 3-Clause License.
 
-"""Unified force interfaces with C++/Python fallback support."""
+"""Unified force interfaces with optimized C++/CUDA implementation."""
 
 from typing import Union, Optional, Dict, Any, List
 import hoomd
@@ -20,7 +20,7 @@ except ImportError:
 
 class CavityForce(hoomd.md.force.Force):
     r"""
-    Cavity-molecule interaction force with automatic C++/Python fallback.
+    Cavity-molecule interaction force with optimized C++/CUDA implementation.
     
     Implements the cavity-molecule interaction force from the single-mode cavity Hamiltonian:
     
@@ -83,14 +83,11 @@ class CavityForce(hoomd.md.force.Force):
     dissipation : float or hoomd.variant.Variant, optional
         Dissipation coefficient :math:`\gamma` in atomic units (inverse time). 
         Can be time-varying for dynamic damping experiments. Default: 0.0 (no damping).
-    force_python : bool, optional
-        Force use of Python implementation instead of C++/CUDA. Useful for debugging 
-        or when compiled extensions are unavailable. Default: False (auto-select best implementation).
     
     Attributes
     ----------
     implementation : str
-        Current implementation being used ('cpp', 'cuda', or 'python')
+        Current implementation being used ('cpp' or 'cuda')
     uses_variant_coupling : bool
         Whether time-varying coupling is enabled
     uses_variant_dissipation : bool  
@@ -149,7 +146,7 @@ class CavityForce(hoomd.md.force.Force):
     -----
     - The cavity particle must have type name 'L' (typically typeid=2)
     - Only x,y components of cavity mode and molecular dipoles contribute to coupling
-    - Automatically selects optimal implementation: CUDA > C++ > Python fallback
+    - Automatically selects optimal implementation: CUDA > C++
     - Energy conservation is maintained during time-varying coupling transitions
     - Compatible with both finite-q and q=0 cavity modes
     
@@ -171,8 +168,7 @@ class CavityForce(hoomd.md.force.Force):
                  couplstr: Union[float, hoomd.variant.Variant], 
                  omegac: float, 
                  phmass: float = 1.0, 
-                 dissipation: Union[float, hoomd.variant.Variant] = 0.0,
-                 force_python: bool = False) -> None:
+                 dissipation: Union[float, hoomd.variant.Variant] = 0.0) -> None:
         # Initialize the base class FIRST - this creates empty _param_dict and _typeparam_dict
         super().__init__()
         
@@ -203,15 +199,13 @@ class CavityForce(hoomd.md.force.Force):
             couplstr=hoomd.variant.Variant,
             omegac=float,
             phmass=float,
-            dissipation=hoomd.variant.Variant,
-            force_python=bool
+            dissipation=hoomd.variant.Variant
         )
         param_dict['kvector'] = list(kvector)
         param_dict['couplstr'] = self.couplstr_variant
         param_dict['omegac'] = omegac
         param_dict['phmass'] = phmass
         param_dict['dissipation'] = self.dissipation_variant
-        param_dict['force_python'] = force_python
         
         # Update the existing _param_dict (don't replace it)
         self._param_dict.update(param_dict)
@@ -220,11 +214,10 @@ class CavityForce(hoomd.md.force.Force):
         self.kvector = np.array(kvector)
         self.omegac = omegac
         self.phmass = phmass
-        self.force_python = force_python
         
         # Use C++ implementation (will be initialized during _attach_hook)
         self._force_impl = None
-        self._implementation = "python" if force_python else "cpp"
+        self._implementation = "cpp"
     
         print(f"CavityForce initialized using {self._implementation} implementation")
         if self.uses_variant_coupling:
@@ -285,44 +278,12 @@ class CavityForce(hoomd.md.force.Force):
                 self._cpp_obj = self._force_impl
                 
             except Exception as e:
-                warnings.warn(
-                    f"Failed to initialize C++ cavity force ({e}), falling back to Python",
-                    UserWarning
+                raise RuntimeError(
+                    f"Failed to initialize C++ cavity force: {e}. "
+                    "Ensure that the cavitymd C++ extension is properly compiled and installed."
                 )
-                # Fallback to Python implementation
-                from .cavity_force_python import CavityForcePython
-                self._force_impl = CavityForcePython(
-                    kvector=self.kvector,
-                    couplstr=self.couplstr_variant,
-                    omegac=self.omegac,
-                    phmass=self.phmass,
-                    dissipation=self.dissipation_variant
-                )
-                self._implementation = "python_fallback"
         
-        # For Python implementation, set up as a Custom force
-        if self._implementation in ["python", "python_fallback"]:
-            # Initialize the Python implementation if not done already
-            if self._force_impl is None:
-                from .cavity_force_python import CavityForcePython
-                self._force_impl = CavityForcePython(
-                    kvector=self.kvector,
-                    couplstr=self.couplstr_variant,
-                    omegac=self.omegac,
-                    phmass=self.phmass,
-                    dissipation=self.dissipation_variant
-                )
-                print(f"Python CavityForcePython initialized by user request")
-            
-            # Initialize the Python implementation with simulation state
-            if hasattr(self._force_impl, '_simulation') and self._force_impl._simulation is None:
-                self._force_impl._simulation = self._simulation
-            # Create a custom force compute object
-            self._cpp_obj = hoomd.md._md.CustomForceCompute(
-                self._simulation.state._cpp_sys_def, 
-                self.set_forces, 
-                False  # aniso=False
-            )
+
         
         # Call parent attach hook LAST
         super()._attach_hook()
@@ -331,19 +292,11 @@ class CavityForce(hoomd.md.force.Force):
         if hasattr(self._force_impl, '_attach_hook'):
             self._force_impl._attach_hook()
     
-    def set_forces(self, timestep):
-        """
-        Compute forces (Python implementation only).
-        
-        This method is now only used by the pure Python fallback implementation.
-        """
-        # Call the actual force computation
-        if self._implementation in ["python", "python_fallback"]:
-            self._force_impl.set_forces(timestep)
+
 
     @property
     def implementation(self) -> str:
-        """Return the current implementation being used ('cpp', 'cuda', or 'python')."""
+        """Return the current implementation being used ('cpp' or 'cuda')."""
         return self._implementation
     
     @log(requires_run=True)
@@ -478,7 +431,6 @@ class CavityForce(hoomd.md.force.Force):
         if hasattr(self._force_impl, 'forces'):
             return self._force_impl.forces
         else:
-            # For Python implementation, forces are managed by HOOMD's Custom force
             return None
 
     def set_params(self, **kwargs: Any) -> None:

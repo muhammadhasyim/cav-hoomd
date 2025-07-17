@@ -14,6 +14,14 @@ from pathlib import Path
 import gsd.hoomd
 from hoomd.bussi_reservoir.thermostats import BussiReservoir as Bussi
 
+# CuPy import with fallback for CPU/GPU agnostic code
+try:
+    import cupy as cp
+    HAS_CUPY = True
+except ImportError:
+    cp = None
+    HAS_CUPY = False
+
 from .utils import PhysicalConstants, unwrap_positions
 from .forces import CavityForce
 from .analysis import (
@@ -123,6 +131,10 @@ class CavityMDSimulation:
         Random seed for reproducibility. Default: None (replica-based seed)
     restart_velocities : bool, optional
         Whether to thermalize velocities at start. Default: True
+    initial_fraction : float, optional
+        Initial fraction for shock dampening (ratio of initial to target error tolerance). Default: 1e-5
+    time_constant_ps : float, optional
+        Time constant for error tolerance ramping in ps. Default: 50.0
         
     **Advanced Parameters:**
         
@@ -294,7 +306,11 @@ class CavityMDSimulation:
                  seed: Optional[int] = None, 
                  restart_velocities: bool = True,
                  switch_time_ps: Optional[float] = None, 
-                 dissipation: float = 0.0) -> None:
+                 dissipation: float = 0.0,
+                 initial_fraction: float = 1e-5,
+                 time_constant_ps: float = 50.0,
+                 transition_time_ps: float = 0.5,
+                 use_smooth_switching: bool = True) -> None:
         """Initialize the CavityMDSimulation with simulation parameters."""
         self.job_dir = job_dir
         self.replica = replica
@@ -319,6 +335,10 @@ class CavityMDSimulation:
         # Time-varying parameters
         self.switch_time_ps = switch_time_ps
         self.dissipation = dissipation
+        
+        # Adaptive timestep parameters
+        self.initial_fraction = initial_fraction
+        self.time_constant_ps = time_constant_ps
         
         # Logging parameters - simplified to console only
         self.log_level = log_level
@@ -376,6 +396,95 @@ class CavityMDSimulation:
         self.sim = None
         self.logger = None
 
+    def get_array_module(self, *arrays):
+        """
+        Get the appropriate array module (numpy or cupy) based on the input arrays.
+        
+        This follows CuPy's guidelines for writing CPU/GPU agnostic code.
+        If any input array is on GPU, returns cupy module, otherwise numpy.
+        
+        Parameters
+        ----------
+        *arrays : array-like
+            Input arrays to check
+            
+        Returns
+        -------
+        module
+            Either numpy or cupy module
+        """
+        if not HAS_CUPY or self.device == 'CPU':
+            return np
+            
+        # Check if any array is a CuPy array or if we're using GPU device
+        for array in arrays:
+            if hasattr(array, 'device') and hasattr(array.device, 'id'):
+                # This is a CuPy array
+                return cp
+        
+        # Default to cupy if we're configured for GPU
+        if self.device == 'GPU':
+            return cp
+        else:
+            return np
+
+    def to_device_array(self, array_data, target_arrays=None):
+        """
+        Convert array to the appropriate device format (NumPy for CPU, CuPy for GPU).
+        
+        This follows CuPy's guidelines using cupy.asarray() for device conversion.
+        
+        Parameters
+        ----------
+        array_data : array-like
+            Input array data
+        target_arrays : array-like, optional
+            Target arrays to match device type. If provided, uses their device.
+            
+        Returns
+        -------
+        array
+            Array on the appropriate device (NumPy for CPU, CuPy for GPU)
+        """
+        if not HAS_CUPY or self.device == 'CPU':
+            # Always use NumPy for CPU
+            return np.asarray(array_data)
+        
+        if target_arrays is not None:
+            # Use get_array_module to determine the appropriate module
+            xp = self.get_array_module(target_arrays)
+            return xp.asarray(array_data)
+        else:
+            # Use device configuration
+            if self.device == 'GPU':
+                return cp.asarray(array_data)
+            else:
+                return np.asarray(array_data)
+
+    def to_numpy(self, array_data):
+        """
+        Convert array to NumPy array, following CuPy guidelines using cupy.asnumpy().
+        
+        Parameters
+        ----------
+        array_data : array-like
+            Input array data (NumPy or CuPy)
+            
+        Returns
+        -------
+        np.ndarray
+            NumPy array
+        """
+        if HAS_CUPY and hasattr(array_data, 'get'):
+            # CuPy array - use .get() method
+            return array_data.get()
+        elif HAS_CUPY and hasattr(cp, 'asnumpy'):
+            # Use cupy.asnumpy() for robust conversion
+            return cp.asnumpy(array_data)
+        else:
+            # Fallback to numpy.asarray
+            return np.asarray(array_data)
+
     def calculate_physical_parameters(self):
         """Calculate physical parameters and unit conversions."""
         # Determine the actual timestep to use for calculations
@@ -428,20 +537,14 @@ class CavityMDSimulation:
     def setup_device(self):
         """Setup the HOOMD device (CPU or GPU)."""
         if self.device == 'GPU':
+            # Try different GPU initialization methods for different HOOMD versions
             try:
-                # Try different GPU initialization methods for different HOOMD versions
-                try:
-                    # First try with gpu_ids parameter (newer HOOMD versions)
-                    device = hoomd.device.GPU(gpu_ids=[self.gpu_id])
-                except TypeError:
-                    # Fall back to older parameter name
-                    device = hoomd.device.GPU(gpu_id=self.gpu_id)
-                self.log_info(f"Initializing simulation on GPU {self.gpu_id}")
-            except Exception as e:
-                self.log_warning(f"Failed to initialize GPU {self.gpu_id}: {str(e)}")
-                self.log_warning("Falling back to CPU")
-                device = hoomd.device.CPU()
-                self.device = 'CPU'  # Update device setting
+                # First try with gpu_ids parameter (newer HOOMD versions)
+                device = hoomd.device.GPU(gpu_ids=[self.gpu_id])
+            except TypeError:
+                # Fall back to older parameter name
+                device = hoomd.device.GPU(gpu_id=self.gpu_id)
+            self.log_info(f"Initializing simulation on GPU {self.gpu_id}")
         elif self.device == 'CPU':
             device = hoomd.device.CPU()
             self.log_info("Initializing simulation on CPU")
@@ -730,7 +833,7 @@ class CavityMDSimulation:
             
             # Create Python custom action for cavity particle displacement
             class CavityParticleDisplacer(hoomd.custom.Action):
-                def __init__(self, coupling_variant, omegac, temperature, kB):
+                def __init__(self, coupling_variant, omegac, temperature, kB, parent_sim):
                     self.coupling_variant = coupling_variant
                     self.omegac = omegac
                     self.temperature = temperature
@@ -738,6 +841,7 @@ class CavityMDSimulation:
                     self.phmass = 1.0  # Photon mass
                     self.K = self.phmass * self.omegac * self.omegac
                     self.has_run = False
+                    self.parent_sim = parent_sim  # Reference to parent simulation for CPU/GPU methods
                     
                 def act(self, timestep):
                     if self.has_run:
@@ -765,20 +869,30 @@ class CavityMDSimulation:
                             self.has_run = True
                             return
                         
-                        cavity_idx = cavity_indices[0]  # Use first cavity particle
+                        cavity_idx = int(cavity_indices[0])  # Use first cavity particle
                         
-                        # Compute unwrapped positions
-                        box_L = np.array(snap.configuration.box[:3])
-                        positions = snap.particles.position
-                        images = snap.particles.image
+                        # Get appropriate array module for this device
+                        xp = self.parent_sim.get_array_module(snap.particles.position)
+                        
+                        # Ensure all arrays are on the same device before operations
+                        positions = self.parent_sim.to_device_array(snap.particles.position, snap.particles.position)
+                        images = self.parent_sim.to_device_array(snap.particles.image, snap.particles.position)
+                        box_L = self.parent_sim.to_device_array(
+                            np.array(snap.configuration.box[:3]), 
+                            snap.particles.position
+                        )
                         
                         unwrapped_pos = positions + images * box_L
                         
                         # Compute molecular dipole moment (excluding cavity particle)
+                        # Convert to NumPy for calculations
+                        unwrapped_pos_np = self.parent_sim.to_numpy(unwrapped_pos)
+                        charges_np = self.parent_sim.to_numpy(snap.particles.charge)
+                        
                         dipole = np.array([0.0, 0.0, 0.0])
                         for i in range(snap.particles.N):
                             if i != cavity_idx:
-                                dipole += snap.particles.charge[i] * unwrapped_pos[i]
+                                dipole += charges_np[i] * unwrapped_pos_np[i]
                         
                         # Only use x,y components for displacement
                         dipole_xy = np.array([dipole[0], dipole[1], 0.0])
@@ -787,7 +901,7 @@ class CavityMDSimulation:
                         q_eq = -(g_current / self.K) * dipole_xy
                         
                         # Get current cavity position
-                        q_old = unwrapped_pos[cavity_idx]
+                        q_old = unwrapped_pos_np[cavity_idx]
                         
                         print(f"  Dipole moment (xy): {dipole_xy}", flush=True)
                         print(f"  Old cavity position: {q_old}", flush=True)
@@ -796,17 +910,27 @@ class CavityMDSimulation:
                         # Create new position (preserve z coordinate)
                         new_pos_unwrapped = np.array([q_eq[0], q_eq[1], q_old[2]])
                         
+                        # Convert box lengths to NumPy for calculations
+                        box_L_np = self.parent_sim.to_numpy(box_L)
+                        
                         # Wrap position back into box
-                        new_image = np.floor((new_pos_unwrapped + box_L/2) / box_L).astype(int)
-                        new_pos_wrapped = new_pos_unwrapped - new_image * box_L
+                        new_image = np.floor((new_pos_unwrapped + box_L_np/2) / box_L_np).astype(int)
+                        new_pos_wrapped = new_pos_unwrapped - new_image * box_L_np
+                        
+                        # Convert to device-appropriate arrays for assignment
+                        new_pos_device = self.parent_sim.to_device_array(new_pos_wrapped, snap.particles.position)
+                        new_image_device = self.parent_sim.to_device_array(new_image, snap.particles.image)
                         
                         # Update particle position and image
-                        snap.particles.position[cavity_idx] = new_pos_wrapped
-                        snap.particles.image[cavity_idx] = new_image
+                        # CRITICAL: HOOMD snapshots ALWAYS expect NumPy arrays, regardless of device
+                        # Convert all arrays to NumPy before assignment
+                        snap.particles.position[cavity_idx] = self.parent_sim.to_numpy(new_pos_device)
+                        snap.particles.image[cavity_idx] = self.parent_sim.to_numpy(new_image_device)
                         
                         displacement_xy = np.linalg.norm(new_pos_unwrapped[:2] - q_old[:2])
                         print(f"  Displacement magnitude (xy): {displacement_xy}", flush=True)
                         print(f"  Final position: {new_pos_wrapped}", flush=True)
+                        print(f"  Using array module: {xp.__name__}", flush=True)
                     
                     # Set updated snapshot back to system
                     self._state.set_snapshot(snap)
@@ -819,7 +943,8 @@ class CavityMDSimulation:
                 coupling_variant=self.coupling_variant,
                 omegac=self.omegac,
                 temperature=self.temperature,
-                kB=self.kB
+                kB=self.kB,
+                parent_sim=self  # Pass reference to parent simulation for CPU/GPU methods
             )
             
             displacer_updater = hoomd.update.CustomUpdater(
@@ -865,128 +990,48 @@ class CavityMDSimulation:
 
     def _thermalize_cavity_particle_manually(self, kT):
         """Manually thermalize cavity particle using Maxwell-Boltzmann distribution."""
-        with self.sim.state.cpu_local_snapshot as snap:
-            cavity_indices = np.where(snap.particles.typeid == 2)[0]
-            if len(cavity_indices) > 0:
+        with self.get_local_snapshot() as snap:
+            # Get the appropriate array module using CuPy's guidelines
+            xp = self.get_array_module(snap.particles.velocity)
+            
+            # Convert to numpy array for CPU/GPU agnostic operations
+            typeid_array = self.to_numpy(snap.particles.typeid)
+            cavity_mask = typeid_array == 2
+            
+            # Find cavity particle indices using proper array handling
+            if np.any(cavity_mask):
+                cavity_indices = np.where(cavity_mask)[0]
                 cavity_idx = cavity_indices[0]  # Get first cavity particle
                 
                 # Maxwell-Boltzmann distribution: each component has variance kT/m
                 # With mass = 1.0 a.u., std dev per component = sqrt(kT)
-                cavity_velocity = np.random.normal(0.0, np.sqrt(kT), size=3)
+                # Generate velocities using NumPy (always works)
+                cavity_velocity_np = np.random.normal(0.0, np.sqrt(kT), size=3)
+                
+                # Convert to appropriate array type for the current device
+                if xp == cp and HAS_CUPY:
+                    # GPU case: convert NumPy to CuPy for assignment
+                    cavity_velocity_device = cp.asarray(cavity_velocity_np)
+                else:
+                    # CPU case: use NumPy array directly
+                    cavity_velocity_device = cavity_velocity_np
                 
                 # Calculate expected kinetic energy and temperature for logging
-                expected_ke = 0.5 * 1.0 * np.sum(cavity_velocity**2)  # KE = (1/2) * m * v²
+                expected_ke = 0.5 * 1.0 * np.sum(cavity_velocity_np**2)  # KE = (1/2) * m * v²
                 expected_temp = (2.0/3.0) * expected_ke / self.kB  # T = (2/3) * KE / kB for 3D
 
                 self.log_info(f"Cavity particle manually thermalized:")
                 self.log_info(f"  Target temperature: {self.temperature:.1f} K")
-                self.log_info(f"  Initial velocity: {cavity_velocity}")
+                self.log_info(f"  Initial velocity: {cavity_velocity_np}")
                 self.log_info(f"  Expected KE: {expected_ke:.6f} a.u.")
                 self.log_info(f"  Expected temperature: {expected_temp:.1f} K")
+                self.log_info(f"  Using array module: {xp.__name__}")
                 
-                snap.particles.velocity[cavity_idx] = cavity_velocity
+                # Assign velocity using device-appropriate array type
+                snap.particles.velocity[cavity_idx] = cavity_velocity_device
                 
             else:
                 self.log_info("WARNING: No cavity particle found for thermalization!")
-
-    def ensure_nonzero_velocities(self, kT):
-        """Ensure all particles have non-zero velocities for Bussi thermostat compatibility."""
-        min_velocity = 1e-6  # Minimum velocity component to avoid exactly zero
-        
-        with self.sim.state.cpu_local_snapshot as snap:
-            velocities_modified = False
-            zero_count = 0
-            
-            for i in range(len(snap.particles.velocity)):
-                velocity = snap.particles.velocity[i]
-                
-                # Check if any component is exactly zero or very close to zero
-                if np.any(np.abs(velocity) < min_velocity):
-                    # Add small random perturbation to avoid exactly zero
-                    perturbation = np.random.normal(0.0, np.sqrt(kT), size=3) * 0.01  # Small fraction of thermal velocity
-                    snap.particles.velocity[i] = velocity + perturbation
-                    velocities_modified = True
-                    zero_count += 1
-            
-            if velocities_modified:
-                self.log_info(f"Applied velocity perturbations to {zero_count} particles to avoid zero velocities for Bussi thermostat")
-            else:
-                self.log_info("All particle velocities are non-zero - no perturbations needed")
-
-    def compute_and_set_optimal_timestep(self):
-        """Compute and set the optimal timestep after running one step to initialize forces."""
-        if self.error_tolerance <= 0:
-            # Fixed timestep mode
-            if hasattr(self, 'dt_fs') and self.dt_fs is not None:
-                # Use user-specified timestep
-                dt_au = PhysicalConstants.ps_to_atomic_units(self.dt_fs / 1000.0)  # Convert fs to ps, then to a.u.
-                self.sim.operations.integrator.dt = dt_au
-                self.dt = dt_au
-                self.log_info(f"Using user-specified fixed timestep: {dt_au:.6f} a.u. ({self.dt_fs:.3f} fs)")
-            else:
-                # Keep current dt (HOOMD default)
-                self.log_info(f"Using default fixed timestep: {self.sim.operations.integrator.dt:.6f} a.u. ({PhysicalConstants.atomic_units_to_ps(self.sim.operations.integrator.dt) * 1000:.3f} fs)")
-            
-            # Initialize reservoir energy tracking now for fixed timestep mode
-            if hasattr(self, 'restart_velocities') and self.restart_velocities:  # Only if we did thermalization
-                self.log_info("Initializing reservoir energy tracking...")
-                self.sim.run(1)
-            return
-        
-        try:
-            self.log_info("Computing optimal timestep...")
-            
-            # Initialize reservoir energy tracking first for adaptive timestep mode
-            if hasattr(self, 'restart_velocities') and self.restart_velocities:  # Only if we did thermalization
-                self.log_info("Initializing reservoir energy tracking before optimal timestep computation...")
-                self.sim.run(1)
-            
-            # Run one more step to initialize forces (required by HOOMD)
-            self.sim.run(1)
-            
-            # Use initial error tolerance
-            initial_error_tolerance = self.error_tolerance #* 1e-3  # initial_fraction = 1e-3
-            
-            # Collect forces and masses
-            particle_data = self.sim.state.get_snapshot().particles
-            masses = np.array(particle_data.mass)
-            n_particles = len(masses)
-            
-            # Initialize total forces array
-            total_forces = np.zeros((n_particles, 3))
-            
-            # Sum forces from all force objects
-            for force in self.sim.operations.integrator.forces:
-                try:
-                    particle_forces = force.forces
-                    if particle_forces is not None and len(particle_forces) == n_particles:
-                        total_forces += np.asarray(particle_forces)
-                except (AttributeError, RuntimeError) as e:
-                    # Skip forces that can't be accessed (e.g., not yet computed)
-                    continue
-            
-            # Calculate sum |f_i| / m_i
-            force_norm = np.array([np.linalg.norm(f) for f in total_forces])
-            force_mass_sum = np.sum(force_norm / masses)
-            
-            # Update timestep using current error tolerance
-            if force_mass_sum > 0:
-                optimal_dt = np.sqrt(initial_error_tolerance / force_mass_sum)
-                
-                # Update integrator timestep
-                self.sim.operations.integrator.dt = optimal_dt
-                self.dt = optimal_dt  # Update stored dt
-                
-                self.log_info(f"Optimal timestep computed and set:")
-                self.log_info(f"  Initial error tolerance: {initial_error_tolerance:.2e}")
-                self.log_info(f"  Force/mass sum: {force_mass_sum:.6e}")
-                self.log_info(f"  Optimal dt: {optimal_dt:.6f} a.u. ({PhysicalConstants.atomic_units_to_ps(optimal_dt) * 1000:.3f} fs)")
-            else:
-                self.log_info("WARNING: Force/mass sum is zero - keeping initial timestep")
-                
-        except Exception as e:
-            self.log_info(f"WARNING: Failed to compute optimal timestep: {str(e)}")
-            self.log_info(f"Using initial timestep: {self.sim.operations.integrator.dt:.6f} a.u.")
 
     def setup_trackers_and_loggers(self):
         """Set up comprehensive tracking and logging objects for the simulation."""
@@ -1011,8 +1056,8 @@ class CavityMDSimulation:
                 state=self.sim.state,
                 integrator=self.sim.operations.integrator,
                 error_tolerance=self.error_tolerance,
-                time_constant_ps=50.0,
-                initial_fraction=1e-5,
+                time_constant_ps=self.time_constant_ps,
+                initial_fraction=self.initial_fraction,
                 adaptiveerror=True,
                 cavity_damping_factor=cavity_damping_factor,
                 molecular_thermostat_tau=molecular_thermostat_tau,
@@ -1021,8 +1066,9 @@ class CavityMDSimulation:
                 switch_time_ps=switch_time_ps,
                 timestep_change_threshold=0.1,  # Only update if change is >10%
                 max_timestep_change_factor=1.5,  # Limit maximum change to 10%
-                shock_dampening_factor=1e-5,    # NEW: Drop error tolerance by 1000x at switch
-                shock_dampening_enabled=True    # NEW: Enable shock dampening mode
+                shock_dampening_factor=self.initial_fraction,  # Use the actual initial_fraction parameter
+                shock_dampening_enabled=(switch_time_ps is not None),  # Enable whenever there's a switch time
+                shock_dampening_time_constant_ps=self.time_constant_ps  # Use the same time constant for shock dampening
             )
             
             # Add adaptive updater - use a less frequent trigger to reduce computational overhead
@@ -1061,201 +1107,202 @@ class CavityMDSimulation:
             logger[('Adaptive', 'error_tolerance')] = (self.adaptive_action, 'error_tolerance', 'scalar')
         
         # Add thermodynamic quantities
-        try:
-            # Add integrator energies - DISABLED: integrator doesn't expose these quantities
-            # logger.add(self.sim.operations.integrator, quantities=['kinetic_energy', 'potential_energy'])
-            
-            # Create molecular thermodynamics computer
-            molecular_filter = hoomd.filter.Type(['O', 'N'])
-            self.molecular_thermo = hoomd.md.compute.ThermodynamicQuantities(filter=molecular_filter)
-            self.sim.operations.computes.append(self.molecular_thermo)
-            logger[('Molecular', 'temperature')] = (self.molecular_thermo, 'kinetic_temperature', 'scalar')
-            logger[('Molecular', 'kinetic_energy')] = (self.molecular_thermo, 'kinetic_energy', 'scalar')
-            
-            if hasattr(self, 'incavity') and self.incavity:
-                # Add cavity particle thermodynamics
-                cavity_filter = hoomd.filter.Type(['L'])
-                self.cavity_thermo = hoomd.md.compute.ThermodynamicQuantities(filter=cavity_filter)
-                self.sim.operations.computes.append(self.cavity_thermo)
-                logger[('Cavity', 'temperature')] = (self.cavity_thermo, 'kinetic_temperature', 'scalar')
-                logger[('Cavity', 'kinetic_energy')] = (self.cavity_thermo, 'kinetic_energy', 'scalar')
-            
-        except Exception as e:
-            self.log_warning(f"Could not add some thermodynamic quantities: {str(e)}")
+        # Add integrator energies - DISABLED: integrator doesn't expose these quantities
+        # logger.add(self.sim.operations.integrator, quantities=['kinetic_energy', 'potential_energy'])
         
-        # Add thermostat energies if enabled and available
-        enable_energy_tracking = getattr(self, 'enable_energy_tracking', False)
-        if enable_energy_tracking:
-            self.log_info("Setting up detailed energy tracking")
-            try:
-                # Track reservoir energies from integration methods
-                method_count = 0
-                for i, method in enumerate(self.sim.operations.integrator.methods):
-                    if hasattr(method, 'reservoir_energy'):
+        # Add system thermodynamics
+        all_filter = hoomd.filter.All()
+        self.thermo = hoomd.md.compute.ThermodynamicQuantities(filter=all_filter)
+        self.sim.operations.computes.append(self.thermo)
+        
+        # Create molecular thermodynamics computer
+        molecular_filter = hoomd.filter.Type(['O', 'N'])
+        self.molecular_thermo = hoomd.md.compute.ThermodynamicQuantities(filter=molecular_filter)
+        self.sim.operations.computes.append(self.molecular_thermo)
+        
+        if hasattr(self, 'incavity') and self.incavity:
+            # Add cavity particle thermodynamics
+            cavity_filter = hoomd.filter.Type(['L'])
+            self.cavity_thermo = hoomd.md.compute.ThermodynamicQuantities(filter=cavity_filter)
+            self.sim.operations.computes.append(self.cavity_thermo)
+        
+        # Run a single step to initialize all compute objects before setting up logger
+        # This ensures all properties are accessible when we add them to the logger
+        self.sim.run(1, write_at_start=False)
+        
+        # Now add thermodynamic quantities to logger after compute objects are initialized
+        logger[('System', 'kinetic_energy')] = (self.thermo, 'kinetic_energy', 'scalar')
+        logger[('System', 'potential_energy')] = (self.thermo, 'potential_energy', 'scalar')
+        logger[('System', 'temperature')] = (self.thermo, 'kinetic_temperature', 'scalar')
+        logger[('System', 'pressure')] = (self.thermo, 'pressure', 'scalar')
+        logger[('System', 'volume')] = (self.thermo, 'volume', 'scalar')
+        logger[('System', 'N_particles')] = (self.thermo, 'num_particles', 'scalar')
+        
+        logger[('Molecular', 'temperature')] = (self.molecular_thermo, 'kinetic_temperature', 'scalar')
+        logger[('Molecular', 'kinetic_energy')] = (self.molecular_thermo, 'kinetic_energy', 'scalar')
+        
+        if hasattr(self, 'incavity') and self.incavity:
+            logger[('Cavity', 'temperature')] = (self.cavity_thermo, 'kinetic_temperature', 'scalar')
+            logger[('Cavity', 'kinetic_energy')] = (self.cavity_thermo, 'kinetic_energy', 'scalar')
+        
+        try:
+            # Track thermostat energies
+            method_count = 0
+            for i, method in enumerate(self.sim.operations.integrator.methods):
+                if hasattr(method, 'thermostat') and method.thermostat is not None:
+                    if hasattr(method.thermostat, 'energy'):
                         try:
-                            logger[('Method', f'reservoir_energy_{i}')] = (method, 'reservoir_energy', 'scalar')
+                            logger[('Thermostat', f'energy_{i}')] = (method.thermostat, 'energy', 'scalar')
                             method_count += 1
-                            self.log_info(f"  Added reservoir energy tracking for method {i}")
+                            self.log_info(f"  Added thermostat energy tracking for method {i}")
                         except Exception as e:
-                            self.log_warning(f"  Failed to add reservoir energy for method {i}: {e}")
+                            self.log_warning(f"  Failed to add thermostat energy for method {i}: {e}")
                     
-                    # Track thermostat energies
-                    if hasattr(method, 'thermostat') and method.thermostat is not None:
-                        if hasattr(method.thermostat, 'energy'):
-                            try:
-                                logger[('Thermostat', f'energy_{i}')] = (method.thermostat, 'energy', 'scalar')
-                                self.log_info(f"  Added thermostat energy tracking for method {i}")
-                            except Exception as e:
-                                self.log_warning(f"  Failed to add thermostat energy for method {i}: {e}")
-                        
-                        # Track detailed BussiReservoir energies if available
-                        if hasattr(method.thermostat, 'total_reservoir_energy'):
-                            try:
-                                logger[('Thermostat', f'total_reservoir_energy_{i}')] = (method.thermostat, 'total_reservoir_energy', 'scalar')
-                                logger[('Thermostat', f'translational_energy_{i}')] = (method.thermostat, 'reservoir_energy_translational', 'scalar')
-                                logger[('Thermostat', f'rotational_energy_{i}')] = (method.thermostat, 'reservoir_energy_rotational', 'scalar')
-                                self.log_info(f"  Added detailed BussiReservoir energy tracking for method {i}")
-                            except Exception as e:
-                                self.log_warning(f"  Failed to add detailed thermostat energies for method {i}: {e}")
-                
-                # Track individual force energies
-                force_count = 0
-                for i, force in enumerate(self.sim.operations.integrator.forces):
-                    force_name = type(force).__name__.lower()
-                    try:
-                        if hasattr(force, 'energy'):
-                            logger[('Force', f'{force_name}_energy')] = (force, 'energy', 'scalar')
-                            force_count += 1
-                            self.log_info(f"  Added energy tracking for {force_name}")
-                        
-                        # Special handling for CavityForce with component energies
-                        if hasattr(force, 'harmonic_energy'):
-                            logger[('Cavity', 'harmonic_energy')] = (force, 'harmonic_energy', 'scalar')
-                            logger[('Cavity', 'coupling_energy')] = (force, 'coupling_energy', 'scalar')
-                            logger[('Cavity', 'dipole_self_energy')] = (force, 'dipole_self_energy', 'scalar')
-                            self.log_info(f"  Added detailed cavity energy components")
-                    except Exception as e:
-                        self.log_warning(f"  Failed to add energy tracking for {force_name}: {e}")
-                
-                self.log_info(f"Energy tracking setup completed: {method_count} methods, {force_count} forces")
-                
-                # Set up energy tracker from plugin for proper reservoir energy tracking
+                    # Track detailed BussiReservoir energies if available
+                    if hasattr(method.thermostat, 'total_reservoir_energy'):
+                        try:
+                            logger[('Thermostat', f'total_reservoir_energy_{i}')] = (method.thermostat, 'total_reservoir_energy', 'scalar')
+                            logger[('Thermostat', f'translational_energy_{i}')] = (method.thermostat, 'reservoir_energy_translational', 'scalar')
+                            logger[('Thermostat', f'rotational_energy_{i}')] = (method.thermostat, 'reservoir_energy_rotational', 'scalar')
+                            self.log_info(f"  Added detailed BussiReservoir energy tracking for method {i}")
+                        except Exception as e:
+                            self.log_warning(f"  Failed to add detailed thermostat energies for method {i}: {e}")
+            
+            # Track individual force energies
+            force_count = 0
+            for i, force in enumerate(self.sim.operations.integrator.forces):
+                force_name = type(force).__name__.lower()
                 try:
-                    name = getattr(self, 'name', 'sim')
-                    replica = getattr(self, 'replica', 0)
-                    energy_output_period_ps = getattr(self, 'energy_output_period_ps', 0.1)
-                    max_energy_output_time_ps = getattr(self, 'max_energy_output_time_ps', None)
+                    if hasattr(force, 'energy'):
+                        logger[('Force', f'{force_name}_energy')] = (force, 'energy', 'scalar')
+                        force_count += 1
+                        self.log_info(f"  Added energy tracking for {force_name}")
                     
-                    # Fix duplicate "energy" in filename - EnergyTracker adds "_energy_tracker.txt" automatically
-                    output_prefix = f'{name}-{replica}'
-                    actual_energy_filename = f'{output_prefix}_energy_tracker.txt'
-                    self.log_info(f"Setting up energy tracker with output file: {actual_energy_filename}")
+                    # Special handling for CavityForce with component energies
+                    if hasattr(force, 'harmonic_energy'):
+                        logger[('Cavity', 'harmonic_energy')] = (force, 'harmonic_energy', 'scalar')
+                        logger[('Cavity', 'coupling_energy')] = (force, 'coupling_energy', 'scalar')
+                        logger[('Cavity', 'dipole_self_energy')] = (force, 'dipole_self_energy', 'scalar')
+                        self.log_info(f"  Added detailed cavity energy components")
+                except Exception as e:
+                    self.log_warning(f"  Failed to add energy tracking for {force_name}: {e}")
+            
+            self.log_info(f"Energy tracking setup completed: {method_count} methods, {force_count} forces")
+            
+            # Set up energy tracker from plugin for proper reservoir energy tracking
+            try:
+                name = getattr(self, 'name', 'sim')
+                replica = getattr(self, 'replica', 0)
+                energy_output_period_ps = getattr(self, 'energy_output_period_ps', 0.1)
+                max_energy_output_time_ps = getattr(self, 'max_energy_output_time_ps', None)
+                
+                # Fix duplicate "energy" in filename - EnergyTracker adds "_energy_tracker.txt" automatically
+                output_prefix = f'{name}-{replica}'
+                actual_energy_filename = f'{output_prefix}_energy_tracker.txt'
+                self.log_info(f"Setting up energy tracker with output file: {actual_energy_filename}")
+                
+                self.log_info(f"Energy tracker configuration:")
+                self.log_info(f"  Using time-based output: {energy_output_period_ps:.3f} ps")
+                if max_energy_output_time_ps:
+                    self.log_info(f"  Max output time: {max_energy_output_time_ps:.3f} ps")
+                else:
+                    self.log_info(f"  No max time limit")
+                
+                # Prepare individual force objects for EnergyTracker
+                force_objects = {}
+                thermostat_objects = {}
+                
+                for force in self.sim.operations.integrator.forces:
+                    force_name = type(force).__name__.lower()
+                    if 'cavity' in force_name:
+                        force_objects['cavity'] = force
+                    elif 'lj' in force_name or 'lennard' in force_name:
+                        force_objects['lj'] = force
+                    elif 'harmonic' in force_name or 'bond' in force_name:
+                        force_objects['harmonic'] = force
+                    elif 'ewald' in force_name:
+                        force_objects['ewald_short'] = force  # Ewald is the short-range PPPM force
+                    elif 'coulomb' in force_name:
+                        force_objects['ewald_long'] = force   # Coulomb is the long-range PPPM force
+                
+                # Extract thermostat objects for EnergyTracker
+                for i, method in enumerate(self.sim.operations.integrator.methods):
+                    method_name = type(method).__name__.lower()
                     
-                    self.log_info(f"Energy tracker configuration:")
-                    self.log_info(f"  Using time-based output: {energy_output_period_ps:.3f} ps")
-                    if max_energy_output_time_ps:
-                        self.log_info(f"  Max output time: {max_energy_output_time_ps:.3f} ps")
-                    else:
-                        self.log_info(f"  No max time limit")
+                    # Check for Langevin methods (have reservoir_energy)
+                    if 'langevin' in method_name and hasattr(method, 'reservoir_energy'):
+                        # Determine if this is molecular or cavity based on filter
+                        if hasattr(method, 'filter'):
+                            filter_types = getattr(method.filter, '_types', [])
+                            if 'L' in filter_types:
+                                thermostat_objects['langevin_cavity'] = method
+                            else:
+                                thermostat_objects['langevin_molecular'] = method
                     
-                    # Prepare individual force objects for EnergyTracker
-                    force_objects = {}
-                    thermostat_objects = {}
-                    
-                    for force in self.sim.operations.integrator.forces:
-                        force_name = type(force).__name__.lower()
-                        if 'cavity' in force_name:
-                            force_objects['cavity'] = force
-                        elif 'lj' in force_name or 'lennard' in force_name:
-                            force_objects['lj'] = force
-                        elif 'harmonic' in force_name or 'bond' in force_name:
-                            force_objects['harmonic'] = force
-                        elif 'ewald' in force_name:
-                            force_objects['ewald_short'] = force  # Ewald is the short-range PPPM force
-                        elif 'coulomb' in force_name:
-                            force_objects['ewald_long'] = force   # Coulomb is the long-range PPPM force
-                    
-                    # Extract thermostat objects for EnergyTracker
-                    for i, method in enumerate(self.sim.operations.integrator.methods):
-                        method_name = type(method).__name__.lower()
-                        
-                        # Check for Langevin methods (have reservoir_energy)
-                        if 'langevin' in method_name and hasattr(method, 'reservoir_energy'):
+                    # Check for Bussi thermostats
+                    if hasattr(method, 'thermostat') and method.thermostat is not None:
+                        thermostat_type = type(method.thermostat).__name__.lower()
+                        if 'bussi' in thermostat_type:
                             # Determine if this is molecular or cavity based on filter
                             if hasattr(method, 'filter'):
                                 filter_types = getattr(method.filter, '_types', [])
                                 if 'L' in filter_types:
-                                    thermostat_objects['langevin_cavity'] = method
+                                    thermostat_objects['bussi_cavity'] = method.thermostat
                                 else:
-                                    thermostat_objects['langevin_molecular'] = method
-                        
-                        # Check for Bussi thermostats
-                        if hasattr(method, 'thermostat') and method.thermostat is not None:
-                            thermostat_type = type(method.thermostat).__name__.lower()
-                            if 'bussi' in thermostat_type:
-                                # Determine if this is molecular or cavity based on filter
-                                if hasattr(method, 'filter'):
-                                    filter_types = getattr(method.filter, '_types', [])
-                                    if 'L' in filter_types:
-                                        thermostat_objects['bussi_cavity'] = method.thermostat
-                                    else:
-                                        thermostat_objects['bussi_molecular'] = method.thermostat
-                    
-                    # Get kinetic trackers 
-                    kinetic_tracker = None  # Use internal kinetic computation
-                    
-                    self.log_info(f"Energy tracker configuration:")
-                    self.log_info(f"  Force objects: {list(force_objects.keys())}")
-                    self.log_info(f"  Thermostat objects: {list(thermostat_objects.keys())}")
-                    self.log_info(f"  Using internal kinetic computation (no external tracker needed)")
-                    
-                    # Use time-based output period for accurate timing
-                    self.energy_tracker = EnergyTracker(
-                        simulation=self.sim,
-                        components=['kinetic', 'harmonic', 'lj', 'ewald_short', 'ewald_long', 'cavity'],
-                        force_objects=force_objects,
-                        thermostat_objects=thermostat_objects,
-                        kinetic_tracker=kinetic_tracker,  # Use internal kinetic computation
-                        time_tracker=self.time_tracker,
-                        output_prefix=output_prefix,
-                        output_period_ps=energy_output_period_ps,  # Use time-based output!
-                        max_time_ps=max_energy_output_time_ps,  # Use time-based limit
-                        compute_temperature=True,
-                        track_reservoirs=True,
-                        verbose='quiet'  # Reduce verbose output - use 'verbose' for full debug output
-                    )
-                    
-                    # Add energy tracker to simulation - trigger period doesn't matter since it uses internal timing
-                    energy_updater = hoomd.update.CustomUpdater(
-                        action=self.energy_tracker,
-                        trigger=hoomd.trigger.Periodic(1)  # Check every step but tracker handles timing internally
-                    )
-                    self.sim.operations.updaters.append(energy_updater)
-                    
-                    self.log_info(f"✅ Energy tracker setup completed with time-based output:")
-                    self.log_info(f"  Output period: {energy_output_period_ps:.3f} ps (accurate timing)")
-                    self.log_info(f"  Tracker handles timing internally using ElapsedTimeTracker")
-                    if max_energy_output_time_ps:
-                        self.log_info(f"  Output limited to {max_energy_output_time_ps:.3f} ps")
-                    
-                except Exception as e:
-                    self.log_error(f"Failed to setup energy tracker: {e}")
-                    import traceback
-                    self.log_error("Full traceback:")
-                    for line in traceback.format_exc().split('\n'):
-                        if line.strip():
-                            self.log_error(line)
-                    self.energy_tracker = None
+                                    thermostat_objects['bussi_molecular'] = method.thermostat
+                
+                # Get kinetic trackers 
+                kinetic_tracker = None  # Use internal kinetic computation
+                
+                self.log_info(f"Energy tracker configuration:")
+                self.log_info(f"  Force objects: {list(force_objects.keys())}")
+                self.log_info(f"  Thermostat objects: {list(thermostat_objects.keys())}")
+                self.log_info(f"  Using internal kinetic computation (no external tracker needed)")
+                
+                # Use time-based output period for accurate timing
+                self.energy_tracker = EnergyTracker(
+                    simulation=self.sim,
+                    components=['kinetic', 'harmonic', 'lj', 'ewald_short', 'ewald_long', 'cavity'],
+                    force_objects=force_objects,
+                    thermostat_objects=thermostat_objects,
+                    kinetic_tracker=kinetic_tracker,  # Use internal kinetic computation
+                    time_tracker=self.time_tracker,
+                    output_prefix=output_prefix,
+                    output_period_ps=energy_output_period_ps,  # Use time-based output!
+                    max_time_ps=max_energy_output_time_ps,  # Use time-based limit
+                    compute_temperature=True,
+                    track_reservoirs=True,
+                    verbose='quiet'  # Reduce verbose output - use 'verbose' for full debug output
+                )
+                
+                # Add energy tracker to simulation - trigger period doesn't matter since it uses internal timing
+                energy_updater = hoomd.update.CustomUpdater(
+                    action=self.energy_tracker,
+                    trigger=hoomd.trigger.Periodic(1)  # Check every step but tracker handles timing internally
+                )
+                self.sim.operations.updaters.append(energy_updater)
+                
+                self.log_info(f"✅ Energy tracker setup completed with time-based output:")
+                self.log_info(f"  Output period: {energy_output_period_ps:.3f} ps (accurate timing)")
+                self.log_info(f"  Tracker handles timing internally using ElapsedTimeTracker")
+                if max_energy_output_time_ps:
+                    self.log_info(f"  Output limited to {max_energy_output_time_ps:.3f} ps")
                 
             except Exception as e:
-                self.log_warning(f"Could not complete energy tracking setup: {str(e)}")
-                self.log_warning(f"Error details: {type(e).__name__}: {str(e)}")
-                self.log_warning(f"Full traceback:")
+                self.log_error(f"Failed to setup energy tracker: {e}")
                 import traceback
-                traceback.print_exc()
-        else:
-            self.log_info("Detailed energy tracking disabled")
-            self.energy_tracker = None
+                self.log_error("Full traceback:")
+                for line in traceback.format_exc().split('\n'):
+                    if line.strip():
+                        self.log_error(line)
+                self.energy_tracker = None
+            
+        except Exception as e:
+            self.log_warning(f"Could not complete energy tracking setup: {str(e)}")
+            self.log_warning(f"Error details: {type(e).__name__}: {str(e)}")
+            self.log_warning(f"Full traceback:")
+            import traceback
+            traceback.print_exc()
         
         # Set up F(k,t) density correlation tracker if enabled
         enable_fkt = getattr(self, 'enable_fkt', False)
@@ -1747,15 +1794,19 @@ class CavityMDSimulation:
         if 'L' not in particle_types:
             raise ValueError("ERROR: Cavity simulation requested but no cavity particle type 'L' found in GSD file.")
         
-        with self.sim.state.cpu_local_snapshot as snap:
-            if 2 not in snap.particles.typeid:
+        with self.get_local_snapshot() as snap:
+            # Convert to numpy array for robust handling across CPU/GPU
+            typeid_array = self.to_numpy(snap.particles.typeid)
+            
+            if 2 not in typeid_array:
                 raise ValueError("ERROR: Cavity simulation requested but no cavity particles found in GSD file.")
             
-            cavity_count = np.sum(snap.particles.typeid == 2)
+            cavity_count = np.sum(typeid_array == 2)
             if cavity_count != 1:
                 raise ValueError(f"ERROR: Expected exactly 1 cavity particle but found {cavity_count} in GSD file.")
             
-            cavity_index = np.where(snap.particles.typeid == 2)[0][0]
+            cavity_indices = np.where(typeid_array == 2)[0]
+            cavity_index = cavity_indices[0]
             cavity_position = snap.particles.position[cavity_index]
             self.log_info(f"Cavity particle validated at index {cavity_index}, position {cavity_position}")
 
@@ -1789,10 +1840,6 @@ class CavityMDSimulation:
                 methods.append(cavity_method)
             self.setup_integrator(forces, methods)
             self.thermalize_system()
-            
-            # Phase 3.5: Compute and set optimal timestep (after thermalization, before logging)
-            self.log_info("=== Phase 3.5: Computing optimal timestep ===")
-            self.compute_and_set_optimal_timestep()
             
             # Phase 4: Setup trackers and loggers
             self.log_info("=== Phase 4: Setting up trackers and loggers ===")
@@ -1847,12 +1894,6 @@ class CavityMDSimulation:
         else:
             self.log_info(f"Fixed timestep mode - steps per ps: {1.0/actual_dt_ps:.1f}")
         
-        # Final check for Bussi thermostat compatibility - ensure non-zero velocities
-        if self.molecular_thermostat.lower() == 'bussi' or self.cavity_thermostat.lower() == 'bussi':
-            self.log_info("Performing final velocity check for Bussi thermostat compatibility...")
-            kT = self.kB * self.temperature
-            # self.ensure_nonzero_velocities(kT)  # No longer needed - proper thermalization already done
-        
         # Run the simulation
         self.sim.run(total_steps, write_at_start=True)
         
@@ -1870,6 +1911,58 @@ class CavityMDSimulation:
         
         self.log_info("Cleanup completed")
 
+    def get_local_snapshot(self):
+        """
+        Get the appropriate local snapshot context manager based on device type.
+        
+        Returns
+        -------
+        Local snapshot context manager (CPU or GPU)
+        """
+        if self.device == 'GPU':
+            return self.sim.state.gpu_local_snapshot
+        else:
+            return self.sim.state.cpu_local_snapshot
+
+    def get_particle_count(self, snap):
+        """
+        Get the number of particles from a local snapshot in a device-agnostic way.
+        
+        Parameters
+        ----------
+        snap : Local snapshot object
+            Either CPU or GPU local snapshot
+            
+        Returns
+        -------
+        int
+            Number of particles
+        """
+        if self.device == 'GPU':
+            # GPU snapshots don't have .N attribute, use length of an array
+            return len(snap.particles.typeid)
+        else:
+            # CPU snapshots have .N attribute
+            return snap.particles.N
+
+    def convert_to_numpy(self, array_data):
+        """
+        Convert array data to NumPy array, handling both CPU (NumPy) and GPU (CuPy) arrays.
+        
+        DEPRECATED: Use to_numpy() instead for better CuPy compatibility.
+        
+        Parameters
+        ----------
+        array_data : array-like
+            Array data from local snapshot (could be NumPy or CuPy)
+            
+        Returns
+        -------
+        np.ndarray
+            NumPy array
+        """
+        return self.to_numpy(array_data)
+
 
 class AdaptiveTimestepUpdater(hoomd.custom.Action):
     """Update timestep adaptively based on energy conservation and stability."""
@@ -1878,8 +1971,10 @@ class AdaptiveTimestepUpdater(hoomd.custom.Action):
                  initial_fraction=0.01, adaptiveerror=True, cavity_damping_factor=1.0, 
                  molecular_thermostat_tau=5.0, cavity_thermostat_tau=5.0, time_tracker=None,
                  switch_time_ps=None, timestep_change_threshold=0.1, max_timestep_change_factor=1.5,
-                 shock_dampening_factor=1e-3, shock_dampening_enabled=True):
+                 shock_dampening_factor=1e-3, shock_dampening_enabled=True, shock_dampening_time_constant_ps=50.0):
         super().__init__()
+        
+
         
         self.state = state
         self.integrator = integrator
@@ -1893,7 +1988,7 @@ class AdaptiveTimestepUpdater(hoomd.custom.Action):
         self.molecular_thermostat_tau = molecular_thermostat_tau
         self.cavity_thermostat_tau = cavity_thermostat_tau
         self.time_tracker = time_tracker  # Reference to ElapsedTimeTracker for accurate timing
-        self.switch_time_ps = switch_time_ps  # Time when ramping should start
+        self.switch_time_ps = switch_time_ps #Time when ramping should start
         
         # NEW: Shock dampening parameters
         self.shock_dampening_factor = shock_dampening_factor
@@ -1934,8 +2029,11 @@ class AdaptiveTimestepUpdater(hoomd.custom.Action):
         elif switch_time_ps is not None:
             print(f"Error tolerance ramping will start at t = {self.switch_time_ps} ps", flush=True)
             print(f"Before switch: error_tolerance = {self.target_error_tolerance:.2e} (final tolerance for efficiency)", flush=True)
-            print(f"At switch: error_tolerance drops to {self.initial_error_tolerance:.2e} (high precision)", flush=True)
-            print(f"After switch: error_tolerance ramps from {self.initial_error_tolerance:.2e} to {self.target_error_tolerance:.2e} with τ = {time_constant_ps} ps", flush=True)
+            if self.shock_dampening_factor > 0:
+                print(f"At switch: error_tolerance drops to {self.initial_error_tolerance:.2e} (high precision)", flush=True)
+                print(f"After switch: error_tolerance ramps from {self.initial_error_tolerance:.2e} to {self.target_error_tolerance:.2e} with τ = {time_constant_ps} ps", flush=True)
+            else:
+                print(f"At switch: error_tolerance remains at {self.target_error_tolerance:.2e} (no ramping, initial_fraction = 0.0)", flush=True)
             print(f"Switch detection: immediate timestep adjustment within {self.switch_detection_tolerance} ps of switch", flush=True)
         else:
             print("Error tolerance ramping starts immediately from t = 0 ps", flush=True)
@@ -1946,6 +2044,12 @@ class AdaptiveTimestepUpdater(hoomd.custom.Action):
         print(f"  Max change factor: {self.max_timestep_change_factor:.1f}", flush=True)
         print(f"  Min update interval: {self.min_update_interval} steps", flush=True)
         print(f"  Switch detection tolerance: {self.switch_detection_tolerance} ps", flush=True)
+
+        # DEBUG: Show key variables for shock dampening
+        #print(f"DEBUG: shock_dampening_factor = {shock_dampening_factor:.2e}", flush=True)
+        #print(f"DEBUG: shock_dampening_enabled = {shock_dampening_enabled}", flush=True)
+        #print(f"DEBUG: initial_error_tolerance = {self.initial_error_tolerance:.2e}", flush=True)
+        #print(f"DEBUG: shock_error_tolerance = {self.shock_error_tolerance:.2e}", flush=True)
 
     def act(self, timestep):
         """
@@ -1973,6 +2077,10 @@ class AdaptiveTimestepUpdater(hoomd.custom.Action):
         
         # NEW: Detect if we've just crossed the switch time
         force_immediate_update = False
+        #print(f"DEBUG: self.switch_time_ps = {self.switch_time_ps:.6f} ps", flush=True)
+        #print(f"DEBUG: current_elapsed_time_ps = {current_elapsed_time_ps:.6f} ps", flush=True)
+        #print(f"DEBUG: self.current_error_tolerance = {self.current_error_tolerance:.6f}", flush=True)
+        #print(f"DEBUG: self.shock_dampening_factor = {self.shock_dampening_factor:.6f}", flush=True)
         if (self.switch_time_ps is not None and not self.switch_detected and
             self.last_elapsed_time_ps < self.switch_time_ps <= current_elapsed_time_ps):
             
@@ -1992,24 +2100,49 @@ class AdaptiveTimestepUpdater(hoomd.custom.Action):
                     # Before switch: use target error tolerance
                     self.current_error_tolerance = self.target_error_tolerance
                 else:
-                    # After switch: implement shock dampening and exponential recovery
-                    ramping_time = current_elapsed_time_ps - self.switch_time_ps
-                    
-                    if self.shock_dampening_enabled:
-                        # NEW: Shock dampening mode - exponential recovery from shock tolerance
-                        exp_factor = np.exp(-ramping_time / self.time_constant_ps)
-                        self.current_error_tolerance = self.target_error_tolerance - \
-                                                      (self.target_error_tolerance - self.shock_error_tolerance) * exp_factor
+                    if current_elapsed_time_ps < self.switch_time_ps:
+                        self.current_error_tolerance = self.shock_error_tolerance
+                        #_time_ps = {current_elapsed_time_ps} ps", flush=True)
+                        #print(f"DEBUG: self.current_error_tolerance = {self.current_error_tolerance}", flush=True)
                     else:
-                        # Original mode - exponential recovery from initial tolerance
-                        exp_factor = np.exp(-ramping_time / self.time_constant_ps)
-                        self.current_error_tolerance = self.target_error_tolerance - \
-                                                      (self.target_error_tolerance - self.initial_error_tolerance) * exp_factor
+                    # After switch: implement shock dampening and exponential recovery
+                        ramping_time = current_elapsed_time_ps - self.switch_time_ps
+                        
+                        #if self.shock_dampening_enabled:
+                            # NEW: Shock dampening mode - exponential recovery from shock tolerance
+                            # SPECIAL CASE: If switch was just detected, start with exact shock tolerance
+                        if self.shock_dampening_enabled:
+                            if force_immediate_update:
+                                # At the exact moment of switch detection, use shock tolerance
+                                self.current_error_tolerance = self.shock_error_tolerance
+                            else:
+                                # Normal exponential recovery after switch
+                                exp_factor = np.exp(-ramping_time / self.time_constant_ps)
+                                self.current_error_tolerance = self.target_error_tolerance - \
+                                                                (self.target_error_tolerance - self.shock_error_tolerance) * exp_factor
+                        #else:
+                        #    # No ramping when initial_fraction = 0.0 - just use target tolerance
+                        #    self.current_error_tolerance = self.target_error_tolerance
+                    #if timestep % 1000 == 0:  # Debug output
+                    #    print(f"DEBUG: shock_dampening mode, ramping_time={ramping_time:.6f}, current_error_tolerance={self.current_error_tolerance:.2e}", flush=True)
+                    #elif self.shock_dampening_factor > 0:
+                        # Original mode - exponential recovery from initial tolerance (only if initial_fraction > 0)
+                    #    exp_factor = np.exp(-ramping_time / self.time_constant_ps)
+                    #    self.current_error_tolerance = self.target_error_tolerance - \
+                    #                                  (self.target_error_tolerance - self.initial_error_tolerance) * exp_factor
+                        #if timestep % 1000 == 0:  # Debug output
+                        #    print(f"DEBUG: ramping mode, ramping_time={ramping_time:.6f}, exp_factor={exp_factor:.6f}, current_error_tolerance={self.current_error_tolerance:.2e}", flush=True)
+                        #if timestep % 1000 == 0:  # Debug output
+                        #    print(f"DEBUG: no ramping mode, current_error_tolerance={self.current_error_tolerance:.2e}", flush=True)
             else:
-                # Original behavior: start ramping immediately from t=0
-                exp_factor = np.exp(-current_elapsed_time_ps / self.time_constant_ps)
-                self.current_error_tolerance = self.target_error_tolerance - \
-                                              (self.target_error_tolerance - self.initial_error_tolerance) * exp_factor
+                # Original behavior: start ramping immediately from t=0 (only if initial_fraction > 0)
+                if self.shock_dampening_factor > 0:
+                    exp_factor = np.exp(-current_elapsed_time_ps / self.time_constant_ps)
+                    self.current_error_tolerance = self.target_error_tolerance - \
+                                                  (self.target_error_tolerance - self.initial_error_tolerance) * exp_factor
+                else:
+                    # No ramping when initial_fraction = 0.0 - just use target tolerance
+                    self.current_error_tolerance = self.target_error_tolerance
         else:
             self.current_error_tolerance = self.target_error_tolerance
         
@@ -2030,112 +2163,79 @@ class AdaptiveTimestepUpdater(hoomd.custom.Action):
         # Initialize total forces array
         total_forces = np.zeros((n_particles, 3))
         
-        # Sum forces from all force objects
+        # Sum forces from all force objects - let errors propagate clearly
         for force in self.integrator.forces:
-            try:
-                particle_forces = force.forces
-                if particle_forces is not None and len(particle_forces) == n_particles:
-                    total_forces += np.asarray(particle_forces)
-            except (AttributeError, RuntimeError) as e:
-                # Skip forces that can't be accessed (e.g., not yet computed)
-                continue
+            particle_forces = force.forces
+            if particle_forces is not None and len(particle_forces) == n_particles:
+                total_forces += np.asarray(particle_forces)
         
         # Calculate sum |f_i| / m_i
         force_norm = np.array([np.linalg.norm(f) for f in total_forces])
-        force_mass_sum = np.sum(force_norm / masses)
+        force_max_norm = np.max(force_norm / masses) * n_particles
         
+        # DEBUG: Show force information when timestep becomes very large
+        # if timestep % 1000 == 0 or force_immediate_update:
+        #     max_force = np.max(force_norm) if len(force_norm) > 0 else 0.0
+        #     mean_force = np.mean(force_norm) if len(force_norm) > 0 else 0.0
+        #     min_mass = np.min(masses) if len(masses) > 0 else 0.0
+        #     max_mass = np.max(masses) if len(masses) > 0 else 0.0
+            #print(f"DEBUG FORCES: max_force={max_force:.2e} a.u., mean_force={mean_force:.2e} a.u., force_mass_sum={force_mass_sum:.2e} a.u.^-1", flush=True)
+            #print(f"DEBUG MASSES: min_mass={min_mass:.2e} a.u., max_mass={max_mass:.2e} a.u., n_particles={len(masses)}", flush=True)
+            
         # Compute optimal timestep using current error tolerance
-        if force_mass_sum > 0:
-            optimal_dt = np.sqrt(self.current_error_tolerance / force_mass_sum)
+        if force_max_norm > 0:
+            # Use error tolerance directly (no minimum protection)
+            # This allows observing dt=0.0 when error tolerance becomes zero during shock dampening
+            effective_error_tolerance = self.current_error_tolerance
+            #print(f"DEBUG: effective_error_tolerance = {effective_error_tolerance}", flush=True)
+
+            optimal_dt = np.sqrt(effective_error_tolerance / force_max_norm)
             current_dt = self.integrator.dt
+            # print(f"DEBUG: current_dt = {current_dt}", flush=True)
+            # print(f"DEBUG: force_max_norm = {force_max_norm}", flush=True)
+            # print(f"DEBUG: optimal_dt = {optimal_dt}", flush=True)
+            # DEBUG: Show exact values when switch is detected or shock dampening is active
+            #if force_immediate_update or (self.shock_dampening_enabled and self.switch_detected):
+            #    print(f"DEBUG SHOCK DAMPENING: effective_error_tolerance = {effective_error_tolerance:.2e}, optimal_dt = {optimal_dt:.6e} a.u. ({PhysicalConstants.atomic_units_to_ps(optimal_dt):.1f} ps)", flush=True)
             
             # Apply conservative timestep update logic
-            dt_ratio = optimal_dt / current_dt
+            # dt_ratio = optimal_dt / current_dt
             
-            # For forced updates (switch detected), be more aggressive with changes
-            if force_immediate_update:
-                # Allow larger changes when switch is detected for immediate stabilization
-                effective_change_threshold = self.timestep_change_threshold * 0.1  # 10x more sensitive
-                effective_max_change_factor = self.max_timestep_change_factor * 2.0  # Allow 2x larger changes
-            else:
-                # Normal conservative parameters
-                effective_change_threshold = self.timestep_change_threshold
-                effective_max_change_factor = self.max_timestep_change_factor
+            # # For forced updates (switch detected), be more aggressive with changes
+            # if force_immediate_update:
+            #     # Allow larger changes when switch is detected for immediate stabilization
+            #     effective_change_threshold = self.timestep_change_threshold * 0.1  # 10x more sensitive
+            #     effective_max_change_factor = self.max_timestep_change_factor * 2.0  # Allow 2x larger changes
+            # else:
+            #     # Normal conservative parameters
+            #     effective_change_threshold = self.timestep_change_threshold
+            #     effective_max_change_factor = self.max_timestep_change_factor
             
             # Only update if the change is significant (or forced)
-            if force_immediate_update or abs(dt_ratio - 1.0) > effective_change_threshold:
-                # Limit the maximum change to prevent dramatic jumps
-                if dt_ratio > effective_max_change_factor:
-                    new_dt = current_dt * effective_max_change_factor
-                    clamped = True
-                elif dt_ratio < (1.0 / effective_max_change_factor):
-                    new_dt = current_dt / effective_max_change_factor
-                    clamped = True
-                else:
-                    new_dt = optimal_dt
-                    clamped = False
+            #if force_immediate_update or abs(dt_ratio - 1.0) > effective_change_threshold:
+            # SPECIAL CASE: Allow dt=0 when optimal_dt is exactly zero (shock dampening)
+            # if optimal_dt == 0.0:
+            #     new_dt = 0.0
+            #     clamped = False
+            #     print(f"  SPECIAL: Setting dt = 0.0 exactly (optimal_dt = 0.0 from shock dampening)", flush=True)
+            # # Limit the maximum change to prevent dramatic jumps (normal cases)
+            # elif dt_ratio > effective_max_change_factor:
+            #     new_dt = current_dt * effective_max_change_factor
+            #     clamped = True
+            # elif dt_ratio < (1.0 / effective_max_change_factor):
+            #     new_dt = current_dt / effective_max_change_factor
+            #     clamped = True
+            # else:
+            #     new_dt = optimal_dt
+            #     clamped = False
+            
+            # Apply the timestep change
+            self.integrator.dt = optimal_dt
+            self.last_timestep_update = timestep
                 
-                # Apply the timestep change
-                self.integrator.dt = new_dt
-                self.last_timestep_update = timestep
-                
-                # Log the timestep change (always log for forced updates, otherwise reduced frequency)
-                if force_immediate_update or timestep % 5000 == 0 or clamped:
-                    update_type = "FORCED (switch)" if force_immediate_update else "regular"
-                    print(f"Timestep updated at step {timestep} ({update_type}): {PhysicalConstants.atomic_units_to_ps(current_dt)*1e15:.1f} → {PhysicalConstants.atomic_units_to_ps(new_dt)*1e15:.1f} fs (error_tol: {self.current_error_tolerance:.2e})", flush=True)
-                    if clamped:
-                        print(f"  CLAMPED by max change factor", flush=True)
-                    if force_immediate_update:
-                        print(f"  Switch-triggered update: error_tolerance dropped to {self.current_error_tolerance:.2e}", flush=True)
-                
-                # Update thermostat parameters only when timestep actually changes
-                self._update_thermostat_parameters()
-            else:
-                # Timestep change is too small, don't update
-                if timestep % 5000 == 0:  # Less frequent logging
-                    print(f"Timestep change too small at step {timestep}: {dt_ratio:.3f} (threshold: {effective_change_threshold:.3f})", flush=True)
         else:
             if timestep % 5000 == 0:
                 print(f"WARNING: Zero force detected at step {timestep} - keeping current timestep", flush=True)
-
-    def _update_thermostat_parameters(self):
-        """Update thermostat parameters when timestep changes."""
-        # Convert thermostat time constants from ps to atomic units
-        molecular_tau_au = PhysicalConstants.ps_to_atomic_units(self.molecular_thermostat_tau)
-        cavity_tau_au = PhysicalConstants.ps_to_atomic_units(self.cavity_thermostat_tau)
-        
-        # Update thermostat parameters for both molecular and cavity methods
-        # methods[0] is always molecular method, methods[1] is cavity method (if present)
-        
-        # Update molecular method thermostat parameters
-        molecular_method = self.integrator.methods[0]
-        if hasattr(molecular_method, 'default_gamma'):  # Langevin thermostat
-            molecular_method.default_gamma = PhysicalConstants.gamma_from_tau_ps(self.molecular_thermostat_tau)
-        elif hasattr(molecular_method, 'thermostat'):  # Bussi or MTTK thermostat
-            if hasattr(molecular_method.thermostat, 'tau'):
-                if hasattr(molecular_method.thermostat, 'translational_dof'):  # MTTK thermostat
-                    molecular_method.thermostat.tau = molecular_tau_au  # Use configurable tau
-                else:  # Bussi thermostat
-                    molecular_method.thermostat.tau = molecular_tau_au  # Use configurable tau
-        
-        # Update cavity method thermostat parameters if present
-        if len(self.integrator.methods) > 1:
-            cavity_method = self.integrator.methods[1]
-            if hasattr(cavity_method, 'default_gamma'):  # Langevin or Brownian thermostat
-                if hasattr(cavity_method, 'gamma'):  # Brownian dynamics
-                    # Brownian dynamics has per-type gamma parameters - apply damping factor
-                    base_gamma = PhysicalConstants.gamma_from_tau_ps(self.cavity_thermostat_tau)
-                    cavity_method.default_gamma = self.cavity_damping_factor * base_gamma
-                else:  # Langevin thermostat
-                    # Apply damping factor to base gamma calculated from tau
-                    base_gamma = PhysicalConstants.gamma_from_tau_ps(self.cavity_thermostat_tau)
-                    cavity_method.default_gamma = self.cavity_damping_factor * base_gamma
-            elif hasattr(cavity_method, 'thermostat'):  # Bussi or MTTK thermostat
-                if hasattr(cavity_method.thermostat, 'tau'):
-                    if hasattr(cavity_method.thermostat, 'translational_dof'):  # MTTK thermostat
-                        cavity_method.thermostat.tau = cavity_tau_au  # Use configurable tau
-                    else:  # Bussi thermostat
-                        cavity_method.thermostat.tau = cavity_tau_au  # Use configurable tau
 
     @property
     def error_tolerance(self):
