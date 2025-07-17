@@ -86,7 +86,7 @@ def plot_energy_and_temperature(data, columns, output_file=None):
     molecular_total, cavity_total, reservoir_total, universe_total = calculate_energy_components(data, columns)
     
     # Create figure with two subplots
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 6), sharex=True)
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(6, 6), sharex=True)
     
     # Panel 1: Energy components
     time_ps = data[:, columns['time(ps)']]
