@@ -962,6 +962,38 @@ class CavityMDSimulation:
         
         if not self.restart_velocities:
             self.log_info("Velocity restart disabled - keeping existing velocities from GSD file")
+            # Check if we need to verify existing velocities
+            with self.get_local_snapshot() as snap:
+                # Get masses and velocities
+                masses = self.to_numpy(snap.particles.mass)
+                velocities = self.to_numpy(snap.particles.velocity)
+                typeid_array = self.to_numpy(snap.particles.typeid)
+                
+                # Filter for molecular particles only (typeid != 2)
+                molecular_mask = typeid_array != 2
+                
+                if np.any(molecular_mask):
+                    # Extract molecular particles data
+                    mol_masses = masses[molecular_mask]
+                    mol_velocities = velocities[molecular_mask]
+                    
+                    # Calculate kinetic energy: KE = 0.5 * m * v²
+                    v_squared = np.sum(mol_velocities**2, axis=1)
+                    kinetic_energy = 0.5 * mol_masses * v_squared
+                    total_ke = np.sum(kinetic_energy)
+                    
+                    # Calculate temperature: T = (2/3) * KE / (N * kB)
+                    n_mol_particles = np.sum(molecular_mask)
+                    degrees_of_freedom = 3 * n_mol_particles
+                    current_temp = (2.0) * total_ke / (degrees_of_freedom * self.kB)
+                    
+                    self.log_info(f"Initial kinetic temperature from existing velocities: {current_temp:.2f} K")
+                    
+                    # Exit if temperature is too high (> 10K)
+                    if current_temp-100.0 > 10.0:
+                        self.log_info(f"ERROR: Initial temperature too high ({current_temp:.2f} K > 10 K). Exiting.")
+                        import sys
+                        sys.exit(1)
             return
         
         kT = self.kB * self.temperature
@@ -985,7 +1017,47 @@ class CavityMDSimulation:
             # No cavity particle, thermalize all particles
             self.sim.state.thermalize_particle_momenta(kT=kT, filter=hoomd.filter.All())
             self.log_info("Thermalized all molecular particles")
-        
+        # Check temperature of the molecular system
+        # Get current snapshot to analyze velocities
+        with self.get_local_snapshot() as snap:
+            # Get masses and velocities
+            masses = self.to_numpy(snap.particles.mass)
+            velocities = self.to_numpy(snap.particles.velocity)
+            typeid_array = self.to_numpy(snap.particles.typeid)
+            
+            # Filter for molecular particles only (typeid != 2)
+            molecular_mask = typeid_array != 2
+            
+            if np.any(molecular_mask):
+                # Extract molecular particles data
+                mol_masses = masses[molecular_mask]
+                mol_velocities = velocities[molecular_mask]
+                
+                # Calculate kinetic energy: KE = 0.5 * m * v²
+                v_squared = np.sum(mol_velocities**2, axis=1)
+                kinetic_energy = 0.5 * mol_masses * v_squared
+                total_ke = np.sum(kinetic_energy)
+                
+                # Calculate temperature: T = (2/3) * KE / (N * kB)
+                n_mol_particles = np.sum(molecular_mask)
+                degrees_of_freedom = 3 * n_mol_particles
+                current_temp = (2.0 ) * total_ke / (degrees_of_freedom  * self.kB)
+                
+                self.log_info(f"Checking molecular system temperature after thermalization:")
+                self.log_info(f"  Number of molecular particles: {n_mol_particles}")
+                self.log_info(f"  Total kinetic energy: {total_ke:.6f} a.u.")
+                self.log_info(f"  Current temperature: {current_temp:.1f} K")
+                
+                # Exit if temperature is too high
+                if current_temp-100.0 > 10.0:
+                    self.log_info(f"ERROR: Molecular system temperature ({current_temp:.1f} K) exceeds 10 K threshold!")
+                    self.log_info("Terminating simulation for safety.")
+                    import sys
+                    sys.exit(1)
+                else:
+                    self.log_info(f"Temperature check passed: {current_temp:.1f} K is within acceptable range (≤ 10 K)")
+            else:
+                self.log_info("WARNING: No molecular particles found for temperature check!")
         self.log_info("Thermalization completed - velocities properly initialized")
 
     def _thermalize_cavity_particle_manually(self, kT):
