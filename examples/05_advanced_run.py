@@ -32,6 +32,12 @@ BASIC USAGE:
    # Run with finite-q cavity mode
    python 05_advanced_run.py --molecular-bath bussi --cavity-bath langevin --finite-q --coupling 1e-3 --runtime 1000
 
+   # Run with time-varying coupling (step function)
+   python 05_advanced_run.py --molecular-bath bussi --cavity-bath langevin --coupling 1e-3 --switch-time 100 --runtime 1000
+   
+   # Run with exponential decay after switching
+   python 05_advanced_run.py --molecular-bath bussi --cavity-bath langevin --coupling 1e-3 --switch-time 100 --decay-time-constant 50 --runtime 1000
+
 CAVITY PARTICLE HANDLING:
    The script automatically detects whether cavity particles already exist in your GSD file:
    - If cavity particles exist: Uses them (validates count and properties)
@@ -53,6 +59,9 @@ ADVANCED FEATURES:
 - --fixed-timestep: Use fixed timestep instead of adaptive
 - --device GPU: Run on GPU instead of CPU
 - --seed: Control random seed for reproducibility
+- --zero-momentum: Periodic momentum zeroing to prevent center-of-mass drift
+- --switch-time: Time-varying coupling activation
+- --decay-time-constant: Exponential decay of coupling after switching
 
 OUTPUT CONTROL:
 - Separate output periods for different observables (energy, F(k,t), trajectories, console)
@@ -84,10 +93,10 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
                          energy_output_period_ps=0.1, fkt_output_period_ps=1.0, 
                          gsd_output_period_ps=50.0, console_output_period_ps=1.0, 
                          truncate_gsd=False, seed=None, restart_velocities=True,
-                         switch_time_ps=None, damping_ratio=0.0,
+                         switch_time_ps=None, decay_time_constant_ps=None, damping_ratio=0.0,
                          enable_dipole_autocorr=False, dipole_ref_interval=1.0, dipole_max_refs=10, 
                          dipole_output_period_ps=1.0, error_tolerance=5.0, initial_fraction=1e-5, 
-                         time_constant_ps=50.0):
+                         time_constant_ps=50.0, zero_momentum_enabled=False, zero_momentum_period_ps=1.0):
     """
     Run a single experiment using the CavityMDSimulation class from the plugin.
     """
@@ -105,7 +114,12 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
             if switch_time_ps is not None:
                 # Include switch time in directory name for time-varying simulations
                 switch_str = f"_switch_{switch_time_ps}ps"
-                exp_dir = Path(f"cavity_coupling_{coupling_str}{switch_str}")
+                if decay_time_constant_ps is not None:
+                    # Include decay time constant for exponential decay simulations
+                    decay_str = f"_decay_{decay_time_constant_ps}ps"
+                    exp_dir = Path(f"cavity_coupling_{coupling_str}{switch_str}{decay_str}")
+                else:
+                    exp_dir = Path(f"cavity_coupling_{coupling_str}{switch_str}")
             else:
                 exp_dir = Path(f"cavity_coupling_{coupling_str}")
         else:
@@ -119,6 +133,10 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
             print(f"  Coupling strength: {coupling}")
             if switch_time_ps is not None:
                 print(f"  Switch time: {switch_time_ps} ps")
+                if decay_time_constant_ps is not None:
+                    print(f"  Decay time constant: {decay_time_constant_ps} ps (exponential decay)")
+                else:
+                    print(f"  Decay: None (step function)")
                 print(f"  Damping ratio (zeta): {damping_ratio}")
                 print(f"  Calculated dissipation (c): {dissipation:.4e} a.u.")
             else:
@@ -179,13 +197,16 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
             seed=seed,
             restart_velocities=restart_velocities,
             switch_time_ps=switch_time_ps,
+            decay_time_constant_ps=decay_time_constant_ps,
             dissipation=dissipation,
             enable_dipole_autocorr=enable_dipole_autocorr,
             dipole_reference_interval_ps=dipole_ref_interval,
             dipole_max_references=dipole_max_refs,
             dipole_output_period_ps=dipole_output_period_ps,
             initial_fraction=initial_fraction,
-            time_constant_ps=time_constant_ps
+            time_constant_ps=time_constant_ps,
+            zero_momentum_enabled=zero_momentum_enabled,
+            zero_momentum_period_ps=zero_momentum_period_ps
         )
         
         # Run the simulation
@@ -214,6 +235,8 @@ def main():
                        help='Cavity coupling strength (default: 1e-3)')
     parser.add_argument('--switch-time', type=float, 
                        help='Time in ps when coupling and dissipation turn on (default: on from start)')
+    parser.add_argument('--decay-time-constant', type=float,
+                       help='Exponential decay time constant in ps for coupling after switch (default: no decay)')
     parser.add_argument('--damping-ratio', type=float, default=0.0,
                        help='Damping ratio (zeta) for the cavity mode (default: 0.0)')
     parser.add_argument('--temperature', type=float, default=100.0, 
@@ -306,6 +329,12 @@ def main():
     parser.add_argument('--no-restart-velocities', action='store_true', 
                        help='Do not restart velocities - use existing velocities from GSD file (default: restart velocities)')
     
+    # Momentum zeroing control
+    parser.add_argument('--zero-momentum', action='store_true', 
+                       help='Enable periodic momentum zeroing to prevent center-of-mass drift (default: disabled)')
+    parser.add_argument('--zero-momentum-period-ps', type=float, default=1.0, 
+                       help='Period for momentum zeroing in ps (default: 1.0)')
+    
     args = parser.parse_args()
     
     print("Advanced Cavity MD Experiment Runner")
@@ -344,6 +373,9 @@ def main():
         print(f"    GPU ID: {args.gpu_id}")
     print(f"  Random seed: {args.seed if args.seed is not None else 'replica-based (deterministic)'}")
     print(f"  Velocity restart: {'Disabled - using GSD velocities' if args.no_restart_velocities else 'Enabled - thermalizing velocities'}")
+    print(f"  Momentum zeroing: {'Enabled' if args.zero_momentum else 'Disabled'}")
+    if args.zero_momentum:
+        print(f"    Period: {args.zero_momentum_period_ps} ps")
     
     # Set up device configuration
     device = args.device.upper()
@@ -402,7 +434,10 @@ def main():
             dipole_output_period_ps=args.dipole_output_period_ps,
             error_tolerance=args.error_tolerance,
             initial_fraction=args.initial_fraction,
-            time_constant_ps=args.time_constant_ps
+            time_constant_ps=args.time_constant_ps,
+            zero_momentum_enabled=args.zero_momentum,
+            zero_momentum_period_ps=args.zero_momentum_period_ps,
+            decay_time_constant_ps=args.decay_time_constant
         )
         
         if success:

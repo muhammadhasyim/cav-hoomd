@@ -121,6 +121,10 @@ class CavityMDSimulation:
         Time in ps to switch coupling from 0 to target value. Default: None (constant coupling)
     dissipation : float, optional
         Cavity dissipation coefficient in atomic units. Default: 0.0
+    decay_time_constant_ps : float, optional
+        Exponential decay time constant in picoseconds for time-varying coupling.
+        If provided with switch_time_ps, coupling decays as exp(-(t-t_switch)/τ_decay)
+        after switching. Default: None (no decay, standard step function)
     enable_energy_tracking : bool, optional
         Whether to enable comprehensive energy tracking. Default: False
     enable_fkt : bool, optional
@@ -135,6 +139,10 @@ class CavityMDSimulation:
         Initial fraction for shock dampening (ratio of initial to target error tolerance). Default: 1e-5
     time_constant_ps : float, optional
         Time constant for error tolerance ramping in ps. Default: 50.0
+    zero_momentum_enabled : bool, optional
+        Whether to periodically zero out system momentum to prevent center-of-mass drift. Default: False
+    zero_momentum_period_ps : float, optional
+        Period for momentum zeroing in picoseconds. Default: 1.0
         
     **Advanced Parameters:**
         
@@ -238,6 +246,20 @@ class CavityMDSimulation:
     ... )
     >>> exit_code = gpu_sim.run()
     
+    **Simulation with momentum zeroing:**
+    
+    >>> momentum_sim = CavityMDSimulation(
+    ...     job_dir="momentum_control",
+    ...     replica=1,
+    ...     freq=2000.0,
+    ...     couplstr=0.001,
+    ...     incavity=True,
+    ...     runtime_ps=1000.0,
+    ...     zero_momentum_enabled=True,
+    ...     zero_momentum_period_ps=2.0  # Zero momentum every 2 ps
+    ... )
+    >>> exit_code = momentum_sim.run()
+    
     Notes
     -----
     - Automatically handles cavity particle setup and validation
@@ -246,6 +268,7 @@ class CavityMDSimulation:
     - Compatible with SLURM array jobs and local execution
     - Outputs organized trajectories, logs, and analysis data
     - Maintains energy conservation during time-varying coupling
+    - Optional momentum zeroing prevents center-of-mass drift during long simulations
     
     See Also
     --------
@@ -307,10 +330,13 @@ class CavityMDSimulation:
                  restart_velocities: bool = True,
                  switch_time_ps: Optional[float] = None, 
                  dissipation: float = 0.0,
+                 decay_time_constant_ps: Optional[float] = None,
                  initial_fraction: float = 1e-5,
                  time_constant_ps: float = 50.0,
                  transition_time_ps: float = 0.5,
-                 use_smooth_switching: bool = True) -> None:
+                 use_smooth_switching: bool = True,
+                 zero_momentum_enabled: bool = False,
+                 zero_momentum_period_ps: float = 1.0) -> None:
         """Initialize the CavityMDSimulation with simulation parameters."""
         self.job_dir = job_dir
         self.replica = replica
@@ -335,10 +361,15 @@ class CavityMDSimulation:
         # Time-varying parameters
         self.switch_time_ps = switch_time_ps
         self.dissipation = dissipation
+        self.decay_time_constant_ps = decay_time_constant_ps
         
         # Adaptive timestep parameters
         self.initial_fraction = initial_fraction
         self.time_constant_ps = time_constant_ps
+        
+        # Momentum zeroing parameters
+        self.zero_momentum_enabled = zero_momentum_enabled
+        self.zero_momentum_period_ps = zero_momentum_period_ps
         
         # Logging parameters - simplified to console only
         self.log_level = log_level
@@ -633,19 +664,29 @@ class CavityMDSimulation:
                 coupling_variant = StepVariant(
                     target_value=self.couplstr,
                     switch_time_ps=self.switch_time_ps,
-                    time_tracker=self.time_tracker
+                    time_tracker=self.time_tracker,
+                    decay_time_constant_ps=self.decay_time_constant_ps
                 )
                 
                 dissipation_variant = StepVariant(
                     target_value=self.dissipation,
                     switch_time_ps=self.switch_time_ps,
-                    time_tracker=self.time_tracker
+                    time_tracker=self.time_tracker,
+                    decay_time_constant_ps=self.decay_time_constant_ps
                 )
                 
-                self.log_info(f"Using instantaneous switching:")
-                self.log_info(f"  Switch time: {self.switch_time_ps} ps")
-                self.log_info(f"  Coupling: 0 → {self.couplstr} a.u. (instantaneous)")
-                self.log_info(f"  Dissipation: 0 → {self.dissipation} a.u. (instantaneous)")
+                # Update log messages based on whether decay is enabled
+                if self.decay_time_constant_ps is not None:
+                    self.log_info(f"Using step switching with exponential decay:")
+                    self.log_info(f"  Switch time: {self.switch_time_ps} ps")
+                    self.log_info(f"  Decay time constant: {self.decay_time_constant_ps} ps")
+                    self.log_info(f"  Coupling: 0 → {self.couplstr} a.u. (with decay)")
+                    self.log_info(f"  Dissipation: 0 → {self.dissipation} a.u. (with decay)")
+                else:
+                    self.log_info(f"Using instantaneous switching:")
+                    self.log_info(f"  Switch time: {self.switch_time_ps} ps")
+                    self.log_info(f"  Coupling: 0 → {self.couplstr} a.u. (instantaneous)")
+                    self.log_info(f"  Dissipation: 0 → {self.dissipation} a.u. (instantaneous)")
                 
                 # Create cavity force with variants
                 from .forces import CavityForce
@@ -1488,6 +1529,44 @@ class CavityMDSimulation:
         # Store logger for later use
         self.logger_hoomd = logger
         
+        # ===== MOMENTUM ZEROING SETUP =====
+        if self.zero_momentum_enabled:
+            try:
+                self.log_info("Setting up momentum zeroing...")
+                self.log_info(f"  Zero momentum period: {self.zero_momentum_period_ps:.3f} ps")
+                
+                # Calculate trigger period in timesteps for momentum zeroing
+                # Use conservative step-based trigger for efficiency since exact timing is less critical
+                if self.error_tolerance > 0:
+                    # Adaptive timestep mode - use estimated steps based on expected timestep
+                    estimated_dt_ps = 0.001  # Assume ~1 fs average timestep
+                    zero_momentum_steps = max(1, int(self.zero_momentum_period_ps / estimated_dt_ps))
+                    zero_momentum_steps = min(zero_momentum_steps, 10000)  # Cap at reasonable value
+                    self.log_info(f"  Using estimated trigger: every {zero_momentum_steps} steps (adaptive mode)")
+                else:
+                    # Fixed timestep mode - use precise calculation
+                    zero_momentum_steps = max(1, int(self.zero_momentum_period_ps / self.dt_ps))
+                    self.log_info(f"  Using calculated trigger: every {zero_momentum_steps} steps (fixed mode)")
+                
+                # Create ZeroMomentum updater
+                zero_momentum = hoomd.md.update.ZeroMomentum(
+                    trigger=hoomd.trigger.Periodic(zero_momentum_steps)
+                )
+                
+                # Add to simulation operations
+                self.sim.operations.updaters.append(zero_momentum)
+                
+                self.log_info("✅ Momentum zeroing successfully enabled:")
+                self.log_info(f"  Trigger period: every {zero_momentum_steps} steps")
+                self.log_info(f"  Target period: {self.zero_momentum_period_ps:.3f} ps")
+                self.log_info("  Prevents center-of-mass drift during simulation")
+                
+            except Exception as e:
+                self.log_warning(f"Could not set up momentum zeroing: {str(e)}")
+                self.log_warning("Continuing simulation without momentum zeroing")
+        else:
+            self.log_info("Momentum zeroing disabled")
+        
         # Create console output with only performance and time metrics
         console_items = ["timestep", "tps", "elapsed_time", "ns_per_day", "eta", "dt(fs)"]
         
@@ -1513,6 +1592,8 @@ class CavityMDSimulation:
             enabled_features.append(f"dipole autocorrelation ({dipole_output_period_ps:.3f} ps)")
         if hasattr(self, 'adaptive_action') and self.adaptive_action is not None:
             enabled_features.append("adaptive timestep control")
+        if self.zero_momentum_enabled:
+            enabled_features.append(f"momentum zeroing ({self.zero_momentum_period_ps:.3f} ps)")
         
         if enabled_features:
             self.log_info(f"Advanced features enabled: {', '.join(enabled_features)}")

@@ -79,6 +79,7 @@ class CavityMDExperiment:
             'finite_q': 'finite_q',
             'coupling': 'coupling_strength',
             'switch_time': 'switch_time_ps',
+            'decay_time_constant': 'decay_time_constant_ps',
             'temperature': 'temperature',
             'frequency': 'frequency',
             'runtime': 'runtime_ps',

@@ -12,16 +12,27 @@ from .analysis import ElapsedTimeTracker
 
 class StepVariant(hoomd.variant.Variant):
     r"""
-    Step function variant for instantaneous coupling switching.
+    Step function variant for instantaneous coupling switching with optional exponential decay.
     
     Implements a discontinuous step function that switches from 0.0 to a target
-    value at a specified switch time, enabling study of time-varying cavity coupling:
+    value at a specified switch time, with optional exponential decay after switching:
+    
+    **Without decay:**
     
     .. math::
         
         g(t) = \begin{cases}
         0 & \text{if } t < t_{\text{switch}} \\
         g_{\text{target}} & \text{if } t \geq t_{\text{switch}}
+        \end{cases}
+    
+    **With decay:**
+    
+    .. math::
+        
+        g(t) = \begin{cases}
+        0 & \text{if } t < t_{\text{switch}} \\
+        g_{\text{target}} \exp\left(-\frac{t - t_{\text{switch}}}{\tau_{\text{decay}}}\right) & \text{if } t \geq t_{\text{switch}}
         \end{cases}
     
     This creates a time-dependent coupling strength:
@@ -39,13 +50,15 @@ class StepVariant(hoomd.variant.Variant):
     
     - Pump-probe experiments with laser activation
     - Sudden cavity tuning into molecular resonance  
-    - Dynamic switching protocols
+    - Dynamic switching protocols with decay
     - Non-equilibrium cavity-coupling studies
+    - Cavity mode decoherence and damping effects
     
     **Energy Conservation:**
     
     During switching, total energy is conserved. However, energy redistribution
     occurs between molecular and cavity modes according to the new coupling strength.
+    With decay, energy is gradually dissipated from the cavity mode.
     
     Parameters
     ----------
@@ -55,6 +68,10 @@ class StepVariant(hoomd.variant.Variant):
         The switch time :math:`t_{\text{switch}}` in picoseconds
     time_tracker : ElapsedTimeTracker
         Time tracker for accurate timing in adaptive timestep simulations
+    decay_time_constant_ps : float, optional
+        The exponential decay time constant :math:`\tau_{\text{decay}}` in picoseconds.
+        If None, no decay occurs (standard step function). If provided, the coupling
+        decays exponentially after switching with time constant τ_decay.
         
     Attributes
     ----------
@@ -62,14 +79,16 @@ class StepVariant(hoomd.variant.Variant):
         Target coupling value after switching
     switch_time_ps : float
         Switch time in picoseconds
+    decay_time_constant_ps : float or None
+        Decay time constant in picoseconds, or None for no decay
     current_value : float
-        Current value of the variant (0.0 before switch, target_value after)
+        Current value of the variant (0.0 before switch, decaying after switch)
     has_switched : bool
         Whether the switching has occurred
         
     Examples
     --------
-    **Basic step variant:**
+    **Basic step variant (no decay):**
     
     >>> from hoomd.cavitymd.variants import StepVariant
     >>> from hoomd.cavitymd.analysis import ElapsedTimeTracker
@@ -83,26 +102,37 @@ class StepVariant(hoomd.variant.Variant):
     ...     switch_time_ps=1.0,
     ...     time_tracker=time_tracker
     ... )
+    
+    **Step variant with exponential decay:**
+    
+    >>> # Switch at 1 ps, then decay with 2 ps time constant
+    >>> decaying_variant = StepVariant(
+    ...     target_value=0.001,
+    ...     switch_time_ps=1.0,
+    ...     time_tracker=time_tracker,
+    ...     decay_time_constant_ps=2.0  # Decay with τ = 2 ps
+    ... )
     >>> 
     >>> # Use in cavity force
     >>> cavity_force = CavityForce(
     ...     kvector=[0, 0, 1],
-    ...     couplstr=coupling_variant,
+    ...     couplstr=decaying_variant,
     ...     omegac=0.00913  # 2000 cm⁻¹
     ... )
     
-    **Time-varying dissipation:**
+    **Time-varying dissipation with decay:**
     
-    >>> # Also switch dissipation simultaneously
+    >>> # Also switch dissipation simultaneously with different decay
     >>> dissipation_variant = StepVariant(
     ...     target_value=0.0001,  # Add damping after switch
     ...     switch_time_ps=1.0,
-    ...     time_tracker=time_tracker
+    ...     time_tracker=time_tracker,
+    ...     decay_time_constant_ps=5.0  # Longer decay for dissipation
     ... )
     >>> 
     >>> cavity_force = CavityForce(
     ...     kvector=[0, 0, 1],
-    ...     couplstr=coupling_variant,
+    ...     couplstr=decaying_variant,
     ...     omegac=0.00913,
     ...     dissipation=dissipation_variant
     ... )
@@ -111,8 +141,10 @@ class StepVariant(hoomd.variant.Variant):
     -----
     - Requires ElapsedTimeTracker for accurate timing in adaptive timestep simulations
     - The switch is instantaneous (discontinuous) which may cause transients
+    - Exponential decay is continuous after switching
     - Compatible with both coupling strength and dissipation parameters
-    - Switching preserves total system energy but redistributes it between modes
+    - Decay time constant should be chosen based on physical cavity decoherence times
+    - For adaptive timestepping, timing accuracy depends on ElapsedTimeTracker
     
     See Also
     --------
@@ -129,9 +161,10 @@ class StepVariant(hoomd.variant.Variant):
     def __init__(self, 
                  target_value: float, 
                  switch_time_ps: float, 
-                 time_tracker: ElapsedTimeTracker) -> None:
+                 time_tracker: ElapsedTimeTracker,
+                 decay_time_constant_ps: Optional[float] = None) -> None:
         """
-        Initialize the step variant.
+        Initialize the step variant with optional exponential decay.
         
         Parameters
         ----------
@@ -141,11 +174,16 @@ class StepVariant(hoomd.variant.Variant):
             Switch time in picoseconds
         time_tracker : ElapsedTimeTracker
             Time tracker for accurate timing
+        decay_time_constant_ps : float, optional
+            Exponential decay time constant in picoseconds. If None, no decay occurs.
         """
         hoomd.variant.Variant.__init__(self)
         self.target_value: float = float(target_value)
         self.switch_time_ps: float = float(switch_time_ps)
         self.time_tracker: ElapsedTimeTracker = time_tracker
+        self.decay_time_constant_ps: Optional[float] = (
+            float(decay_time_constant_ps) if decay_time_constant_ps is not None else None
+        )
         
         # Store for debugging/logging
         self.current_value: float = 0.0
@@ -154,11 +192,15 @@ class StepVariant(hoomd.variant.Variant):
         print(f"StepVariant initialized:")
         print(f"  Target value: {self.target_value}")
         print(f"  Switch time: {self.switch_time_ps} ps")
+        if self.decay_time_constant_ps is not None:
+            print(f"  Decay time constant: {self.decay_time_constant_ps} ps")
+        else:
+            print(f"  No decay (standard step function)")
         print(f"  Using ElapsedTimeTracker for accurate timing")
     
     def __call__(self, timestep: int) -> float:
         """
-        Evaluate the step function at the given timestep.
+        Evaluate the step function with optional decay at the given timestep.
         
         Parameters
         ----------
@@ -168,7 +210,7 @@ class StepVariant(hoomd.variant.Variant):
         Returns
         -------
         float
-            Current variant value (0.0 before switch, target_value after)
+            Current variant value (0.0 before switch, target_value or decaying after)
         """
         # Get current elapsed time from time tracker
         current_time_ps = self.time_tracker.elapsed_time
@@ -178,8 +220,17 @@ class StepVariant(hoomd.variant.Variant):
                 print(f"StepVariant: Switching at t = {current_time_ps:.6f} ps "
                       f"(target: {self.switch_time_ps:.6f} ps)")
                 self._has_switched = True
-            self.current_value = self.target_value
-            return self.target_value
+            
+            if self.decay_time_constant_ps is not None:
+                # Exponential decay: ε₀ * exp(-(t - t_switch)/τ_decay)
+                time_since_switch = current_time_ps - self.switch_time_ps
+                decay_factor = np.exp(-time_since_switch / self.decay_time_constant_ps)
+                self.current_value = self.target_value * decay_factor
+                return self.current_value
+            else:
+                # Standard step function (no decay)
+                self.current_value = self.target_value
+                return self.target_value
         else:
             self.current_value = 0.0
             return 0.0

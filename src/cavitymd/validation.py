@@ -68,6 +68,7 @@ class CavitySimulationParams:
     # Time-varying parameters
     switch_time_ps: Optional[float] = None
     dissipation: float = 0.0
+    decay_time_constant_ps: Optional[float] = None
     
     # Simulation control
     error_tolerance: float = 0.01
