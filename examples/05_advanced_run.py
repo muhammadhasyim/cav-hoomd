@@ -96,7 +96,8 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
                          switch_time_ps=None, decay_time_constant_ps=None, damping_ratio=0.0,
                          enable_dipole_autocorr=False, dipole_ref_interval=1.0, dipole_max_refs=10, 
                          dipole_output_period_ps=1.0, error_tolerance=5.0, initial_fraction=1e-5, 
-                         time_constant_ps=50.0, zero_momentum_enabled=False, zero_momentum_period_ps=1.0):
+                         time_constant_ps=50.0, zero_momentum_enabled=False, zero_momentum_period_ps=1.0,
+                         input_gsd='init-0.gsd'):
     """
     Run a single experiment using the CavityMDSimulation class from the plugin.
     """
@@ -130,7 +131,7 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
         print(f"Running experiment:")
         print(f"  Cavity coupling: {'Enabled' if incavity else 'Disabled'}")
         if incavity:
-            print(f"  Coupling strength: {coupling}")
+            print(f"  *** COUPLING STRENGTH: {coupling:.6e} a.u. ***")  # Enhanced prominence
             if switch_time_ps is not None:
                 print(f"  Switch time: {switch_time_ps} ps")
                 if decay_time_constant_ps is not None:
@@ -157,6 +158,13 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
         # Set timestep based on user preference (only used if fixed_timestep is True)
         dt_fs = timestep_fs if fixed_timestep else None
         
+        # Handle input GSD path - convert to absolute path if relative
+        input_gsd_path = Path(input_gsd)
+        if not input_gsd_path.is_absolute():
+            # Convert relative path to absolute path based on current working directory
+            input_gsd_path = Path.cwd() / input_gsd_path
+        input_gsd_abs = str(input_gsd_path)
+        
         # Create and run CavityMDSimulation
         sim = CavityMDSimulation(
             job_dir=str(exp_dir),
@@ -165,7 +173,7 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
             couplstr=coupling,
             incavity=incavity,
             runtime_ps=runtime_ps,
-            input_gsd='../init-0.gsd',  # Use relative path from job directory back to parent
+            input_gsd=input_gsd_abs,  # Use absolute path
             frame=frame,
             name='prod',
             error_tolerance=error_tolerance,
@@ -247,7 +255,13 @@ def main():
                        help='Runtime in ps (default: 500.0)')
     parser.add_argument('--no-cavity', action='store_true', 
                        help='Disable cavity coupling (molecular-only simulation)')
-    
+
+    # Input file specification
+    parser.add_argument('--input-gsd', type=str, default='init-0.gsd',
+                       help='Path to input GSD file (default: init-0.gsd)')
+    parser.add_argument('--frame', type=int, default=-1,
+                       help='Frame number to read from GSD file (default: -1, last frame)')
+
     # Replica control
     parser.add_argument('--replicas', type=str, 
                        help='Replica specification (e.g., "1,2,3" or "1-5")')
@@ -358,10 +372,13 @@ def main():
     cavity_thermo = args.cavity_bath if incavity else 'none'
     finite_q = args.finite_q
     
+    # ENHANCED: Add coupling constant to main header
+    print(f"\n*** COUPLING CONSTANT: {args.coupling:.6e} a.u. ***")
+    
     print(f"\nSimulation Configuration:")
     print(f"  Cavity coupling: {'Enabled' if incavity else 'Disabled'}")
     if incavity:
-        print(f"    Coupling strength: {args.coupling}")
+        print(f"    Coupling strength: {args.coupling:.6e} a.u.")  # Enhanced format
         print(f"    Frequency: {args.frequency} cm⁻¹")
         print(f"    Finite-q mode: {finite_q}")
         print(f"    Cavity thermostat: {cavity_thermo}")
@@ -390,7 +407,7 @@ def main():
     
     # Run replicas
     for replica in replica_list:
-        frame = replica  # Use replica as frame number
+        frame = args.frame  # Use frame from command line argument
         
         print(f"\nRunning replica {replica}...")
         
@@ -437,15 +454,22 @@ def main():
             time_constant_ps=args.time_constant_ps,
             zero_momentum_enabled=args.zero_momentum,
             zero_momentum_period_ps=args.zero_momentum_period_ps,
-            decay_time_constant_ps=args.decay_time_constant
+            decay_time_constant_ps=args.decay_time_constant,
+            input_gsd=args.input_gsd
         )
         
         if success:
             successful_experiments += 1
-            print(f"SUCCESS: Replica {replica} completed successfully")
+            if incavity:
+                print(f"SUCCESS: Replica {replica} completed successfully (coupling: {args.coupling:.6e} a.u.)")
+            else:
+                print(f"SUCCESS: Replica {replica} completed successfully (no cavity)")
         else:
             failed_experiments += 1
-            print(f"ERROR: Replica {replica} failed")
+            if incavity:
+                print(f"ERROR: Replica {replica} failed (coupling: {args.coupling:.6e} a.u.)")
+            else:
+                print(f"ERROR: Replica {replica} failed (no cavity)")
     
     # Final summary
     end_time = time.time()
@@ -455,6 +479,10 @@ def main():
     print("\n" + "="*50)
     print("Execution Summary")
     print("="*50)
+    if incavity:
+        print(f"Coupling constant used: {args.coupling:.6e} a.u.")
+    else:
+        print("No cavity coupling (molecular-only simulation)")
     print(f"Total replicas: {total_experiments}")
     print(f"Successful: {successful_experiments}")
     print(f"Failed: {failed_experiments}")

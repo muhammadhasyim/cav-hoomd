@@ -650,6 +650,9 @@ class CavityMDSimulation:
         """Set up force parameters for the simulation."""
         forces = []
         
+        # Initialize cavity force reference
+        self.cavity_force = None
+        
         # Setup cavity force if requested
         if self.incavity:
             from .utils import PhysicalConstants
@@ -697,9 +700,10 @@ class CavityMDSimulation:
                     dissipation=dissipation_variant
                 )
 
-                # Store variants for later use in finite-q setup
+                # Store variants and cavity force for later use in finite-q setup and console output
                 self.coupling_variant = coupling_variant
                 self.omegac = omegac
+                self.cavity_force = cavityforce  # Store for console output access
 
             else:
                 # Use constant values (backward compatibility)
@@ -715,9 +719,10 @@ class CavityMDSimulation:
                     dissipation=self.dissipation
                 )
                 
-                # Clear variants for later use
+                # Clear variants for later use but store cavity force
                 self.coupling_variant = None
                 self.omegac = omegac
+                self.cavity_force = cavityforce  # Store for console output access
             
             forces.append(cavityforce)
         
@@ -1035,6 +1040,33 @@ class CavityMDSimulation:
                         self.log_info(f"ERROR: Initial temperature too high ({current_temp:.2f} K > 10 K). Exiting.")
                         import sys
                         sys.exit(1)
+                    
+                    # FIX: Check for zero velocities when using Bussi thermostat
+                    # Bussi thermostat requires non-zero initial momenta to function properly
+                    velocity_magnitude_threshold = 1e-12  # Very small threshold for "zero" velocities
+                    max_velocity_magnitude = np.max(np.sqrt(np.sum(mol_velocities**2, axis=1)))
+                    
+                    # Also check cavity particle velocities if cavity thermostat is Bussi
+                    cavity_max_velocity = 0.0
+                    if self.incavity:
+                        cavity_mask = typeid_array == 2
+                        if np.any(cavity_mask):
+                            cavity_velocities = velocities[cavity_mask]
+                            cavity_max_velocity = np.max(np.sqrt(np.sum(cavity_velocities**2, axis=1)))
+                            max_velocity_magnitude = max(max_velocity_magnitude, cavity_max_velocity)
+                    
+                    is_bussi_molecular = (self.molecular_thermostat.lower() == 'bussi')
+                    is_bussi_cavity = (self.cavity_thermostat.lower() == 'bussi') if self.incavity else False
+                    
+                    if max_velocity_magnitude < velocity_magnitude_threshold and (is_bussi_molecular or is_bussi_cavity):
+                        self.log_warning("CRITICAL: Zero velocities detected with Bussi thermostat!")
+                        self.log_warning("Bussi thermostat requires non-zero initial momenta.")
+                        self.log_warning("Forcing velocity thermalization to prevent simulation failure...")
+                        
+                        # Force thermalization despite restart_velocities=False
+                        self._force_thermalization_for_bussi()
+                        return
+                        
             return
         
         kT = self.kB * self.temperature
@@ -1650,7 +1682,7 @@ class CavityMDSimulation:
         class ConsoleOutputTracker(hoomd.custom.Action):
             """Time-based console output tracker for accurate timing in both adaptive and fixed timestep modes."""
             
-            def __init__(self, sim, time_tracker, performance_tracker, timestep_formatter, adaptive_action, output_period_ps):
+            def __init__(self, sim, time_tracker, performance_tracker, timestep_formatter, adaptive_action, output_period_ps, coupling_constant, incavity, cavity_force):
                 super().__init__()
                 self.sim = sim
                 self.time_tracker = time_tracker
@@ -1658,8 +1690,32 @@ class CavityMDSimulation:
                 self.timestep_formatter = timestep_formatter
                 self.adaptive_action = adaptive_action
                 self.output_period_ps = output_period_ps
+                self.coupling_constant = coupling_constant  # Target coupling (fallback)
+                self.incavity = incavity
+                self.cavity_force = cavity_force  # Reference to cavity force for current coupling
                 self.last_output_time = 0.0
                 self.header_printed = False
+                
+            def _get_current_coupling(self):
+                """Get the current coupling value from the cavity force."""
+                if not self.incavity or self.cavity_force is None:
+                    return 0.0
+                
+                try:
+                    # Check if the couplstr is a variant (time-varying) or constant
+                    couplstr_param = self.cavity_force.couplstr
+                    if hasattr(couplstr_param, 'current_value'):
+                        # Time-varying coupling - get current value from variant
+                        return couplstr_param.current_value
+                    elif hasattr(couplstr_param, '__call__'):
+                        # It's a variant but may not have current_value - call it with current timestep
+                        return float(couplstr_param(self.sim.timestep))
+                    else:
+                        # Constant coupling
+                        return float(couplstr_param)
+                except Exception:
+                    # Fallback to target coupling if we can't get current value
+                    return self.coupling_constant
                 
             def _get_current_time(self, timestep):
                 """Get current simulation time."""
@@ -1693,6 +1749,8 @@ class CavityMDSimulation:
                         "Performance.eta",
                         "Timestep.dt_fs"
                     ]
+                    if self.incavity:
+                        header_parts.append("Cavity.coupling_au")
                     if self.adaptive_action is not None:
                         header_parts.append("Adaptive.error_tolerance")
                     print(" ".join(f"{h:>15s}" for h in header_parts), flush=True)
@@ -1715,6 +1773,11 @@ class CavityMDSimulation:
                     f"{dt_fs:15.5f}"
                 ]
                 
+                if self.incavity:
+                    # Get current coupling value (changes with time for time-varying simulations)
+                    current_coupling = self._get_current_coupling()
+                    output_parts.append(f"{current_coupling:15.2e}")
+                
                 if self.adaptive_action is not None:
                     error_tol = self.adaptive_action.error_tolerance  # Property, not method
                     output_parts.append(f"{error_tol:15.2e}")
@@ -1731,7 +1794,10 @@ class CavityMDSimulation:
             performance_tracker=self.performance_tracker,
             timestep_formatter=self.timestep_formatter,
             adaptive_action=getattr(self, 'adaptive_action', None),
-            output_period_ps=self.console_output_period_ps
+            output_period_ps=self.console_output_period_ps,
+            coupling_constant=self.couplstr,
+            incavity=self.incavity,
+            cavity_force=self.cavity_force
         )
         
         # Add console tracker to simulation (check every step but handle timing internally)
@@ -1743,6 +1809,8 @@ class CavityMDSimulation:
         
         self.log_info("✅ Console output setup completed:")
         self.log_info(f"  Output period: {self.console_output_period_ps:.3f} ps (accurate time-based)")
+        if self.incavity:
+            self.log_info(f"  Coupling constant column: {self.couplstr:.6e} a.u. (displayed in real-time)")
         self.log_info("  Console tracker handles timing internally using ElapsedTimeTracker")
         self.log_info("  Works accurately for both adaptive and fixed timestep modes")
         
@@ -2115,6 +2183,71 @@ class CavityMDSimulation:
             NumPy array
         """
         return self.to_numpy(array_data)
+    def _force_thermalization_for_bussi(self):
+        """
+        Force thermalization when zero velocities are detected with Bussi thermostat.
+        
+        This is a safety measure to prevent Bussi thermostat failures when the GSD
+        file contains particles at rest.
+        """
+        self.log_info("Performing forced thermalization for Bussi thermostat compatibility...")
+        
+        kT = self.kB * self.temperature
+        
+        # Set numpy seed for reproducible thermalization if seed is provided
+        if self.seed is not None:
+            np.random.seed(self.seed + 1)  # Use seed+1 to differentiate from HOOMD seed
+            self.log_info(f"Using seed {self.seed + 1} for forced thermalization")
+        
+        molecular_filter = hoomd.filter.Type(['O', 'N'])  # Molecular particles only
+        
+        if self.incavity:
+            # Use HOOMD's State.thermalize_particle_momenta for molecular system
+            self.sim.state.thermalize_particle_momenta(kT=kT, filter=molecular_filter)
+            self.log_info("Force-thermalized molecular particles using HOOMD State object")
+            
+            # Manual thermalization for cavity particle
+            self._thermalize_cavity_particle_manually(kT)
+            
+        else:
+            # No cavity particle, thermalize all particles
+            self.sim.state.thermalize_particle_momenta(kT=kT, filter=hoomd.filter.All())
+            self.log_info("Force-thermalized all molecular particles")
+            
+        # Verification after forced thermalization
+        with self.get_local_snapshot() as snap:
+            masses = self.to_numpy(snap.particles.mass)
+            velocities = self.to_numpy(snap.particles.velocity)
+            typeid_array = self.to_numpy(snap.particles.typeid)
+            
+            # Filter for molecular particles only (typeid != 2)
+            molecular_mask = typeid_array != 2
+            
+            if np.any(molecular_mask):
+                mol_masses = masses[molecular_mask]
+                mol_velocities = velocities[molecular_mask]
+                
+                # Calculate kinetic energy and temperature
+                v_squared = np.sum(mol_velocities**2, axis=1)
+                kinetic_energy = 0.5 * mol_masses * v_squared
+                total_ke = np.sum(kinetic_energy)
+                
+                n_mol_particles = np.sum(molecular_mask)
+                degrees_of_freedom = 3 * n_mol_particles
+                current_temp = (2.0) * total_ke / (degrees_of_freedom * self.kB)
+                
+                self.log_info(f"Post-thermalization kinetic temperature: {current_temp:.2f} K")
+                
+                # Check maximum velocity magnitude to confirm non-zero velocities
+                max_velocity_magnitude = np.max(np.sqrt(np.sum(mol_velocities**2, axis=1)))
+                self.log_info(f"Maximum particle velocity magnitude: {max_velocity_magnitude:.6e} a.u.")
+                
+                if max_velocity_magnitude > 1e-12:
+                    self.log_info("✅ Forced thermalization successful - Bussi thermostat should work now")
+                else:
+                    self.log_error("❌ Forced thermalization failed - velocities are still zero!")
+                    raise RuntimeError("Unable to initialize non-zero velocities for Bussi thermostat")
+
 
 
 class AdaptiveTimestepUpdater(hoomd.custom.Action):

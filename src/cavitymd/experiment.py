@@ -312,7 +312,7 @@ class CavityMDExperiment:
                 self.params,
                 job_dir=str(exp_dir),
                 replica=replica,
-                frame=replica,  # Use replica as frame number
+                frame=self.params.frame,  # Use frame from CLI args instead of replica number
                 input_gsd=self.params.input_gsd  # Use CLI-provided input GSD path directly
             )
             

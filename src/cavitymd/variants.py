@@ -228,6 +228,7 @@ class StepVariant(hoomd.variant.Variant):
                 self.current_value = self.target_value * decay_factor
                 return self.current_value
             else:
+                
                 # Standard step function (no decay)
                 self.current_value = self.target_value
                 return self.target_value

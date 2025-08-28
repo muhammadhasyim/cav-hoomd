@@ -95,6 +95,8 @@ class TestPhase3Integration:
         args.fkt_ref_interval = 1.0
         args.fkt_max_refs = 10
         args.max_energy_output_time = None
+        args.input_gsd = 'test.gsd'
+        args.frame = -1
         
         # Mock SLURM environment
         with patch.dict('os.environ', {}, clear=True):
