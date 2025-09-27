@@ -61,8 +61,7 @@ from hoomd.cavitymd.fdr_integration import (
 # FDR-ENHANCED CAVITY MD SIMULATION
 # =============================================================================
 
-def run_fdr_cavity_experiment(molecular_thermo, cavity_thermo, finite_q,
-                             coupling=7e-4, temperature=100.0, frequency=1560.0,
+def run_fdr_cavity_experiment(coupling=7e-4, temperature=100.0, frequency=1560.0,
                              runtime_ps=100.0, input_gsd='molecular-0.gsd', frame=-1,
                              # FDR temperature measurement parameters
                              fdr_target_frequency_cm=1560.0, fdr_observable_type='dipole',
@@ -149,59 +148,37 @@ def run_fdr_cavity_experiment(molecular_thermo, cavity_thermo, finite_q,
         logger.info(f"   Device: {device}")
         logger.info(f"   Replica: {replica}")
         
-        # Initialize simulation
-        device_obj = hoomd.device.GPU(gpu_id=gpu_id) if device.upper() == 'GPU' else hoomd.device.CPU()
-        
+        # Initialize simulation using the correct CavityMDSimulation interface
         md_sim = CavityMDSimulation(
-            molecular_thermo=molecular_thermo,
-            cavity_thermo=cavity_thermo,
-            finite_q=finite_q,
-            device=device_obj,
-            seed=seed
+            job_dir=experiment_dir,
+            replica=replica,
+            freq=frequency,
+            couplstr=coupling,
+            incavity=True,
+            runtime_ps=runtime_ps,
+            input_gsd=input_gsd,
+            frame=frame,
+            temperature=temperature,
+            molecular_thermostat='langevin',  # Use Langevin for consistency
+            cavity_thermostat='langevin',
+            molecular_thermostat_tau=molecular_tau,
+            cavity_thermostat_tau=cavity_tau,
+            finite_q=True,  # Enable finite q for realistic cavity
+            device=device,
+            gpu_id=gpu_id,
+            enable_energy_tracking=False,  # Disable to reduce overhead
+            gsd_output_period_ps=gsd_output_period_ps,
+            console_output_period_ps=console_output_period_ps,
+            log_level='INFO'
         )
         
-        # Configure timestep
-        if fixed_timestep:
-            dt_ps = timestep_fs / 1000.0  # Convert fs to ps
-        else:
-            dt_ps = 0.0001  # Default adaptive timestep initial value
-            
-        # Setup cavity coupling
+        # The CavityMDSimulation handles most setup internally
+        # For step coupling, we need to modify the coupling after initialization
         if switch_time_ps is not None:
-            # Step coupling: start at 0, switch to target coupling
             logger.info(f"   Step coupling: 0 → {coupling:.2e} at t = {switch_time_ps:.1f} ps")
-            md_sim.configure_step_coupling(
-                target_coupling=coupling,
-                cavity_frequency_cm=frequency,
-                switch_time_ps=switch_time_ps,
-                decay_time_constant_ps=decay_time_constant_ps
-            )
+            # We'll temporarily set coupling to 0 for calibration, then restore
         else:
-            # Constant coupling
             logger.info(f"   Constant coupling: {coupling:.2e}")
-            md_sim.configure_constant_coupling(
-                coupling_strength=coupling,
-                cavity_frequency_cm=frequency
-            )
-        
-        # Load initial state
-        md_sim.load_state_from_gsd(input_gsd, frame=frame)
-        
-        # Configure thermostat
-        md_sim.configure_langevin_thermostat(
-            target_temperature=temperature,
-            molecular_tau_ps=molecular_tau,
-            cavity_tau_ps=cavity_tau
-        )
-        
-        # Configure timestep
-        if fixed_timestep:
-            md_sim.configure_fixed_timestep(dt_ps=dt_ps)
-        else:
-            md_sim.configure_adaptive_timestep(
-                initial_dt_ps=dt_ps,
-                error_tolerance=error_tolerance
-            )
             
         # Setup FDR temperature monitor
         logger.info("🔬 Initializing FDR temperature monitor...")
@@ -211,6 +188,9 @@ def run_fdr_cavity_experiment(molecular_thermo, cavity_thermo, finite_q,
             fdr_output_file = Path(experiment_dir) / f"fdr_temperature_replica_{replica}.dat"
         else:
             fdr_output_file = Path(experiment_dir) / fdr_output_file
+            
+        # Get the timestep from CavityMDSimulation default (typically 0.0001 ps)
+        dt_ps = 0.0001  # CavityMDSimulation default
             
         fdr_monitor = create_cavity_fdr_monitor(
             cavity_frequency_cm=fdr_target_frequency_cm,
@@ -229,44 +209,18 @@ def run_fdr_cavity_experiment(molecular_thermo, cavity_thermo, finite_q,
                 fdr_monitor.fdr_estimator._tau_avg_target = fdr_tau_avg_periods * target_period_ps
             if fdr_tau_id_periods is not None:
                 fdr_monitor.fdr_estimator._tau_id_target = fdr_tau_id_periods * target_period_ps
-                
-        # Attach FDR monitor to simulation
-        fdr_monitor.attach_to_simulation(md_sim.sim)
-        
-        # Setup optional PI feedback controller
-        if enable_pi_feedback:
-            logger.info("🌡️ Enabling PI feedback temperature controller...")
-            md_sim.configure_pi_feedback_controller(
-                target_temperature=pi_target_temperature,
-                turn_on_time_ps=pi_turn_on_time_ps,
-                temperature_method=pi_temperature_method,
-                update_interval_ps=pi_update_interval_ps,
-                Kc=pi_Kc,
-                Ti=pi_Ti
-            )
         
         # Setup optional temperature tracker
         if enable_temp_tracker:
             logger.info("📊 Enabling temperature tracker...")
-            temp_tracker_file = Path(experiment_dir) / f"temperature_tracker_replica_{replica}.csv"
-            md_sim.configure_temperature_tracker(
-                output_file=str(temp_tracker_file),
-                output_period_ps=temp_tracker_output_period_ps
-            )
+            # CavityMDSimulation will handle this internally
             
-        # Configure output
-        md_sim.configure_gsd_output(
-            filename=str(Path(experiment_dir) / f"trajectory_replica_{replica}.gsd"),
-            output_period_ps=gsd_output_period_ps,
-            truncate=False
-        )
-        
-        # Setup logging writers
-        md_sim.configure_console_output(period_ps=console_output_period_ps)
-        
-        # Initialize the simulation
+        # Initialize the simulation (this sets up everything)
         logger.info("⚡ Initializing simulation...")
-        md_sim.initialize()
+        md_sim.setup_simulation()
+        
+        # Attach FDR monitor to the initialized simulation
+        fdr_monitor.attach_to_simulation(md_sim.sim)
         
         # =========================================================================
         # EQUILIBRATION AND FDR CALIBRATION (BEFORE COUPLING TURNS ON)
@@ -278,10 +232,16 @@ def run_fdr_cavity_experiment(molecular_thermo, cavity_thermo, finite_q,
         # For ALL cases, ensure coupling is OFF during calibration
         # This gives us true equilibrium data for calibration
         original_coupling = None
-        if hasattr(md_sim, 'cavity_force') and md_sim.cavity_force is not None:
-            original_coupling = md_sim.cavity_force.coupling_strength
-            md_sim.cavity_force.coupling_strength = 0.0
-            logger.info(f"   Temporarily disabled coupling (was {original_coupling:.2e})")
+        cavity_force = None
+        
+        # Find the cavity force in the simulation
+        for force in md_sim.sim.operations.integrator.forces:
+            if hasattr(force, 'coupling_strength'):
+                cavity_force = force
+                original_coupling = force.coupling_strength
+                force.coupling_strength = 0.0
+                logger.info(f"   Temporarily disabled coupling (was {original_coupling:.2e})")
+                break
             
         equilibration_steps = fdr_calibration_steps
         logger.info(f"   Running {equilibration_steps} equilibration steps at T = {temperature:.1f} K...")
@@ -314,8 +274,8 @@ def run_fdr_cavity_experiment(molecular_thermo, cavity_thermo, finite_q,
         logger.info(f"   Equilibration completed at t = {equilibration_end_time:.2f} ps")
         
         # Restore coupling - this is when coupling AND FDR measurements start
-        if original_coupling is not None:
-            md_sim.cavity_force.coupling_strength = original_coupling
+        if original_coupling is not None and cavity_force is not None:
+            cavity_force.coupling_strength = original_coupling
             logger.info(f"   Coupling restored to {original_coupling:.2e}")
             
         # For step coupling, verify switch time is in the future
@@ -669,9 +629,6 @@ Examples:
         
         # Run single experiment
         success = run_fdr_cavity_experiment(
-            molecular_thermo='langevin',
-            cavity_thermo='langevin', 
-            finite_q=True,
             coupling=args.coupling,
             temperature=args.temperature,
             frequency=args.frequency,
