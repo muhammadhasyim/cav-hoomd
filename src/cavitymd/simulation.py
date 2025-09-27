@@ -29,7 +29,7 @@ from .analysis import (
     EnergyTracker, PerformanceTracker, AutocorrelationTracker
 )
 from .updaters import CavityParticleDisplacer
-from .variants import StepVariant
+from .variants import StepVariant, PeriodicVariant, ExponentialDecayVariant, SquareWaveVariant
 
 
 class CavityMDSimulation:
@@ -143,6 +143,28 @@ class CavityMDSimulation:
         Whether to periodically zero out system momentum to prevent center-of-mass drift. Default: False
     zero_momentum_period_ps : float, optional
         Period for momentum zeroing in picoseconds. Default: 1.0
+    enable_empirical_feedback : bool, optional
+        Whether to enable empirical temperature feedback control. Default: False
+    empirical_data_file : str, optional
+        Path to empirical energy-temperature data file. Required if enable_empirical_feedback=True
+    feedback_output_period_ps : float, optional
+        Output period for empirical feedback CSV data in ps. Default: 0.1
+    feedback_energy_component : str, optional
+        Energy component for feedback ('total_PE', 'lj_coulombic', etc.). Default: 'lj_coulombic'
+    feedback_apply_to : str, optional
+        Which thermostats to apply feedback to ('molecular', 'cavity', 'both'). Default: 'both'
+    feedback_averaging_window_ps : float, optional
+        Time window for averaging fictive temperature in ps. Default: 5.0
+    feedback_update_interval_ps : float, optional
+        Interval between temperature updates in ps. Default: 5.0
+    feedback_T_min : float, optional
+        Minimum allowed temperature in K. Default: 50.0
+    feedback_T_max : float, optional
+        Maximum allowed temperature in K. Default: 300.0
+    feedback_turn_off_time_ps : float, optional
+        Time in ps to turn off empirical feedback. If None, feedback runs until end of simulation. Default: None
+    feedback_auto_adjust_molecular_tau : bool, optional
+        Whether to automatically set molecular thermostat tau to 2×Δt when feedback turns off. Default: False
         
     **Advanced Parameters:**
         
@@ -156,6 +178,14 @@ class CavityMDSimulation:
         Reference interval for F(k,t) in ps. Default: 1.0
     fkt_max_references : int, optional
         Maximum F(k,t) reference states. Default: 10
+    fkt_log_time_spacing : bool, optional
+        Whether to use logarithmic time spacing for F(k,t) output. Default: False
+    fkt_min_log_time_ps : float, optional
+        Minimum time for logarithmic spacing (required if fkt_log_time_spacing=True). Default: None
+    fkt_max_log_time_ps : float, optional
+        Maximum time for logarithmic spacing (required if fkt_log_time_spacing=True). Default: None
+    fkt_log_num_points : int, optional
+        Number of points in logarithmic time spacing. Default: 50
     energy_output_period_ps : float, optional
         Energy tracker output period in ps. Default: 0.1
     fkt_output_period_ps : float, optional
@@ -260,6 +290,24 @@ class CavityMDSimulation:
     ... )
     >>> exit_code = momentum_sim.run()
     
+    **Empirical temperature feedback experiment:**
+    
+    >>> feedback_sim = CavityMDSimulation(
+    ...     job_dir="empirical_feedback",
+    ...     replica=1,
+    ...     freq=2000.0,
+    ...     couplstr=0.001,
+    ...     incavity=True,
+    ...     runtime_ps=1000.0,
+    ...     enable_empirical_feedback=True,
+    ...     empirical_data_file="equilibrium_data.txt",
+    ...     feedback_energy_component="lj_coulombic",
+    ...     feedback_averaging_window_ps=5.0,
+    ...     feedback_update_interval_ps=5.0,
+    ...     enable_energy_tracking=True  # Required for empirical feedback
+    ... )
+    >>> exit_code = feedback_sim.run()
+    
     Notes
     -----
     - Automatically handles cavity particle setup and validation
@@ -310,6 +358,11 @@ class CavityMDSimulation:
                  fkt_num_wavevectors: int = 50, 
                  fkt_reference_interval_ps: float = 1.0, 
                  fkt_max_references: int = 10,
+                 # F(k,t) logarithmic time spacing parameters
+                 fkt_log_time_spacing: bool = False,
+                 fkt_min_log_time_ps: Optional[float] = None,
+                 fkt_max_log_time_ps: Optional[float] = None,
+                 fkt_log_num_points: int = 50,
                  enable_dipole_autocorr: bool = False,
                  dipole_reference_interval_ps: float = 1.0,
                  dipole_max_references: int = 10,
@@ -336,7 +389,92 @@ class CavityMDSimulation:
                  transition_time_ps: float = 0.5,
                  use_smooth_switching: bool = True,
                  zero_momentum_enabled: bool = False,
-                 zero_momentum_period_ps: float = 1.0) -> None:
+                 zero_momentum_period_ps: float = 1.0,
+                 # Empirical temperature feedback parameters
+                 enable_empirical_feedback: bool = False,
+                 empirical_data_file: Optional[str] = None,
+                 feedback_output_period_ps: float = 0.1,
+                 feedback_energy_component: str = 'lj_coulombic',
+                 feedback_apply_to: str = 'both',
+                 feedback_averaging_window_ps: float = 5.0,
+                 feedback_update_interval_ps: float = 5.0,
+                 feedback_T_min: float = 50.0,
+                 feedback_T_max: float = 300.0,
+                 feedback_turn_off_time_ps: Optional[float] = None,
+                 feedback_use_direct_harmonic_calculation: bool = True,
+                 feedback_auto_adjust_molecular_tau: bool = False,
+                 # Periodic coupling parameters
+                 periodic_coupling: bool = False,
+                 periodic_period_ps: float = 1.0,
+                 periodic_phase_offset: float = 0.0,
+                 periodic_start_time_ps: float = 0.0,
+                 periodic_stop_time_ps: Optional[float] = None,
+                 # Enhanced coupling variant parameters
+                 coupling_variant_type: str = 'constant',  # 'constant', 'step', 'periodic', 'exponential', 'square'
+                 # Exponential decay parameters
+                 exponential_amplitude: Optional[float] = None,
+                 exponential_decay_time_ps: float = 10.0,
+                 exponential_turn_on_time_ps: float = 0.0,
+                 exponential_turn_off_time_ps: Optional[float] = None,
+                 # Square wave parameters  
+                 square_period_ps: float = 2.0,
+                 square_duty_cycle: float = 0.5,
+                 square_phase_offset: float = 0.0,
+                 square_start_time_ps: float = 0.0,
+                 square_stop_time_ps: Optional[float] = None,
+                 # Enhanced laser drive parameters  
+                 laser_enabled: bool = False,
+                 laser_frequency_cm1: float = 0.0,
+                 laser_amplitude: float = 0.0,
+                 laser_start_time_ps: float = 0.0,
+                 laser_stop_time_ps: Optional[float] = None,
+                 laser_kvector: Optional[List[float]] = None,
+                 # PI feedback controller parameters
+                 enable_pi_feedback: bool = False,
+                 pi_target_temperature: float = 100.0,
+                 pi_turn_on_time_ps: float = 0.0,
+                 pi_turn_off_time_ps: Optional[float] = None,
+                 pi_temperature_method: str = 'kinetic',  # 'kinetic', 'lj_coulombic', 'harmonic'
+                 pi_update_interval_ps: float = 5.0,
+                 pi_Kc: Optional[float] = None,  # Auto-calculate if None
+                 pi_Ti: Optional[float] = None,  # Auto-calculate if None
+                 pi_molecular_tau_ps: float = 5.0,  # For IMC auto-tuning
+                 pi_beta: float = 0.7,  # Setpoint weighting
+                 pi_T_min: float = 0.0,
+                 pi_T_max: Optional[float] = None,
+                 # Gradient descent feedback controller parameters
+                 enable_gd_feedback: bool = False,
+                 gd_target_temperature: float = 100.0,
+                 gd_turn_on_time_ps: float = 0.0,
+                 gd_turn_off_time_ps: Optional[float] = None,
+                 gd_temperature_method: str = 'kinetic',  # 'kinetic', 'lj_coulombic', 'harmonic'
+                 gd_update_interval_ps: float = 0.1,
+                 gd_time_constant_ps: float = 10.0,
+                 gd_apply_to: str = 'both',
+                 gd_T_min: float = 0.0,
+                 gd_T_max: Optional[float] = None,
+                 # Temperature tracker parameters
+                 enable_temp_tracker: bool = False,
+                 temp_tracker_output_period_ps: float = 0.1,
+                 temp_tracker_empirical_data_file: Optional[str] = None,
+                 # Dipole moment FDR parameters
+                 enable_dipole_fdr: bool = False,
+                 dipole_fdr_output_period_ps: float = 0.1,
+                 dipole_fdr_max_correlation_time_ps: float = 100.0,
+                 dipole_fdr_field_direction: List[float] = [0, 0, 1],
+                 dipole_fdr_exclude_cavity: bool = True,
+                 enable_dipole_response: bool = False,
+                 dipole_response_field_strength: float = 1e-5,
+                 dipole_response_sign: float = 1.0,
+                 # Mechanical cavity modulation parameters
+                 mech_periodic: bool = False,
+                 mech_frequency_cm1: float = 100.0,
+                 mech_magnitude: float = 1e-4,
+                 # Auto-stopping parameters
+                 enable_auto_stopping: bool = False,
+                 auto_stop_min_time_ps: float = 10.0,
+                 auto_stop_smoothing_window: int = 5,
+) -> None:
         """Initialize the CavityMDSimulation with simulation parameters."""
         self.job_dir = job_dir
         self.replica = replica
@@ -371,6 +509,100 @@ class CavityMDSimulation:
         self.zero_momentum_enabled = zero_momentum_enabled
         self.zero_momentum_period_ps = zero_momentum_period_ps
         
+        # Empirical temperature feedback parameters
+        self.enable_empirical_feedback = enable_empirical_feedback
+        self.empirical_data_file = empirical_data_file
+        self.feedback_output_period_ps = feedback_output_period_ps
+        self.feedback_energy_component = feedback_energy_component
+        self.feedback_apply_to = feedback_apply_to
+        self.feedback_averaging_window_ps = feedback_averaging_window_ps
+        self.feedback_update_interval_ps = feedback_update_interval_ps
+        self.feedback_T_min = feedback_T_min
+        self.feedback_T_max = feedback_T_max
+        self.feedback_turn_off_time_ps = feedback_turn_off_time_ps
+        self.feedback_use_direct_harmonic_calculation = feedback_use_direct_harmonic_calculation
+        self.feedback_auto_adjust_molecular_tau = feedback_auto_adjust_molecular_tau
+        
+        # Periodic coupling parameters  
+        self.periodic_coupling = periodic_coupling
+        self.periodic_period_ps = periodic_period_ps
+        self.periodic_phase_offset = periodic_phase_offset
+        self.periodic_start_time_ps = periodic_start_time_ps
+        self.periodic_stop_time_ps = periodic_stop_time_ps
+        
+        # Enhanced coupling variant parameters
+        self.coupling_variant_type = coupling_variant_type
+        self.exponential_amplitude = exponential_amplitude if exponential_amplitude is not None else couplstr
+        self.exponential_decay_time_ps = exponential_decay_time_ps
+        self.exponential_turn_on_time_ps = exponential_turn_on_time_ps
+        self.exponential_turn_off_time_ps = exponential_turn_off_time_ps
+        self.square_period_ps = square_period_ps
+        self.square_duty_cycle = square_duty_cycle
+        self.square_phase_offset = square_phase_offset
+        self.square_start_time_ps = square_start_time_ps
+        self.square_stop_time_ps = square_stop_time_ps
+        
+        # Enhanced laser drive parameters
+        self.laser_enabled = laser_enabled
+        self.laser_frequency_cm1 = laser_frequency_cm1
+        self.laser_amplitude = laser_amplitude
+        self.laser_start_time_ps = laser_start_time_ps
+        self.laser_stop_time_ps = laser_stop_time_ps
+        self.laser_kvector = laser_kvector if laser_kvector is not None else [1.0, 0.0, 0.0]
+        
+        # PI feedback controller parameters
+        self.enable_pi_feedback = enable_pi_feedback
+        self.pi_target_temperature = pi_target_temperature
+        self.pi_turn_on_time_ps = pi_turn_on_time_ps
+        self.pi_turn_off_time_ps = pi_turn_off_time_ps
+        self.pi_temperature_method = pi_temperature_method
+        self.pi_update_interval_ps = pi_update_interval_ps
+        self.pi_Kc = pi_Kc
+        self.pi_Ti = pi_Ti
+        self.pi_molecular_tau_ps = pi_molecular_tau_ps
+        self.pi_beta = pi_beta
+        self.pi_T_min = pi_T_min
+        self.pi_T_max = pi_T_max
+        
+        # Gradient descent feedback controller parameters
+        self.enable_gd_feedback = enable_gd_feedback
+        self.gd_target_temperature = gd_target_temperature
+        self.gd_turn_on_time_ps = gd_turn_on_time_ps
+        self.gd_turn_off_time_ps = gd_turn_off_time_ps
+        self.gd_temperature_method = gd_temperature_method
+        self.gd_update_interval_ps = gd_update_interval_ps
+        self.gd_time_constant_ps = gd_time_constant_ps
+        self.gd_apply_to = gd_apply_to
+        self.gd_T_min = gd_T_min
+        self.gd_T_max = gd_T_max
+        
+        # Temperature tracker parameters
+        self.enable_temp_tracker = enable_temp_tracker
+        self.temp_tracker_output_period_ps = temp_tracker_output_period_ps
+        self.temp_tracker_empirical_data_file = temp_tracker_empirical_data_file
+        
+        # Dipole moment FDR parameters
+        self.enable_dipole_fdr = enable_dipole_fdr
+        self.dipole_fdr_output_period_ps = dipole_fdr_output_period_ps
+        self.dipole_fdr_max_correlation_time_ps = dipole_fdr_max_correlation_time_ps
+        self.dipole_fdr_field_direction = dipole_fdr_field_direction
+        self.dipole_fdr_exclude_cavity = dipole_fdr_exclude_cavity
+        self.enable_dipole_response = enable_dipole_response
+        self.dipole_response_field_strength = dipole_response_field_strength
+        self.dipole_response_sign = dipole_response_sign
+        
+        # Mechanical cavity modulation parameters
+        self.mech_periodic = mech_periodic
+        self.mech_frequency_cm1 = mech_frequency_cm1
+        self.mech_magnitude = mech_magnitude
+        
+        # Auto-stopping parameters
+        self.enable_auto_stopping = enable_auto_stopping
+        self.auto_stop_min_time_ps = auto_stop_min_time_ps
+        self.auto_stop_smoothing_window = auto_stop_smoothing_window
+        
+        
+        
         # Logging parameters - simplified to console only
         self.log_level = log_level
         self.custom_log_file = custom_log_file
@@ -381,6 +613,12 @@ class CavityMDSimulation:
         self.fkt_num_wavevectors = fkt_num_wavevectors
         self.fkt_reference_interval_ps = fkt_reference_interval_ps
         self.fkt_max_references = fkt_max_references
+        
+        # F(k,t) logarithmic time spacing parameters
+        self.fkt_log_time_spacing = fkt_log_time_spacing
+        self.fkt_min_log_time_ps = fkt_min_log_time_ps
+        self.fkt_max_log_time_ps = fkt_max_log_time_ps
+        self.fkt_log_num_points = fkt_log_num_points
         
         # Dipole autocorrelation parameters
         self.enable_dipole_autocorr = enable_dipole_autocorr
@@ -645,6 +883,111 @@ class CavityMDSimulation:
             self.logger.error(message)
         else:
             print(f"ERROR: {message}", flush=True)
+    
+    def _create_coupling_variant(self):
+        """Create coupling variant based on coupling_variant_type."""
+        if not hasattr(self, 'time_tracker') or self.time_tracker is None:
+            raise ValueError("Time tracker must be set up before creating coupling variants")
+        
+        variant_type = self.coupling_variant_type.lower()
+        
+        if variant_type == 'constant':
+            # Constant coupling (default)
+            from hoomd.variant import Constant
+            coupling_variant = Constant(self.couplstr)
+            self.log_info(f"Using constant coupling: {self.couplstr} a.u.")
+        
+        elif variant_type == 'step':
+            # Step coupling (with optional turn-off and decay)  
+            coupling_variant = StepVariant(
+                target_value=self.couplstr,
+                switch_time_ps=self.switch_time_ps if self.switch_time_ps is not None else 0.0,
+                time_tracker=self.time_tracker,
+                decay_time_constant_ps=self.decay_time_constant_ps,
+                turn_off_time_ps=getattr(self, 'step_turn_off_time_ps', None)
+            )
+            self.log_info(f"Using step coupling:")
+            self.log_info(f"  Target value: {self.couplstr} a.u.")
+            self.log_info(f"  Switch time: {self.switch_time_ps} ps")
+            if self.decay_time_constant_ps:
+                self.log_info(f"  Decay time constant: {self.decay_time_constant_ps} ps")
+        
+        elif variant_type == 'periodic':
+            # Periodic coupling  
+            coupling_variant = PeriodicVariant(
+                amplitude=self.couplstr,
+                time_tracker=self.time_tracker,
+                period_ps=getattr(self, 'periodic_period_ps', 1.0),
+                phase_offset=getattr(self, 'periodic_phase_offset', 0.0),
+                start_time_ps=getattr(self, 'periodic_start_time_ps', 0.0),
+                stop_time_ps=getattr(self, 'periodic_stop_time_ps', None)
+            )
+            self.log_info(f"Using periodic coupling:")
+            self.log_info(f"  Amplitude: {self.couplstr} a.u.")
+            self.log_info(f"  Period: {getattr(self, 'periodic_period_ps', 1.0)} ps")
+            self.log_info(f"  Phase offset: {getattr(self, 'periodic_phase_offset', 0.0):.3f} rad")
+        
+        elif variant_type == 'exponential':
+            # Exponential decay coupling
+            coupling_variant = ExponentialDecayVariant(
+                amplitude=self.exponential_amplitude,
+                time_tracker=self.time_tracker,
+                decay_time_constant_ps=self.exponential_decay_time_ps,
+                turn_on_time_ps=self.exponential_turn_on_time_ps,
+                turn_off_time_ps=self.exponential_turn_off_time_ps
+            )
+            self.log_info(f"Using exponential decay coupling:")
+            self.log_info(f"  Amplitude: {self.exponential_amplitude} a.u.")
+            self.log_info(f"  Decay time constant: {self.exponential_decay_time_ps} ps")
+            self.log_info(f"  Turn-on time: {self.exponential_turn_on_time_ps} ps")
+        
+        elif variant_type == 'square':
+            # Square wave coupling
+            coupling_variant = SquareWaveVariant(
+                amplitude=self.couplstr,
+                period_ps=self.square_period_ps,
+                time_tracker=self.time_tracker,
+                duty_cycle=self.square_duty_cycle,
+                phase_offset=self.square_phase_offset,
+                start_time_ps=self.square_start_time_ps,
+                stop_time_ps=self.square_stop_time_ps
+            )
+            self.log_info(f"Using square wave coupling:")
+            self.log_info(f"  Amplitude: {self.couplstr} a.u.")
+            self.log_info(f"  Period: {self.square_period_ps} ps")
+            self.log_info(f"  Duty cycle: {self.square_duty_cycle:.1%}")
+        
+        else:
+            raise ValueError(f"Unknown coupling_variant_type: {variant_type}")
+        
+        return coupling_variant
+    
+    def _create_laser_force(self):
+        """Create enhanced laser force with timing control."""
+        from .fdr_forces import PerturbationForce, PerturbationTimingUpdater
+        
+        # Create laser force with timing
+        laser_force = PerturbationForce(
+            kvector=self.laser_kvector,
+            amplitude=self.laser_amplitude,
+            start_time_ps=self.laser_start_time_ps,
+            stop_time_ps=self.laser_stop_time_ps,
+            time_tracker=self.time_tracker
+        )
+        
+        # Store for timing updates (will be added to simulation operations)
+        self.laser_force = laser_force
+        
+        self.log_info(f"Enhanced laser drive configured:")
+        self.log_info(f"  k-vector: {self.laser_kvector}")
+        self.log_info(f"  Amplitude: {self.laser_amplitude}")
+        self.log_info(f"  Start time: {self.laser_start_time_ps} ps")
+        if self.laser_stop_time_ps is not None:
+            self.log_info(f"  Stop time: {self.laser_stop_time_ps} ps")
+        else:
+            self.log_info(f"  Stop time: None (runs indefinitely)")
+        
+        return laser_force
 
     def setup_force_parameters(self, dt, rcut=15):
         """Set up force parameters for the simulation."""
@@ -658,71 +1001,21 @@ class CavityMDSimulation:
             from .utils import PhysicalConstants
             omegac = self.freq / PhysicalConstants.HARTREE_TO_CM_MINUS1
             
-            # Create time-varying coupling and dissipation if switch_time is specified
-            if self.switch_time_ps is not None:
-                # Import variants from plugin
-                from .variants import StepVariant
-                
-                # Create step variants for instantaneous switching
-                coupling_variant = StepVariant(
-                    target_value=self.couplstr,
-                    switch_time_ps=self.switch_time_ps,
-                    time_tracker=self.time_tracker,
-                    decay_time_constant_ps=self.decay_time_constant_ps
-                )
-                
-                dissipation_variant = StepVariant(
-                    target_value=self.dissipation,
-                    switch_time_ps=self.switch_time_ps,
-                    time_tracker=self.time_tracker,
-                    decay_time_constant_ps=self.decay_time_constant_ps
-                )
-                
-                # Update log messages based on whether decay is enabled
-                if self.decay_time_constant_ps is not None:
-                    self.log_info(f"Using step switching with exponential decay:")
-                    self.log_info(f"  Switch time: {self.switch_time_ps} ps")
-                    self.log_info(f"  Decay time constant: {self.decay_time_constant_ps} ps")
-                    self.log_info(f"  Coupling: 0 → {self.couplstr} a.u. (with decay)")
-                    self.log_info(f"  Dissipation: 0 → {self.dissipation} a.u. (with decay)")
-                else:
-                    self.log_info(f"Using instantaneous switching:")
-                    self.log_info(f"  Switch time: {self.switch_time_ps} ps")
-                    self.log_info(f"  Coupling: 0 → {self.couplstr} a.u. (instantaneous)")
-                    self.log_info(f"  Dissipation: 0 → {self.dissipation} a.u. (instantaneous)")
-                
-                # Create cavity force with variants
-                from .forces import CavityForce
-                cavityforce = CavityForce(
-                    kvector=np.array([0,0,1]), 
-                    couplstr=coupling_variant, 
-                    omegac=omegac,
-                    dissipation=dissipation_variant
-                )
+            # Create coupling variant based on type selection
+            coupling_variant = self._create_coupling_variant()
+            
+            # Create cavity force with variant
+            from .forces import CavityForce
+            cavityforce = CavityForce(
+                kvector=np.array([0,0,1]), 
+                couplstr=coupling_variant, 
+                omegac=omegac,
+            )
 
-                # Store variants and cavity force for later use in finite-q setup and console output
-                self.coupling_variant = coupling_variant
-                self.omegac = omegac
-                self.cavity_force = cavityforce  # Store for console output access
-
-            else:
-                # Use constant values (backward compatibility)
-                self.log_info(f"Using constant coupling and dissipation:")
-                self.log_info(f"  Coupling: {self.couplstr} a.u.")
-                self.log_info(f"  Dissipation: {self.dissipation} a.u.")
-                
-                from .forces import CavityForce
-                cavityforce = CavityForce(
-                    kvector=np.array([0,0,1]), 
-                    couplstr=self.couplstr, 
-                    omegac=omegac,
-                    dissipation=self.dissipation
-                )
-                
-                # Clear variants for later use but store cavity force
-                self.coupling_variant = None
-                self.omegac = omegac
-                self.cavity_force = cavityforce  # Store for console output access
+            # Store variants and cavity force for later use in finite-q setup and console output
+            self.coupling_variant = coupling_variant
+            self.omegac = omegac
+            self.cavity_force = cavityforce  # Store for console output access
             
             forces.append(cavityforce)
         
@@ -767,6 +1060,11 @@ class CavityMDSimulation:
         )
         forces.append(short)
         forces.append(long)
+        
+        # Setup enhanced laser driving if enabled
+        if self.laser_enabled:
+            laser_force = self._create_laser_force()
+            forces.append(laser_force)
         
         return forces
 
@@ -1035,12 +1333,6 @@ class CavityMDSimulation:
                     
                     self.log_info(f"Initial kinetic temperature from existing velocities: {current_temp:.2f} K")
                     
-                    # Exit if temperature is too high (> 10K)
-                    if current_temp-100.0 > 10.0:
-                        self.log_info(f"ERROR: Initial temperature too high ({current_temp:.2f} K > 10 K). Exiting.")
-                        import sys
-                        sys.exit(1)
-                    
                     # FIX: Check for zero velocities when using Bussi thermostat
                     # Bussi thermostat requires non-zero initial momenta to function properly
                     velocity_magnitude_threshold = 1e-12  # Very small threshold for "zero" velocities
@@ -1120,15 +1412,6 @@ class CavityMDSimulation:
                 self.log_info(f"  Number of molecular particles: {n_mol_particles}")
                 self.log_info(f"  Total kinetic energy: {total_ke:.6f} a.u.")
                 self.log_info(f"  Current temperature: {current_temp:.1f} K")
-                
-                # Exit if temperature is too high
-                if current_temp-100.0 > 10.0:
-                    self.log_info(f"ERROR: Molecular system temperature ({current_temp:.1f} K) exceeds 10 K threshold!")
-                    self.log_info("Terminating simulation for safety.")
-                    import sys
-                    sys.exit(1)
-                else:
-                    self.log_info(f"Temperature check passed: {current_temp:.1f} K is within acceptable range (≤ 10 K)")
             else:
                 self.log_info("WARNING: No molecular particles found for temperature check!")
         self.log_info("Thermalization completed - velocities properly initialized")
@@ -1245,7 +1528,7 @@ class CavityMDSimulation:
         logger[('Time', 'elapsed_ps')] = (self.time_tracker, 'elapsed_time', 'scalar')
         logger[('Performance', 'ns_per_day')] = (self.performance_tracker, 'ns_per_day', 'string')
         logger[('Performance', 'eta')] = (self.performance_tracker, 'eta_remaining', 'string')
-        logger[('Timestep', 'dt_fs')] = (self.timestep_formatter, 'dt_fs', 'scalar')
+        # logger[('Timestep', 'dt_fs')] = (self.timestep_formatter, 'dt_fs', 'scalar')  # Temporarily disabled for testing
         
         # Add adaptive timestep logging if enabled
         if hasattr(self, 'adaptive_action') and self.adaptive_action is not None:
@@ -1407,17 +1690,9 @@ class CavityMDSimulation:
                 # Use time-based output period for accurate timing
                 self.energy_tracker = EnergyTracker(
                     simulation=self.sim,
-                    components=['kinetic', 'harmonic', 'lj', 'ewald_short', 'ewald_long', 'cavity'],
-                    force_objects=force_objects,
-                    thermostat_objects=thermostat_objects,
-                    kinetic_tracker=kinetic_tracker,  # Use internal kinetic computation
                     time_tracker=self.time_tracker,
-                    output_prefix=output_prefix,
-                    output_period_ps=energy_output_period_ps,  # Use time-based output!
-                    max_time_ps=max_energy_output_time_ps,  # Use time-based limit
-                    compute_temperature=True,
-                    track_reservoirs=True,
-                    verbose='quiet'  # Reduce verbose output - use 'verbose' for full debug output
+                    output_period_ps=energy_output_period_ps,
+                    output_prefix=output_prefix
                 )
                 
                 # Add energy tracker to simulation - trigger period doesn't matter since it uses internal timing
@@ -1475,6 +1750,20 @@ class CavityMDSimulation:
                 self.log_info(f"  Reference interval: {fkt_reference_interval_ps:.3f} ps")
                 self.log_info(f"  Trigger period: {fkt_trigger_period} step")
                 
+                # Get logarithmic time spacing parameters
+                fkt_log_time_spacing = getattr(self, 'fkt_log_time_spacing', False)
+                fkt_min_log_time_ps = getattr(self, 'fkt_min_log_time_ps', None)
+                fkt_max_log_time_ps = getattr(self, 'fkt_max_log_time_ps', None)
+                fkt_log_num_points = getattr(self, 'fkt_log_num_points', 50)
+                
+                # Log logarithmic time spacing configuration
+                if fkt_log_time_spacing:
+                    self.log_info(f"  Logarithmic time spacing: ENABLED")
+                    self.log_info(f"  Log time range: {fkt_min_log_time_ps} - {fkt_max_log_time_ps} ps")
+                    self.log_info(f"  Log time points: {fkt_log_num_points}")
+                else:
+                    self.log_info(f"  Logarithmic time spacing: DISABLED (regular spacing)")
+                
                 # Create density correlation tracker with time-based reference interval
                 self.density_corr_tracker = FieldAutocorrelationTracker(
                     simulation=self.sim,
@@ -1485,7 +1774,12 @@ class CavityMDSimulation:
                     reference_interval_ps=fkt_reference_interval_ps,  # Use time-based interval
                     max_references=fkt_max_references,
                     kmag=fkt_kmag,
-                    num_wavevectors=fkt_num_wavevectors
+                    num_wavevectors=fkt_num_wavevectors,
+                    # Logarithmic time spacing parameters
+                    log_time_spacing=fkt_log_time_spacing,
+                    min_log_time_ps=fkt_min_log_time_ps,
+                    max_log_time_ps=fkt_max_log_time_ps,
+                    log_num_points=fkt_log_num_points
                 )
                 
                 # Add F(k,t) tracker to simulation - trigger period doesn't matter since it uses internal timing
@@ -1627,6 +1921,14 @@ class CavityMDSimulation:
         if self.zero_momentum_enabled:
             enabled_features.append(f"momentum zeroing ({self.zero_momentum_period_ps:.3f} ps)")
         
+        # Set up empirical temperature feedback if enabled
+        if getattr(self, 'enable_empirical_feedback', False):
+            self._setup_empirical_feedback()
+            enabled_features.append(f"empirical temperature feedback ({self.feedback_update_interval_ps:.1f} ps)")
+        
+        # Set up enhanced Phase 3 features
+        self._setup_enhanced_features(enabled_features)
+        
         if enabled_features:
             self.log_info(f"Advanced features enabled: {', '.join(enabled_features)}")
         else:
@@ -1635,6 +1937,354 @@ class CavityMDSimulation:
         console_output_period_ps = getattr(self, 'console_output_period_ps', 1.0)
         self.log_info(f"Console output: {console_output_period_ps:.3f} ps periods (time-based)")
         self.log_info("  Works accurately for both adaptive and fixed timestep modes")
+
+    def _setup_empirical_feedback(self):
+        """Set up empirical temperature feedback system."""
+        try:
+            from .analysis import EmpiricalTemperatureData, EmpiricalTemperatureFeedback
+            
+            # Validate parameters
+            if not self.empirical_data_file:
+                raise ValueError("empirical_data_file must be provided when enable_empirical_feedback=True")
+            
+            # Check that energy tracking is enabled
+            if not self.enable_energy_tracking:
+                self.log_warning("Energy tracking is not enabled - empirical feedback may not work correctly")
+                self.log_warning("Consider setting enable_energy_tracking=True for proper empirical feedback")
+            
+            self.log_info("Setting up empirical temperature feedback system:")
+            self.log_info(f"  Data file: {self.empirical_data_file}")
+            self.log_info(f"  Energy component: {self.feedback_energy_component}")
+            self.log_info(f"  Apply to: {self.feedback_apply_to}")
+            self.log_info(f"  Averaging window: {self.feedback_averaging_window_ps:.1f} ps")
+            self.log_info(f"  Update interval: {self.feedback_update_interval_ps:.1f} ps")
+            self.log_info(f"  Temperature range: [{self.feedback_T_min:.1f}, {self.feedback_T_max:.1f}] K")
+            if self.switch_time_ps is not None:
+                self.log_info(f"  Switch time: {self.switch_time_ps:.1f} ps (feedback starts after equilibration)")
+            else:
+                self.log_info("  Switch time: None (feedback active from start)")
+            if self.feedback_turn_off_time_ps is not None:
+                self.log_info(f"  Turn-off time: {self.feedback_turn_off_time_ps:.1f} ps (feedback stops here)")
+            if self.feedback_energy_component == 'harmonic':
+                if self.feedback_use_direct_harmonic_calculation:
+                    self.log_info("  Harmonic method: Direct calculation T = 4*E/(N*kB)")
+                else:
+                    self.log_info("  Harmonic method: Empirical interpolation")
+            
+            # Load empirical data
+            self.empirical_data = EmpiricalTemperatureData(
+                data_file_path=self.empirical_data_file,
+                energy_component=self.feedback_energy_component
+            )
+            
+            # Create output file path
+            output_prefix = f"empirical_feedback_replica_{self.replica}"
+            
+            # Create feedback tracker
+            self.empirical_feedback = EmpiricalTemperatureFeedback(
+                empirical_data=self.empirical_data,
+                energy_tracker=self.energy_tracker,
+                molecular_thermostat=self.molecular_thermostat_obj,
+                cavity_thermostat=self.cavity_thermostat_obj,
+                apply_to=self.feedback_apply_to,
+                output_period_ps=self.feedback_output_period_ps,
+                averaging_window_ps=self.feedback_averaging_window_ps,
+                update_interval_ps=self.feedback_update_interval_ps,
+                T_min=self.feedback_T_min,
+                T_max=self.feedback_T_max,
+                turn_off_time_ps=self.feedback_turn_off_time_ps,
+                switch_time_ps=self.switch_time_ps,
+                output_file=f"{output_prefix}_feedback.csv",
+                time_tracker=self.time_tracker,  # Add time tracker for accurate timing
+                initial_temperature=self.temperature  # Pass initial bath temperature
+            )
+            
+            # Calculate trigger period for CSV output (convert ps to steps)
+            # Use conservative estimate: assume ~1000 steps per ps for trigger calculation
+            feedback_trigger_steps = max(1, int(self.feedback_output_period_ps * 1000))
+            
+            # Add to simulation with configurable output frequency
+            feedback_updater = hoomd.update.CustomUpdater(
+                action=self.empirical_feedback,
+                trigger=hoomd.trigger.Periodic(feedback_trigger_steps)
+            )
+            self.sim.operations.updaters.append(feedback_updater)
+            
+            self.log_info("✅ Empirical temperature feedback system enabled")
+            
+            # Print basic empirical data info
+            self.log_info(f"  Energy component: {self.empirical_data.energy_component}")
+            self.log_info(f"  Temperature range: {self.empirical_data.temperatures.min():.1f} - {self.empirical_data.temperatures.max():.1f} K")
+            self.log_info(f"  Energy range: {self.empirical_data.energies.min():.6f} - {self.empirical_data.energies.max():.6f} Hartree")
+            self.log_info(f"  Data points: {len(self.empirical_data.temperatures)}")
+            
+        except Exception as e:
+            self.log_error(f"Failed to setup empirical temperature feedback: {e}")
+            import traceback
+            self.log_error("Full traceback:")
+            for line in traceback.format_exc().split('\n'):
+                if line.strip():
+                    self.log_error(line)
+            self.empirical_feedback = None
+    
+    def _setup_enhanced_features(self, enabled_features):
+        """Set up enhanced Phase 3 features: laser timing and PI feedback."""
+        
+        # Set up laser timing updater if laser is enabled
+        if getattr(self, 'laser_enabled', False) and hasattr(self, 'laser_force'):
+            from .fdr_forces import PerturbationTimingUpdater
+            
+            laser_timing_updater = PerturbationTimingUpdater([self.laser_force])
+            laser_updater = hoomd.update.CustomUpdater(
+                action=laser_timing_updater,
+                trigger=hoomd.trigger.Periodic(1)  # Check every timestep
+            )
+            self.sim.operations.updaters.append(laser_updater)
+            enabled_features.append(f"laser drive timing ({self.laser_start_time_ps:.1f}-{self.laser_stop_time_ps or '∞'} ps)")
+        
+        # Set up PI feedback controller if enabled
+        if getattr(self, 'enable_pi_feedback', False):
+            self._setup_pi_feedback()
+            enabled_features.append(f"PI feedback controller ({self.pi_temperature_method})")
+        
+        # Set up gradient descent feedback controller if enabled
+        if getattr(self, 'enable_gd_feedback', False):
+            self._setup_gd_feedback()
+            enabled_features.append(f"gradient descent feedback controller ({self.gd_temperature_method}, τ={self.gd_time_constant_ps:.1f}ps)")
+        
+        # Set up comprehensive temperature tracker if enabled
+        if getattr(self, 'enable_temp_tracker', False):
+            self._setup_temperature_tracker()
+            enabled_features.append(f"comprehensive temperature tracker ({self.temp_tracker_output_period_ps:.1f} ps)")
+        
+        # Set up dipole moment FDR tracking if enabled
+        if getattr(self, 'enable_dipole_fdr', False):
+            self._setup_dipole_fdr()
+            enabled_features.append(f"dipole moment FDR tracker ({self.dipole_fdr_output_period_ps:.1f} ps, τ_max={self.dipole_fdr_max_correlation_time_ps:.1f} ps)")
+        
+        # Set up dipole response force if enabled
+        if getattr(self, 'enable_dipole_response', False):
+            self._setup_dipole_response()
+            enabled_features.append(f"dipole response force (E₀={self.dipole_response_field_strength:.2e}, sign={self.dipole_response_sign:+.0f})")
+    
+    def _setup_pi_feedback(self):
+        """Set up PI feedback temperature controller."""
+        try:
+            from .analysis import PITemperatureFeedback
+            
+            # Auto-calculate Kc and Ti if not provided (IMC tuning)
+            Kc = self.pi_Kc
+            Ti = self.pi_Ti
+            
+            if Kc is None or Ti is None:
+                # IMC auto-tuning: Kc = 1/K, Ti = tau (conservative)
+                K_gain = 1.0  # Thermal response gain (assume ≈1)
+                theta_delay = self.pi_molecular_tau_ps  # Conservative delay estimate
+                
+                if Kc is None:
+                    Kc = 1.0 / K_gain  # PI tuning
+                if Ti is None:
+                    Ti = theta_delay   # Conservative integral time
+                
+                self.log_info(f"PI auto-tuning: Kc={Kc:.3f}, Ti={Ti:.1f} ps")
+            
+            # Create PI feedback controller
+            self.pi_feedback = PITemperatureFeedback(
+                temperature_method=self.pi_temperature_method,
+                molecular_tau_ps=self.pi_molecular_tau_ps,
+                time_tracker=self.time_tracker,
+                energy_tracker=getattr(self, 'energy_tracker', None),
+                molecular_thermostat=getattr(self, 'molecular_thermostat_obj', None),
+                cavity_thermostat=getattr(self, 'cavity_thermostat_obj', None),
+                target_temperature=self.pi_target_temperature,
+                lambda_factor=Kc,  # Use Kc as lambda_factor for auto-tuning
+                turn_on_time_ps=self.pi_turn_on_time_ps,
+                turn_off_time_ps=self.pi_turn_off_time_ps,
+                update_interval_ps=self.pi_update_interval_ps,
+                beta=self.pi_beta,
+                T_min=self.pi_T_min,
+                T_max=self.pi_T_max,
+                empirical_data_file=getattr(self, 'temp_tracker_empirical_data_file', None)
+            )
+            
+            # Add to simulation 
+            pi_trigger_steps = max(1, int(self.pi_update_interval_ps * 1000))
+            pi_updater = hoomd.update.CustomUpdater(
+                action=self.pi_feedback,
+                trigger=hoomd.trigger.Periodic(pi_trigger_steps)
+            )
+            self.sim.operations.updaters.append(pi_updater)
+            
+            self.log_info("✅ PI feedback controller enabled")
+            self.log_info(f"  Target temperature: {self.pi_target_temperature:.1f} K")
+            self.log_info(f"  Method: {self.pi_temperature_method}")
+            self.log_info(f"  Kc: {Kc:.3f}, Ti: {Ti:.1f} ps")
+            self.log_info(f"  Update interval: {self.pi_update_interval_ps:.1f} ps")
+            
+        except Exception as e:
+            self.log_error(f"Failed to setup PI feedback controller: {e}")
+            self.pi_feedback = None
+    
+    def _setup_gd_feedback(self):
+        """Set up gradient descent feedback temperature controller."""
+        if not self.enable_gd_feedback:
+            self.gd_feedback = None
+            return
+        
+        try:
+            from .analysis import GradientDescentTemperatureFeedback
+            
+            # Create output file path
+            output_file = f"gd_feedback_replica_{self.replica}.csv"
+            
+            # Create gradient descent controller
+            self.gd_feedback = GradientDescentTemperatureFeedback(
+                temperature_method=self.gd_temperature_method,
+                time_constant_ps=self.gd_time_constant_ps,
+                time_tracker=self.time_tracker,
+                energy_tracker=getattr(self, 'energy_tracker', None),
+                simulation=self.sim,
+                molecular_thermostat=getattr(self, 'molecular_thermostat_obj', None),
+                cavity_thermostat=getattr(self, 'cavity_thermostat_obj', None),
+                target_temperature=self.gd_target_temperature,
+                apply_to=self.gd_apply_to,
+                turn_on_time_ps=self.gd_turn_on_time_ps,
+                turn_off_time_ps=self.gd_turn_off_time_ps,
+                update_interval_ps=self.gd_update_interval_ps,
+                T_min=self.gd_T_min,
+                T_max=self.gd_T_max,
+                output_file=output_file,
+                empirical_data_file=getattr(self, 'temp_tracker_empirical_data_file', None),
+                console_output_period_ps=self.console_output_period_ps
+            )
+            
+            # Add to simulation 
+            gd_trigger_steps = max(1, int(self.gd_update_interval_ps * 1000))
+            gd_updater = hoomd.update.CustomUpdater(
+                action=self.gd_feedback,
+                trigger=hoomd.trigger.Periodic(gd_trigger_steps)
+            )
+            self.sim.operations.updaters.append(gd_updater)
+            
+            self.log_info("✅ Gradient descent feedback controller enabled")
+            self.log_info(f"  Target temperature: {self.gd_target_temperature:.1f} K")
+            self.log_info(f"  Method: {self.gd_temperature_method}")
+            self.log_info(f"  Time constant: {self.gd_time_constant_ps:.1f} ps")
+            self.log_info(f"  Learning rate α: {0.0001/self.gd_time_constant_ps:.6f}")
+            self.log_info(f"  Update interval: {self.gd_update_interval_ps:.1f} ps")
+            
+        except Exception as e:
+            self.log_error(f"Failed to setup gradient descent feedback controller: {e}")
+            self.gd_feedback = None
+    
+    def _setup_temperature_tracker(self):
+        """Set up comprehensive temperature tracker."""
+        try:
+            from .analysis import TemperatureTracker
+            
+            # Create output file path
+            output_file = f"temperature_tracker_replica_{self.replica}.csv"
+            
+            # Create temperature tracker
+            self.temperature_tracker = TemperatureTracker(
+                simulation=self.sim,
+                time_tracker=self.time_tracker,
+                output_period_ps=self.temp_tracker_output_period_ps,
+                output_file=output_file,
+                energy_tracker=getattr(self, 'energy_tracker', None),
+                molecular_thermostat=getattr(self, 'molecular_thermostat_obj', None),
+                cavity_thermostat=getattr(self, 'cavity_thermostat_obj', None),
+                empirical_data_file=self.temp_tracker_empirical_data_file
+            )
+            
+            # Add to simulation
+            temp_trigger_steps = max(1, int(self.temp_tracker_output_period_ps * 1000))
+            temp_updater = hoomd.update.CustomUpdater(
+                action=self.temperature_tracker,
+                trigger=hoomd.trigger.Periodic(temp_trigger_steps)
+            )
+            self.sim.operations.updaters.append(temp_updater)
+            
+            self.log_info("✅ Comprehensive temperature tracker enabled")
+            self.log_info(f"  Output file: {output_file}")
+            self.log_info(f"  Output period: {self.temp_tracker_output_period_ps:.1f} ps")
+            self.log_info(f"  Tracking: kinetic, harmonic fictive, LJ+Coul fictive, cavity bath, molecular bath")
+            if self.temp_tracker_empirical_data_file:
+                self.log_info(f"  Empirical data: {self.temp_tracker_empirical_data_file}")
+            else:
+                self.log_info(f"  Empirical data: None (LJ+Coul fictive temp will be 0)")
+            
+        except Exception as e:
+            self.log_error(f"Failed to setup temperature tracker: {e}")
+            self.temperature_tracker = None
+    
+    def _setup_dipole_fdr(self):
+        """Set up dipole moment FDR tracker."""
+        try:
+            from .analysis import DipoleMomentFDRTracker
+            
+            # Create output file path
+            output_file = f"dipole_fdr_replica_{self.replica}.csv"
+            
+            # Create dipole FDR tracker
+            self.dipole_fdr_tracker = DipoleMomentFDRTracker(
+                time_tracker=self.time_tracker,
+                output_file=output_file,
+                max_correlation_time_ps=self.dipole_fdr_max_correlation_time_ps,
+                correlation_output_interval_ps=self.dipole_fdr_output_period_ps,
+                exclude_cavity=self.dipole_fdr_exclude_cavity,
+                field_direction=self.dipole_fdr_field_direction,
+                enable_response_measurement=self.enable_dipole_response
+            )
+            
+            # Add to simulation
+            fdr_trigger_steps = max(1, int(self.dipole_fdr_output_period_ps * 1000))
+            fdr_updater = hoomd.update.CustomUpdater(
+                action=self.dipole_fdr_tracker,
+                trigger=hoomd.trigger.Periodic(fdr_trigger_steps)
+            )
+            self.sim.operations.updaters.append(fdr_updater)
+            
+            self.log_info("✅ Dipole moment FDR tracker enabled")
+            self.log_info(f"  Output file: {output_file}")
+            self.log_info(f"  Output period: {self.dipole_fdr_output_period_ps:.1f} ps")
+            self.log_info(f"  Max correlation time: {self.dipole_fdr_max_correlation_time_ps:.1f} ps")
+            self.log_info(f"  Field direction: {self.dipole_fdr_field_direction}")
+            self.log_info(f"  Exclude cavity: {self.dipole_fdr_exclude_cavity}")
+            if self.enable_dipole_response:
+                self.log_info(f"  Response measurement: Enabled (fork-and-clone)")
+            else:
+                self.log_info(f"  Response measurement: Disabled (autocorrelation only)")
+            
+        except Exception as e:
+            self.log_error(f"Failed to setup dipole FDR tracker: {e}")
+            self.dipole_fdr_tracker = None
+    
+    def _setup_dipole_response(self):
+        """Set up dipole response force for FDR measurements."""
+        try:
+            from .fdr_forces import DipoleResponseForce
+            
+            # Create dipole response force
+            self.dipole_response_force = DipoleResponseForce(
+                field_vector=self.dipole_fdr_field_direction,
+                field_strength=self.dipole_response_field_strength,
+                sign=self.dipole_response_sign,
+                exclude_cavity=self.dipole_fdr_exclude_cavity
+            )
+            
+            # Add to simulation forces
+            self.sim.operations.integrator.forces.append(self.dipole_response_force)
+            
+            self.log_info("✅ Dipole response force enabled")
+            self.log_info(f"  Field strength: {self.dipole_response_field_strength:.2e}")
+            self.log_info(f"  Field direction: {self.dipole_fdr_field_direction}")
+            self.log_info(f"  Sign: {self.dipole_response_sign:+.0f}")
+            self.log_info(f"  Exclude cavity: {self.dipole_fdr_exclude_cavity}")
+            
+        except Exception as e:
+            self.log_error(f"Failed to setup dipole response force: {e}")
+            self.dipole_response_force = None
 
     def setup_output_writers(self):
         """Configure GSD writer and console table for simulation output."""
@@ -1747,7 +2397,7 @@ class CavityMDSimulation:
                         "Time.elapsed_ps",
                         "Performance.ns_per_day",
                         "Performance.eta",
-                        "Timestep.dt_fs"
+                        # "Timestep.dt_fs"  # Temporarily disabled for testing
                     ]
                     if self.incavity:
                         header_parts.append("Cavity.coupling_au")
@@ -1761,7 +2411,7 @@ class CavityMDSimulation:
                 tps = self.sim.tps if hasattr(self.sim, 'tps') else 0.0
                 ns_per_day = self.performance_tracker.ns_per_day  # Property, not method
                 eta = self.performance_tracker.eta_remaining      # Property, not method
-                dt_fs = self.timestep_formatter.dt_fs             # Property, not method
+                # dt_fs = self.timestep_formatter.dt_fs             # Property, not method - temporarily disabled
                 
                 # Build output line
                 output_parts = [
@@ -1770,7 +2420,7 @@ class CavityMDSimulation:
                     f"{current_time:15.5f}",
                     f"{ns_per_day:>15s}",
                     f"{eta:>15s}",
-                    f"{dt_fs:15.5f}"
+                    # f"{dt_fs:15.5f}"  # Temporarily disabled
                 ]
                 
                 if self.incavity:
@@ -2054,6 +2704,11 @@ class CavityMDSimulation:
             forces = self.setup_force_parameters(self.dt)
             molecular_method, cavity_method, thermostat_refs = self.setup_thermostat_parameters(self.dt)
             
+            # Store thermostat objects for empirical feedback
+            self.molecular_thermostat_obj = molecular_method
+            self.cavity_thermostat_obj = cavity_method
+            self.thermostat_refs = thermostat_refs
+            
             # Phase 3: Setup integrator and thermalization
             self.log_info("=== Phase 3: Setting up integrator and thermalization ===")
             methods = [molecular_method]
@@ -2122,8 +2777,20 @@ class CavityMDSimulation:
 
     def cleanup(self):
         """Handle post-simulation cleanup and restore original directory."""
-        # Note: Trackers from analysis.py write directly to files, no buffering needed
         self.log_info("Cleanup initiated...")
+        
+        # Finalize F(k,t) logarithmic output if enabled
+        print("DEBUG: Cleanup called - checking for fkt_tracker")
+        if hasattr(self, 'fkt_tracker') and self.fkt_tracker is not None:
+            print(f"DEBUG: fkt_tracker found: {type(self.fkt_tracker)}")
+            if hasattr(self.fkt_tracker, 'finalize_output'):
+                print("DEBUG: Calling fkt_tracker.finalize_output()")
+                self.log_info("Finalizing F(k,t) logarithmic output...")
+                self.fkt_tracker.finalize_output()
+            else:
+                print("DEBUG: fkt_tracker has no finalize_output method")
+        else:
+            print("DEBUG: No fkt_tracker found or it's None")
         
         # Restore original directory
         if hasattr(self, 'original_cwd'):
@@ -2470,50 +3137,29 @@ class AdaptiveTimestepUpdater(hoomd.custom.Action):
             
         # Compute optimal timestep using current error tolerance
         if force_max_norm > 0:
-            # Use error tolerance directly (no minimum protection)
-            # This allows observing dt=0.0 when error tolerance becomes zero during shock dampening
-            effective_error_tolerance = self.current_error_tolerance
+            # Add minimum timestep protection to prevent numerical instability
+            # Even during shock dampening, we need a non-zero timestep for the integrator
+            min_dt = PhysicalConstants.fs_to_atomic_units(0.001)  # 0.001 fs minimum
+            effective_error_tolerance = max(self.current_error_tolerance, 
+                                          self.target_error_tolerance * 1e-10)  # Never below 1e-10 * target
             #print(f"DEBUG: effective_error_tolerance = {effective_error_tolerance}", flush=True)
 
             optimal_dt = np.sqrt(effective_error_tolerance / force_max_norm)
             current_dt = self.integrator.dt
-            # print(f"DEBUG: current_dt = {current_dt}", flush=True)
-            # print(f"DEBUG: force_max_norm = {force_max_norm}", flush=True)
-            # print(f"DEBUG: optimal_dt = {optimal_dt}", flush=True)
-            # DEBUG: Show exact values when switch is detected or shock dampening is active
-            #if force_immediate_update or (self.shock_dampening_enabled and self.switch_detected):
-            #    print(f"DEBUG SHOCK DAMPENING: effective_error_tolerance = {effective_error_tolerance:.2e}, optimal_dt = {optimal_dt:.6e} a.u. ({PhysicalConstants.atomic_units_to_ps(optimal_dt):.1f} ps)", flush=True)
             
-            # Apply conservative timestep update logic
-            # dt_ratio = optimal_dt / current_dt
+            # Apply minimum timestep protection
+            if optimal_dt < min_dt:
+                optimal_dt = min_dt
+                if force_immediate_update:
+                    print(f"  WARNING: Computed timestep {np.sqrt(self.current_error_tolerance / force_max_norm):.2e} a.u. below minimum", flush=True)
+                    print(f"  Clamping to minimum timestep: {min_dt:.2e} a.u. ({min_dt * PhysicalConstants.TIME_PS_CONVERSION * 1000:.3f} fs)", flush=True)
             
-            # # For forced updates (switch detected), be more aggressive with changes
-            # if force_immediate_update:
-            #     # Allow larger changes when switch is detected for immediate stabilization
-            #     effective_change_threshold = self.timestep_change_threshold * 0.1  # 10x more sensitive
-            #     effective_max_change_factor = self.max_timestep_change_factor * 2.0  # Allow 2x larger changes
-            # else:
-            #     # Normal conservative parameters
-            #     effective_change_threshold = self.timestep_change_threshold
-            #     effective_max_change_factor = self.max_timestep_change_factor
-            
-            # Only update if the change is significant (or forced)
-            #if force_immediate_update or abs(dt_ratio - 1.0) > effective_change_threshold:
-            # SPECIAL CASE: Allow dt=0 when optimal_dt is exactly zero (shock dampening)
-            # if optimal_dt == 0.0:
-            #     new_dt = 0.0
-            #     clamped = False
-            #     print(f"  SPECIAL: Setting dt = 0.0 exactly (optimal_dt = 0.0 from shock dampening)", flush=True)
-            # # Limit the maximum change to prevent dramatic jumps (normal cases)
-            # elif dt_ratio > effective_max_change_factor:
-            #     new_dt = current_dt * effective_max_change_factor
-            #     clamped = True
-            # elif dt_ratio < (1.0 / effective_max_change_factor):
-            #     new_dt = current_dt / effective_max_change_factor
-            #     clamped = True
-            # else:
-            #     new_dt = optimal_dt
-            #     clamped = False
+            # Apply maximum timestep protection  
+            max_dt = PhysicalConstants.fs_to_atomic_units(10.0)  # 10 fs maximum
+            if optimal_dt > max_dt:
+                optimal_dt = max_dt
+                if force_immediate_update:
+                    print(f"  WARNING: Computed timestep above maximum, clamping to {max_dt * PhysicalConstants.TIME_PS_CONVERSION * 1000:.1f} fs", flush=True)
             
             # Apply the timestep change
             self.integrator.dt = optimal_dt

@@ -374,7 +374,7 @@ def parse_replicas(replicas_str: Union[str, None]) -> List[int]:
         # Range format: "1-5"
         try:
             start, end = map(int, replicas_str.split('-'))
-            if start > end or start < 1:
+            if start > end or start < 0:
                 raise ValueError(f"Invalid range: {replicas_str}")
             return list(range(start, end + 1))
         except ValueError as e:
@@ -383,8 +383,8 @@ def parse_replicas(replicas_str: Union[str, None]) -> List[int]:
         # Comma-separated format: "1,2,3,4,5"
         try:
             replicas = [int(x.strip()) for x in replicas_str.split(',')]
-            if any(r < 1 for r in replicas):
-                raise ValueError("Replica numbers must be positive")
+            if any(r < 0 for r in replicas):
+                raise ValueError("Replica numbers must be non-negative")
             return sorted(set(replicas))  # Remove duplicates and sort
         except ValueError as e:
             raise ValueError(f"Invalid replica list format '{replicas_str}': {e}") 

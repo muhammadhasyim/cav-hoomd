@@ -19,7 +19,8 @@ CavityParticleDisplacer::CavityParticleDisplacer(std::shared_ptr<SystemDefinitio
       m_couplstr(couplstr),
       m_omegac(omegac),
       m_phmass(phmass),
-      m_has_run(false)
+      m_has_run(false),
+      m_last_coupling(0.0)
     {
     m_exec_conf->msg->notice(5) << "Constructing CavityParticleDisplacer" << std::endl;
     m_K = m_phmass * m_omegac * m_omegac;
@@ -90,15 +91,44 @@ void CavityParticleDisplacer::update(uint64_t timestep)
     // Get current coupling strength
     Scalar g_current = (*m_couplstr)(timestep);
     
-    // Check if we've already processed the switch or if coupling is still zero
-    if (m_has_run || g_current == 0.0) {
-        // Either already displaced, or coupling is still zero - nothing to do
+    // Enhanced logic for all variant types:
+    // - For step variants: trigger once on 0 -> non-zero transition
+    // - For periodic/square variants: trigger on every 0 -> non-zero transition  
+    // - For exponential: trigger on turn-on events
+    
+    bool should_displace = false;
+    
+    if (g_current == 0.0) {
+        // Coupling is currently zero - update state but don't displace
+        m_last_coupling = 0.0;
         return;
     }
     
-    // If we reach here, g_current > 0.0 and we haven't run yet
-    // This means the coupling has just switched from 0 to non-zero
-    // Time to perform the displacement!
+    if (g_current > 0.0) {
+        // Coupling is non-zero - check if we need to displace
+        if (m_last_coupling == 0.0) {
+            // Transition from 0 to non-zero - trigger displacement
+            should_displace = true;
+            m_exec_conf->msg->notice(1) << "Coupling transitioned 0 -> " << g_current << "! Triggering finite-q displacement..." << std::endl;
+        } else {
+            // Coupling was already non-zero - check if we're in step mode  
+            if (m_has_run) {
+                // Step variant - already displaced once, don't displace again
+                m_last_coupling = g_current;
+                return;
+            } else {
+                // Continuous variant (shouldn't happen in practice) - could displace
+                should_displace = false;
+            }
+        }
+    }
+    
+    if (!should_displace) {
+        m_last_coupling = g_current;
+        return;
+    }
+    
+    // Perform the displacement!
     
     m_exec_conf->msg->notice(1) << "Coupling has switched ON! Performing finite-q displacement..." << std::endl;
     m_exec_conf->msg->notice(1) << "  Current coupling g: " << g_current << std::endl;
@@ -205,7 +235,11 @@ void CavityParticleDisplacer::update(uint64_t timestep)
     m_exec_conf->msg->notice(1) << "System state synchronized after position update" << std::endl;
     m_exec_conf->msg->notice(1) << "All cached data invalidated to ensure energy consistency" << std::endl;
     
-    // Mark as completed so we don't run again
+    // Update state tracking
+    m_last_coupling = g_current;
+    
+    // Mark as completed so step variants don't run again  
+    // (periodic variants will still trigger on future 0->non-zero transitions)
     m_has_run = true;
     }
 

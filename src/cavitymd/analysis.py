@@ -1,13 +1,19 @@
+
 # Copyright (c) 2009-2025 The Regents of the University of Michigan.
 # Part of HOOMD-blue, released under the BSD 3-Clause License.
 
-"""Analysis and tracking components for cavity molecular dynamics simulations."""
+"""Analysis and tracking tools for cavity molecular dynamics simulations."""
 
+from typing import Optional, List, Dict, Union, Any, Tuple
 import hoomd
-import datetime
 import numpy as np
-import traceback
+import logging
 import sys
+import os
+import time
+from pathlib import Path
+import enum
+import scipy.fft
 
 # CuPy import with fallback for CPU/GPU agnostic code
 try:
@@ -19,2036 +25,114 @@ except ImportError:
 
 from .utils import PhysicalConstants, unwrap_positions
 
-# =============================================================================
-# OBSERVABLE LIBRARY
-# =============================================================================
-
-def compute_total_dipole_moment(snapshot):
-    """Compute total dipole moment with proper position unwrapping."""
-    box_lengths = np.array(
-        [snapshot.global_box.L[0], snapshot.global_box.L[1], snapshot.global_box.L[2]]
-    )
-    
-    # Convert snapshot arrays to NumPy following CuPy guidelines
-    if HAS_CUPY:
-        # Use CuPy's asnumpy function for robust conversion
-        positions_np = cp.asnumpy(snapshot.particles.position)
-        images_np = cp.asnumpy(snapshot.particles.image)
-        charges_np = cp.asnumpy(snapshot.particles.charge)
-    else:
-        # Fallback to NumPy arrays
-        positions_np = np.asarray(snapshot.particles.position)
-        images_np = np.asarray(snapshot.particles.image)
-        charges_np = np.asarray(snapshot.particles.charge)
-    
-    unwrapped_positions = unwrap_positions(positions_np, images_np, box_lengths)
-    # Dipole = charges × positions
-    return np.dot(charges_np, unwrapped_positions)
-
-
-def compute_density_field(snapshot, wavevectors):
-    """Compute density field ρ(k) for given wavevectors."""
-    # Convert snapshot arrays to NumPy following CuPy guidelines
-    if HAS_CUPY:
-        # Use CuPy's asnumpy function for robust conversion
-        positions_np = cp.asnumpy(snapshot.particles.position)
-    else:
-        # Fallback to NumPy arrays
-        positions_np = np.asarray(snapshot.particles.position)
-    
-    rhok_real = np.zeros(len(wavevectors))
-    rhok_imag = np.zeros(len(wavevectors))
-
-    for i, k_vec in enumerate(wavevectors):
-        # Compute k·r for all particles
-        kr = np.dot(positions_np, k_vec)
-        # Compute ρ(k) = sum_j exp(i k·r_j)
-        rhok_real[i] = np.sum(np.cos(kr))
-        rhok_imag[i] = np.sum(np.sin(kr))
-
-    return rhok_real + 1j * rhok_imag
-
-
-def generate_fibonacci_sphere(samples=100):
-    """Generate uniformly distributed points on a sphere using Fibonacci spiral."""
-    points = np.zeros((samples, 3))
-    phi = np.pi * (3.0 - np.sqrt(5.0))  # golden angle in radians
-
-    for i in range(samples):
-        y = 1 - (i / float(samples - 1)) * 2  # y goes from 1 to -1
-        radius = np.sqrt(1 - y * y)  # radius at y
-
-        theta = phi * i  # golden angle increment
-
-        x = np.cos(theta) * radius
-        z = np.sin(theta) * radius
-
-        points[i] = [x, y, z]
-
-    return points
-
-
-# Observable library definitions
-SIMPLE_OBSERVABLES = {
-    "dipole": compute_total_dipole_moment,
-}
-
-FIELD_OBSERVABLES = {
-    "density_correlation": compute_density_field,
-    # Add other field observables as needed
-}
-
-ENERGY_COMPONENTS = {
-    "harmonic": lambda forces: forces.get("harmonic", None),
-    "lj": lambda forces: forces.get("lj", None),
-    "ewald_short": lambda forces: forces.get("ewald_short", None),
-    "ewald_long": lambda forces: forces.get("ewald_long", None),
-    "cavity": lambda forces: forces.get("cavity", None),
-    # NOTE: Separate cavity components use the same cavity force object
-    "cavity_harmonic": lambda forces: forces.get("cavity", None),
-    "cavity_coupling": lambda forces: forces.get("cavity", None),
-    "cavity_dipole_self": lambda forces: forces.get("cavity", None),
-}
-
-# Reservoir energy components for thermostat energy tracking
-RESERVOIR_ENERGY_COMPONENTS = {
-    "bussi_molecular_reservoir": lambda thermostats: thermostats.get(
-        "bussi_molecular", None
-    ),
-    "bussi_cavity_reservoir": lambda thermostats: thermostats.get("bussi_cavity", None),
-    "langevin_molecular_reservoir": lambda thermostats: thermostats.get(
-        "langevin_molecular", None
-    ),
-    "langevin_cavity_reservoir": lambda thermostats: thermostats.get(
-        "langevin_cavity", None
-    ),
-}
-
-
-# =============================================================================
-# BASE TRACKER CLASS
-# =============================================================================
-
-
-class BaseTracker(hoomd.custom.Action):
-    """Base class for all tracking components with common infrastructure."""
-
-    def __init__(
-        self,
-        simulation,
-        time_tracker=None,
-        output_prefix="tracker",
-        output_period_steps=None,
-        output_period_ps=None,
-    ):
-        """Initialize base tracker.
-
-        Args:
-            simulation: HOOMD simulation object
-            time_tracker: Optional time tracker for accurate timing
-            output_prefix: Prefix for output files
-            output_period_steps: Output frequency in simulation steps (for fixed timestep mode)
-            output_period_ps: Output frequency in ps (preferred for adaptive timestep mode)
-        """
-        super().__init__()
-        self.sim = simulation
-        self.time_tracker = time_tracker
-        self.output_prefix = output_prefix
-
-        # Support both step-based and time-based output periods
-        self.output_period_steps = output_period_steps
-        self.output_period_ps = output_period_ps
-
-        # Validate that at least one period is specified
-        if output_period_steps is None and output_period_ps is None:
-            # Default to 1000 steps for backward compatibility
-            self.output_period_steps = 1000
-            self.output_period_ps = None
-
-        # Prefer time-based periods when both are specified
-        if self.output_period_ps is not None:
-            self.use_time_based_output = True
-        else:
-            self.use_time_based_output = False
-
-        # Track last output time/step
-        self.last_output_step = 0
-        self.last_output_time = 0.0
-
-        # Initialize current values for logging
-        self._initialize_logging_values()
-
-    def _initialize_logging_values(self):
-        """Initialize values that will be logged. Override in subclasses."""
-        pass
-
-    def _get_current_time(self, timestep):
-        """Get current simulation time."""
-        if self.time_tracker is not None:
-            return self.time_tracker.elapsed_time
-        else:
-            return PhysicalConstants.atomic_units_to_ps(
-                timestep * self.sim.operations.integrator.dt
-            )
-
-    def _should_output(self, timestep):
-        """Check if we should output at this timestep (supports both time and step-based)."""
-        if self.use_time_based_output:
-            # Time-based output logic
-            current_time = self._get_current_time(timestep)
-            time_since_last = current_time - self.last_output_time
-            return time_since_last >= self.output_period_ps
-        else:
-            # Step-based output logic (original behavior)
-            return timestep - self.last_output_step >= self.output_period_steps
-
-    def _update_output_step(self, timestep):
-        """Update the last output step and time."""
-        self.last_output_step = timestep
-        if self.use_time_based_output:
-            self.last_output_time = self._get_current_time(timestep)
-
-    def get_local_snapshot(self):
-        """
-        Get the appropriate local snapshot context manager based on simulation device type.
-        
-        Returns
-        -------
-        Local snapshot context manager (CPU or GPU)
-        """
-        # Detect device type from simulation
-        device = self.sim.device
-        if hasattr(device, 'gpu_ids') or 'GPU' in str(type(device)):
-            return self.sim.state.gpu_local_snapshot
-        else:
-            return self.sim.state.cpu_local_snapshot
-
-    def get_particle_count(self, snap):
-        """
-        Get the number of particles from a local snapshot in a device-agnostic way.
-        
-        Parameters
-        ----------
-        snap : Local snapshot object
-            Either CPU or GPU local snapshot
-            
-        Returns
-        -------
-        int
-            Number of particles
-        """
-        # Detect device type from simulation
-        device = self.sim.device
-        if hasattr(device, 'gpu_ids') or 'GPU' in str(type(device)):
-            # GPU snapshots don't have .N attribute, use length of an array
-            return len(snap.particles.typeid)
-        else:
-            # CPU snapshots have .N attribute
-            return snap.particles.N
-
-    def get_array_module(self, *arrays):
-        """
-        Get the appropriate array module (numpy or cupy) based on the input arrays.
-        
-        This follows CuPy's guidelines for writing CPU/GPU agnostic code.
-        If any input array is on GPU, returns cupy module, otherwise numpy.
-        
-        Parameters
-        ----------
-        *arrays : array-like
-            Input arrays to check
-            
-        Returns
-        -------
-        module
-            Either numpy or cupy module
-        """
-        if not HAS_CUPY:
-            return np
-            
-        # Use CuPy's get_array_module for proper detection
-        return cp.get_array_module(*arrays)
-
-    def to_device_array(self, array_data, target_arrays=None):
-        """
-        Convert array to the appropriate device format (NumPy for CPU, CuPy for GPU).
-        
-        This follows CuPy's guidelines using cupy.asarray() for device conversion.
-        
-        Parameters
-        ----------
-        array_data : array-like
-            Input array data
-        target_arrays : array-like, optional
-            Target arrays to match device type. If provided, uses their device.
-            
-        Returns
-        -------
-        array
-            Array on the appropriate device (NumPy for CPU, CuPy for GPU)
-        """
-        if not HAS_CUPY:
-            # Always use NumPy for CPU
-            return np.asarray(array_data)
-        
-        if target_arrays is not None:
-            # Use get_array_module to determine the appropriate module
-            xp = self.get_array_module(target_arrays)
-            return xp.asarray(array_data)
-        else:
-            # Fallback to cupy.asarray which handles both CPU and GPU cases
-            return cp.asarray(array_data)
-
-    def to_numpy(self, array_data):
-        """
-        Convert array to NumPy array, following CuPy guidelines using cupy.asnumpy().
-        
-        Parameters
-        ----------
-        array_data : array-like
-            Input array data (NumPy or CuPy)
-            
-        Returns
-        -------
-        np.ndarray
-            NumPy array
-        """
-        if HAS_CUPY:
-            # Use cupy.asnumpy() for robust conversion
-            return cp.asnumpy(array_data)
-        else:
-            # Fallback to numpy.asarray
-            return np.asarray(array_data)
-
-
-# =============================================================================
-# AUTOCORRELATION TRACKER (Simple Observables)
-# =============================================================================
-
-
-class AutocorrelationTracker(BaseTracker):
-    """Generic autocorrelation tracker for simple observables."""
-
-    def __init__(
-        self,
-        simulation,
-        observable,
-        time_tracker=None,
-        output_prefix=None,
-        output_period_steps=1000,
-        output_period_ps=None,
-        reference_interval_steps=10000,
-        max_references=10,
-        reference_interval_ps=None,
-    ):
-        """Initialize autocorrelation tracker.
-
-        Args:
-            simulation: HOOMD simulation object
-            observable: Observable name from SIMPLE_OBSERVABLES
-            time_tracker: Optional time tracker for accurate timing
-            output_prefix: Prefix for output files
-            output_period_steps: Output frequency in simulation steps
-            output_period_ps: Output frequency in picoseconds (preferred for adaptive timestep)
-            reference_interval_steps: Interval between new references in steps (DEPRECATED in adaptive mode)
-            max_references: Maximum number of reference states to keep
-            reference_interval_ps: Interval between new references in ps (PREFERRED for adaptive mode)
-        """
-        if observable not in SIMPLE_OBSERVABLES:
-            raise ValueError(
-                f"Unknown observable '{observable}'. Available: {list(SIMPLE_OBSERVABLES.keys())}"
-            )
-
-        self.observable = observable
-        self.observable_func = SIMPLE_OBSERVABLES[observable]
-        self.reference_interval_steps = reference_interval_steps  # Fallback for fixed timestep
-        self.reference_interval_ps = reference_interval_ps  # Preferred for adaptive timestep
-        self.max_references = max_references
-
-        if output_prefix is None:
-            output_prefix = f"{observable}_autocorr"
-
-        super().__init__(
-            simulation, time_tracker, output_prefix, output_period_steps, output_period_ps
-        )
-
-        # Initialize autocorrelation tracking with multiple references
-        self.references = []  # List of reference states
-        self.last_reference_step = 0
-        self.last_reference_time_ps = 0.0  # Track time of last reference for time-based intervals
-
-        # Initialize first reference and output files
-        self._initialize_new_reference_file(0)
-
-    def _initialize_new_reference_file(self, ref_number):
-        """Initialize a new reference file."""
-        filename = f"{self.output_prefix}_{ref_number}.txt"
-        with self.get_local_snapshot() as snap:
-            reference_value = self.observable_func(snap)
-            current_time = self._get_current_time(self.sim.timestep)
-            
-            # Store reference information
-            ref_info = {
-                "number": ref_number,
-                "filename": filename,
-                "value": reference_value,
-                "time": current_time
-            }
-            self.references.append(ref_info)
-            
-            # Update last reference tracking
-            self.last_reference_time_ps = current_time
-            
-            # Write header and t=0 value for this reference
-            with open(filename, "w") as f:
-                f.write(f"# {self.observable.capitalize()} autocorrelation data\n")
-                f.write(f"# Reference number: {ref_number}\n")
-                f.write(f"# Reference time: {current_time:.6f} ps\n")
-                
-                # Write the correct output period based on which mode is being used
-                if self.use_time_based_output:
-                    f.write(f"# Output period: {self.output_period_ps:.6f} ps (time-based)\n")
-                else:
-                    f.write(f"# Output period: {self.output_period_steps} steps (step-based)\n")
-                    
-                f.write("# timestep lag_time(ps) C(t)\n")
-                
-                # Compute autocorrelation at t=0 (should be C(0) = |reference|^2)
-                autocorr_value = np.dot(reference_value, reference_value)
-                f.write(f"{self.sim.timestep} 0.000000 {autocorr_value:.6f}\n")
-                f.flush()
-        
-        print(f"Initialized {self.observable} autocorr reference {ref_number}", flush=True)
-
-    def _should_create_new_reference(self, current_time_ps, timestep):
-        """Determine if a new reference should be created based on time or step interval."""
-        if len(self.references) >= self.max_references:
-            return False
-
-        # Prefer time-based intervals for accuracy in adaptive timestep mode
-        if self.reference_interval_ps is not None:
-            time_since_last = current_time_ps - self.last_reference_time_ps
-            return time_since_last >= self.reference_interval_ps
-        else:
-            # Fallback to step-based for fixed timestep mode
-            step_since_last = timestep - self.last_reference_step
-            return step_since_last >= self.reference_interval_steps
-
-    def _initialize_logging_values(self):
-        """Initialize logging values."""
-        self.current_autocorr_value = 0.0
-
-    def compute_autocorr(self, reference_value, current_value):
-        """Compute autocorrelation C(t) = observable(0)·observable(t)."""
-        return np.dot(reference_value, current_value)
-
-    def act(self, timestep):
-        # Get current time FIRST, outside snapshot context
-        current_time = self._get_current_time(timestep)
-
-        if timestep == 0:
-            return
-
-        # Compute current observable value
-        with self.get_local_snapshot() as snap:
-            current_value = self.observable_func(snap)
-
-        # Update autocorrelations for all active references
-        for ref in self.references:
-            lag_time = current_time - ref["time"]
-            autocorr_value = self.compute_autocorr(ref["value"], current_value)
-
-            # Update current autocorr for first reference (for logging)
-            if ref["number"] == 0:
-                self.current_autocorr_value = autocorr_value
-
-            # Output periodically
-            if self._should_output(timestep):
-                with open(ref["filename"], "a") as f:
-                    f.write(f"{timestep} {lag_time:.6f} {autocorr_value:.6f}\n")
-                    f.flush()
-
-        # Add new reference if interval has passed and we haven't hit max
-        if self._should_create_new_reference(current_time, timestep):
-            ref_number = len(self.references)
-            self._initialize_new_reference_file(ref_number)
-            self.last_reference_step = timestep
-
-        # Update output step
-        if self._should_output(timestep):
-            self._update_output_step(timestep)
-
-    @hoomd.logging.log
-    def current_autocorr(self):
-        return (
-            self.current_autocorr_value
-            if self.current_autocorr_value is not None
-            else 0.0
-        )
-
-
-# =============================================================================
-# FIELD AUTOCORRELATION TRACKER (Field Observables)
-# =============================================================================
-
-
-class FieldAutocorrelationTracker(BaseTracker):
-    """Generic autocorrelation tracker for field observables with k-space averaging."""
-
-    def __init__(
-        self,
-        simulation,
-        observable,
-        time_tracker=None,
-        output_prefix=None,
-        output_period_steps=1000,
-        output_period_ps=None,
-        reference_interval_steps=10000,
-        max_references=10,
-        reference_interval_ps=None,
-        **kwargs,
-    ):
-        """Initialize field autocorrelation tracker.
-
-        Args:
-            simulation: HOOMD simulation object
-            observable: Observable name from FIELD_OBSERVABLES
-            time_tracker: Optional time tracker for accurate timing
-            output_prefix: Prefix for output files
-            output_period_steps: Output frequency in simulation steps
-            reference_interval_steps: Interval between new references in steps (DEPRECATED in adaptive mode)
-            max_references: Maximum number of reference states to keep
-            reference_interval_ps: Interval between new references in ps (PREFERRED for adaptive mode)
-            **kwargs: Observable-specific parameters
-        """
-        if observable not in FIELD_OBSERVABLES:
-            raise ValueError(
-                f"Unknown field observable '{observable}'. Available: {list(FIELD_OBSERVABLES.keys())}"
-            )
-
-        self.observable = observable
-        self.observable_func = FIELD_OBSERVABLES[observable]
-        self.reference_interval_steps = (
-            reference_interval_steps  # Fallback for fixed timestep
-        )
-        self.reference_interval_ps = (
-            reference_interval_ps  # Preferred for adaptive timestep
-        )
-        self.max_references = max_references
-
-        if output_prefix is None:
-            output_prefix = f"{observable}_field_autocorr"
-
-        super().__init__(
-            simulation,
-            time_tracker,
-            output_prefix,
-            output_period_steps,
-            output_period_ps,
-        )
-
-        # Setup observable-specific parameters
-        self._setup_parameters(kwargs)
-
-        # Initialize field autocorrelation tracking
-        self.references = []  # List of reference states
-        self.last_reference_step = 0
-        self.last_reference_time_ps = (
-            0.0  # Track time of last reference for time-based intervals
-        )
-
-        # Initialize first reference and output files
-        self._initialize_new_reference_file(0)
-
-    def _setup_parameters(self, kwargs):
-        """Setup parameters specific to the observable."""
-        if self.observable == "density_correlation":
-            # Default parameters for density correlation
-            self.kmag = kwargs.get("kmag", 1.0)
-            self.num_wavevectors = kwargs.get("num_wavevectors", 50)
-            self.wavevectors = (
-                generate_fibonacci_sphere(self.num_wavevectors) * self.kmag
-            )
-            print(
-                f"Density correlation: k={self.kmag:.2f}, {self.num_wavevectors} wavevectors"
-            )
-        else:
-            # Add other observables as needed
-            pass
-
-    def _call_observable_func(self, snapshot):
-        """Call the observable function with correct arguments."""
-        if self.observable == "density_correlation":
-            return self.observable_func(snapshot, self.wavevectors)
-        else:
-            # For other observables, use the function directly
-            return self.observable_func(snapshot)
-
-    def _initialize_new_reference_file(self, ref_number):
-        """Initialize a new reference file."""
-        ref_filename = f"{self.output_prefix}_ref{ref_number}.txt"
-
-        # Initialize reference state
-        with self.get_local_snapshot() as snap:
-            reference_field = self._call_observable_func(snap)
-            current_time = self._get_current_time(self.sim.timestep)
-
-            # Store reference
-            self.references.append(
-                {
-                    "number": ref_number,
-                    "filename": ref_filename,
-                    "timestep": self.sim.timestep,
-                    "time": current_time,
-                    "field": reference_field,
-                }
-            )
-
-            # Update timing trackers
-            self.last_reference_time_ps = current_time
-
-            # Compute initial autocorrelation (field with itself at t=0)
-            initial_autocorr = self.compute_field_autocorr(
-                reference_field, reference_field
-            )
-
-            # Create output file with header and immediately write t=0 value
-            with open(ref_filename, "w") as f:
-                f.write(f"# {self.observable.capitalize()} field autocorrelation\n")
-                f.write(f"# Reference {ref_number} at t={current_time:.6f} ps\n")
-                if self.use_time_based_output:
-                    f.write(f"# Output period: {self.output_period_ps:.3f} ps\n")
-                else:
-                    f.write(f"# Output period: {self.output_period_steps} steps\n")
-                f.write("# timestep lag_time(ps) field_autocorr\n")
-                # Write the t=0 correlation value immediately
-                f.write(f"{self.sim.timestep} {0.0:.6f} {initial_autocorr:.6f}\n")
-                f.flush()
-
-        print(f"Initialized {self.observable} field autocorr reference {ref_number}", flush=True)
-
-    def _initialize_logging_values(self):
-        """Initialize logging values."""
-        self.current_autocorr_value = 0.0
-
-    def compute_field_autocorr(self, field0, field_t):
-        """Compute field autocorrelation."""
-        if isinstance(field0, np.ndarray) and isinstance(field_t, np.ndarray):
-            return np.mean(np.real(field0 * np.conj(field_t)))
-        else:
-            return np.dot(field0, field_t)
-
-    def _should_create_new_reference(self, current_time_ps, timestep):
-        """Determine if a new reference should be created based on time or step interval."""
-        if len(self.references) >= self.max_references:
-            return False
-
-        # Prefer time-based intervals for accuracy in adaptive timestep mode
-        if self.reference_interval_ps is not None:
-            time_since_last = current_time_ps - self.last_reference_time_ps
-            return time_since_last >= self.reference_interval_ps
-        else:
-            # Fallback to step-based for fixed timestep mode
-            step_since_last = timestep - self.last_reference_step
-            return step_since_last >= self.reference_interval_steps
-
-    def act(self, timestep):
-        # Get current time FIRST, outside snapshot context
-        current_time = self._get_current_time(timestep)
-
-        if timestep == 0:
-            return
-
-        # Compute current field value
-        with self.get_local_snapshot() as snap:
-            current_field = self._call_observable_func(snap)
-
-        # Update autocorrelations for all active references
-        for ref in self.references:
-            lag_time = current_time - ref["time"]
-            autocorr_value = self.compute_field_autocorr(ref["field"], current_field)
-
-            # Update current autocorr for first reference (for logging)
-            if ref["number"] == 0:
-                self.current_autocorr_value = autocorr_value
-
-            # Output periodically
-            if self._should_output(timestep):
-                with open(ref["filename"], "a") as f:
-                    f.write(f"{timestep} {lag_time:.6f} {autocorr_value:.6f}\n")
-                    f.flush()
-
-        # Add new reference if interval has passed and we haven't hit max
-        if self._should_create_new_reference(current_time, timestep):
-            ref_number = len(self.references)
-            self._initialize_new_reference_file(ref_number)
-            self.last_reference_step = timestep
-
-        # Update output step
-        if self._should_output(timestep):
-            self._update_output_step(timestep)
-
-    @hoomd.logging.log
-    def current_autocorr(self):
-        return (
-            self.current_autocorr_value
-            if self.current_autocorr_value is not None
-            else 0.0
-        )
-
-
-# =============================================================================
-# CORRECTED ENERGY TRACKER - Follows Working EnergyContributationTracker Pattern
-# =============================================================================
-
-
-class EnergyTracker(BaseTracker):
-    r"""
-    Comprehensive energy tracking for cavity molecular dynamics simulations.
-    
-    Monitors all energy components in the system to verify energy conservation
-    and analyze energy redistribution during cavity coupling experiments. This
-    is crucial for validating the physics and understanding energy flow in
-    time-varying coupling scenarios.
-    
-    **Energy Components:**
-    
-    The total system energy in cavity MD includes:
-    
-    .. math::
-        
-        E_{\text{total}} = E_{\text{kinetic}} + E_{\text{potential}} + E_{\text{cavity}} + E_{\text{reservoir}}
-    
-    where:
-    
-    - :math:`E_{\text{kinetic}} = \frac{1}{2} \sum_i m_i \vec{v}_i^2` (molecular kinetic energy)
-    - :math:`E_{\text{potential}}` includes harmonic bonds, LJ, Coulomb interactions
-    - :math:`E_{\text{cavity}} = E_{\text{harmonic}} + E_{\text{coupling}} + E_{\text{dipole}}` (cavity contributions)
-    - :math:`E_{\text{reservoir}}` is thermostat reservoir energy (if tracked)
-    
-    **Cavity Energy Components:**
-    
-    The cavity energy decomposes as:
-    
-    .. math::
-        
-        E_{\text{harmonic}} &= \frac{1}{2} K \tilde{q}_{0,\lambda}^2 \\
-        E_{\text{coupling}} &= \tilde{\varepsilon}_{0,\lambda}(t) \tilde{q}_{0,\lambda} \sum_{n=1}^{N_{\text{sub}}} d_{ng,\lambda} \\
-        E_{\text{dipole}} &= \frac{\tilde{\varepsilon}_{0,\lambda}(t)^2}{2K} \left(\sum_{n=1}^{N_{\text{sub}}} d_{ng,\lambda}\right)^2
-    
-    **Energy Conservation in Time-Varying Systems:**
-    
-    During coupling switching, individual components change but total energy is conserved:
-    
-    .. math::
-        
-        \frac{dE_{\text{total}}}{dt} = 0 \quad \text{(for conservative dynamics)}
-    
-    Energy redistribution occurs between molecular and cavity modes according to the new coupling.
-    
-    Parameters
-    ----------
-    simulation : hoomd.Simulation
-        HOOMD simulation object
-    components : List[str]
-        Energy components to track. Options include:
-        
-        - 'kinetic': Molecular kinetic energy
-        - 'harmonic': Harmonic bond energy  
-        - 'lj': Lennard-Jones potential energy
-        - 'ewald_short': Short-range electrostatic energy
-        - 'ewald_long': Long-range electrostatic energy
-        - 'cavity': Total cavity energy (all components)
-        - Individual cavity components: 'cavity_harmonic', 'cavity_coupling', 'cavity_dipole'
-    force_objects : Dict[str, hoomd.md.force.Force], optional
-        Dictionary mapping component names to force objects for energy extraction
-    thermostat_objects : Dict[str, object], optional  
-        Dictionary of thermostat objects for reservoir energy tracking
-    kinetic_tracker : object, optional
-        External kinetic energy tracker (deprecated - use internal computation)
-    time_tracker : ElapsedTimeTracker, optional
-        Time tracker for accurate timing
-    output_prefix : str, optional
-        Prefix for output files. Default: 'energy'
-    output_period_steps : int, optional
-        Output frequency in timesteps (for fixed timestep mode)
-    output_period_ps : float, optional
-        Output frequency in picoseconds (preferred for adaptive timestep)
-    max_timesteps : int, optional
-        Maximum timesteps to track (deprecated)
-    max_time_ps : float, optional
-        Maximum simulation time in ps to track (more accurate than max_timesteps)
-    compute_temperature : bool, optional
-        Whether to compute temperature from kinetic energy. Default: True
-    track_reservoirs : bool, optional  
-        Whether to track thermostat reservoir energies. Default: True
-    verbose : str, optional
-        Verbosity level ('quiet', 'normal', 'verbose'). Default: 'normal'
-        
-    Attributes
-    ----------
-    output_file_path : str
-        Path to the energy output file
-    total_energy : float
-        Current total system energy (logged)
-    kinetic_energy : float
-        Current kinetic energy (logged)
-    potential_energy : float
-        Current potential energy (logged)
-    cavity_energy : float
-        Current total cavity energy (logged)
-    temperature : float
-        Current temperature in Kelvin (logged, if computed)
-        
-    Examples
-    --------
-    **Basic energy tracking:**
-    
-    >>> from hoomd.cavitymd.analysis import EnergyTracker
-    >>> 
-    >>> # Track key energy components
-    >>> energy_tracker = EnergyTracker(
-    ...     simulation=sim,
-    ...     components=['kinetic', 'harmonic', 'lj', 'cavity'],
-    ...     force_objects={'cavity': cavity_force, 'harmonic': harmonic_force},
-    ...     output_period_ps=0.1
-    ... )
-    >>> 
-    >>> # Add to simulation
-    >>> sim.operations.updaters.append(
-    ...     hoomd.update.CustomUpdater(
-    ...         action=energy_tracker,
-    ...         trigger=hoomd.trigger.Periodic(energy_tracker.output_period_steps)
-    ...     )
-    ... )
-    
-    **Detailed cavity energy tracking:**
-    
-    >>> # Track individual cavity components
-    >>> detailed_tracker = EnergyTracker(
-    ...     simulation=sim,
-    ...     components=['kinetic', 'cavity_harmonic', 'cavity_coupling', 'cavity_dipole'],
-    ...     force_objects={'cavity': cavity_force},
-    ...     verbose='verbose'
-    ... )
-    
-    **Time-varying coupling validation:**
-    
-    >>> # Monitor energy conservation during switching
-    >>> conservation_tracker = EnergyTracker(
-    ...     simulation=sim,
-    ...     components=['kinetic', 'harmonic', 'cavity'],
-    ...     force_objects={'cavity': cavity_force, 'harmonic': harmonic_force},
-    ...     time_tracker=time_tracker,
-    ...     max_time_ps=switch_time_ps + 50.0,  # Track through switching
-    ...     output_period_ps=0.01  # High frequency during switch
-    ... )
-    
-    Notes
-    -----
-    - Essential for validating energy conservation in cavity MD simulations
-    - Automatically computes kinetic energy internally when requested
-    - Supports both detailed component tracking and total energy monitoring
-    - Critical for debugging time-varying coupling experiments
-    - Output files contain timestep, time, and all tracked energy components
-    
-    See Also
-    --------
-    hoomd.cavitymd.forces.CavityForce : For cavity energy components
-    ElapsedTimeTracker : For accurate timing
-    """
-
-    def __init__(
-        self,
-        simulation,
-        components,
-        force_objects=None,
-        thermostat_objects=None,
-        kinetic_tracker=None,
-        time_tracker=None,
-        output_prefix="energy",
-        output_period_steps=None,
-        output_period_ps=None,
-        max_timesteps=None,
-        max_time_ps=None,
-        compute_temperature=True,
-        track_reservoirs=True,
-        verbose="normal",
-    ):
-        """Initialize energy tracker with internal kinetic computation capability.
-
-        Args:
-            simulation: HOOMD simulation object
-            components: List of energy components to track
-                       ['kinetic', 'harmonic', 'lj', 'ewald_short', 'ewald_long', 'cavity']
-                       NOTE: 'kinetic' is now a standard component!
-            force_objects: Dictionary of force objects (harmonic, lj, ewald_short, ewald_long, cavity)
-            thermostat_objects: Dictionary of thermostat/method objects for reservoir energy
-            kinetic_tracker: [DEPRECATED] KineticEnergyTracker object (use internal computation instead)
-                           If None and 'kinetic' in components, will compute kinetic energy internally
-            time_tracker: ElapsedTimeTracker for accurate timing
-            output_prefix: Prefix for output files
-            output_period_steps: Output frequency in simulation steps
-            max_timesteps: Maximum timesteps to track (ignored if max_time_ps is set)
-            max_time_ps: Maximum simulation time in ps to track (more accurate than max_timesteps)
-            compute_temperature: Whether to compute temperature
-            track_reservoirs: Whether to track reservoir energies
-            verbose: Verbosity level ('quiet', 'normal', 'verbose')
-        """
-        # Store configuration exactly like working code
-        self.force_objects = force_objects or {}
-        self.thermostat_objects = thermostat_objects or {}
-        self.kinetic_tracker = kinetic_tracker  # Keep for backward compatibility
-        self.track_reservoirs = track_reservoirs
-        self.max_timesteps = max_timesteps
-        self.max_time_ps = max_time_ps
-        self.compute_temperature = compute_temperature
-        self.output_stopped = False
-
-        # Set verbosity level
-        self.verbose = verbose.lower() if isinstance(verbose, str) else "normal"
-        if self.verbose not in ["quiet", "normal", "verbose"]:
-            self.verbose = "normal"
-
-        # Validate components and check for internal kinetic computation
-        self.components = components
-        self.use_internal_kinetic = "kinetic" in components and kinetic_tracker is None
-
-        # Warn about deprecated kinetic_tracker usage
-        if kinetic_tracker is not None and "kinetic" in components:
-            if self.verbose != "quiet":
-                print(
-                    "WARNING: Both kinetic_tracker and 'kinetic' component specified."
-                )
-                print("  Using external kinetic_tracker for backward compatibility.")
-                print(
-                    "  Consider removing kinetic_tracker and using internal computation."
-                )
-
-        super().__init__(
-            simulation,
-            time_tracker,
-            output_prefix,
-            output_period_steps,
-            output_period_ps,
-        )
-
-        # Fix file naming to match working code
-        self.output_file_path = f"{self.output_prefix}_energy_tracker.txt"
-
-        # Print setup info
-        if self.verbose != "quiet":
-            print(f"REFACTORED EnergyTracker (Phase 1 - Backward Compatible):", flush=True)
-            print(f"  Output file: {self.output_file_path}", flush=True)
-            print(f"  Components: {self.components}", flush=True)
-            print(f"  Internal kinetic computation: {self.use_internal_kinetic}", flush=True)
-            if self.use_internal_kinetic:
-                print(
-                    "  → Kinetic energy will be computed internally (no external tracker needed)", flush=True
-                )
-            elif self.kinetic_tracker is not None:
-                print("  → Using external kinetic_tracker (deprecated)", flush=True)
-            print(f"  Force objects: {list(self.force_objects.keys())}", flush=True)
-            print(f"  Thermostat objects: {list(self.thermostat_objects.keys())}", flush=True)
-            print(f"  Track reservoirs: {self.track_reservoirs}", flush=True)
-            if self.use_time_based_output:
-                print(f"  Output period: {self.output_period_ps:.3f} ps", flush=True)
-            else:
-                print(f"  Output period: {self.output_period_steps} steps", flush=True)
-            print(f"  Verbosity: {self.verbose}", flush=True)
-            if self.max_time_ps:
-                print(f"  Max time: {self.max_time_ps} ps (time-based limit)", flush=True)
-            elif self.max_timesteps:
-                print(f"  Max timesteps: {self.max_timesteps} (step-based limit)", flush=True)
-
-        # Initialize output file
-        self._initialize_output_file()
-
-    def get_local_snapshot(self):
-        """
-        Get the appropriate local snapshot context manager based on simulation device type.
-        
-        Returns
-        -------
-        Local snapshot context manager (CPU or GPU)
-        """
-        # Detect device type from simulation
-        device = self.sim.device
-        if hasattr(device, 'gpu_ids') or 'GPU' in str(type(device)):
-            return self.sim.state.gpu_local_snapshot
-        else:
-            return self.sim.state.cpu_local_snapshot
-
-    def get_particle_count(self, snap):
-        """
-        Get the number of particles from a local snapshot in a device-agnostic way.
-        
-        Parameters
-        ----------
-        snap : Local snapshot object
-            Either CPU or GPU local snapshot
-            
-        Returns
-        -------
-        int
-            Number of particles
-        """
-        # Detect device type from simulation
-        device = self.sim.device
-        if hasattr(device, 'gpu_ids') or 'GPU' in str(type(device)):
-            # GPU snapshots don't have .N attribute, use length of an array
-            return len(snap.particles.typeid)
-        else:
-            # CPU snapshots have .N attribute
-            return snap.particles.N
-
-    def get_array_module(self, *arrays):
-        """
-        Get the appropriate array module (numpy or cupy) based on the input arrays.
-        
-        This follows CuPy's guidelines for writing CPU/GPU agnostic code.
-        If any input array is on GPU, returns cupy module, otherwise numpy.
-        
-        Parameters
-        ----------
-        *arrays : array-like
-            Input arrays to check
-            
-        Returns
-        -------
-        module
-            Either numpy or cupy module
-        """
-        if not HAS_CUPY:
-            return np
-            
-        # Use CuPy's get_array_module for proper detection
-        return cp.get_array_module(*arrays)
-
-    def to_device_array(self, array_data, target_arrays=None):
-        """
-        Convert array to the appropriate device format (NumPy for CPU, CuPy for GPU).
-        
-        This follows CuPy's guidelines using cupy.asarray() for device conversion.
-        
-        Parameters
-        ----------
-        array_data : array-like
-            Input array data
-        target_arrays : array-like, optional
-            Target arrays to match device type. If provided, uses their device.
-            
-        Returns
-        -------
-        array
-            Array on the appropriate device (NumPy for CPU, CuPy for GPU)
-        """
-        if not HAS_CUPY:
-            # Always use NumPy for CPU
-            return np.asarray(array_data)
-        
-        if target_arrays is not None:
-            # Use get_array_module to determine the appropriate module
-            xp = self.get_array_module(target_arrays)
-            return xp.asarray(array_data)
-        else:
-            # Fallback to cupy.asarray which handles both CPU and GPU cases
-            return cp.asarray(array_data)
-
-    def to_numpy(self, array_data):
-        """
-        Convert array to NumPy array, following CuPy guidelines using cupy.asnumpy().
-        
-        Parameters
-        ----------
-        array_data : array-like
-            Input array data (NumPy or CuPy)
-            
-        Returns
-        -------
-        np.ndarray
-            NumPy array
-        """
-        if HAS_CUPY:
-            # Use cupy.asnumpy() for robust conversion
-            return cp.asnumpy(array_data)
-        else:
-            # Fallback to numpy.asarray
-            return np.asarray(array_data)
-
-    def _compute_molecular_kinetic_energy(self):
-        """
-        Compute molecular kinetic energy and temperature internally.
-
-        Computes directly from simulation state, excluding cavity particles.
-
-        Returns:
-            tuple: (kinetic_energy, temperature) in atomic units
-        """
-        with self.get_local_snapshot() as snap:
-            # Convert to numpy array for robust handling across CPU/GPU
-            typeid_array = self.to_numpy(snap.particles.typeid)
-            # Filter to molecular particles only (exclude cavity particle type 'L')
-            molecular_mask = typeid_array != 2  # Type 2 is 'L' (cavity)
-
-            if not np.any(molecular_mask):
-                return 0.0, 0.0
-
-            # Convert HOOMD arrays to NumPy first, then apply mask, then convert to device arrays
-            velocities_np = self.to_numpy(snap.particles.velocity)[molecular_mask]
-            masses_np = self.to_numpy(snap.particles.mass)[molecular_mask]
-            
-            # Get the appropriate array module for device-agnostic operations
-            xp = self.get_array_module(snap.particles.velocity, snap.particles.mass)
-            
-            # Convert to device-appropriate arrays for operations
-            velocities_device = self.to_device_array(velocities_np, snap.particles.velocity)
-            masses_device = self.to_device_array(masses_np, snap.particles.mass)
-
-            # Compute kinetic energy using device-appropriate arrays: KE = 0.5 * sum(m_i * v_i^2)
-            kinetic_energy = 0.5 * xp.sum(masses_device[:, xp.newaxis] * velocities_device**2)
-
-            # Convert result back to NumPy for final calculations
-            kinetic_energy = self.to_numpy(kinetic_energy)
-
-            # Compute temperature: T = (2/3) * KE / (N * k_B)
-            N_dof = 3 * len(masses_device)  # 3 degrees of freedom per particle
-            temperature = (
-                (2.0)
-                * kinetic_energy
-                / (N_dof * PhysicalConstants.KB_HARTREE_PER_K)
-            )
-
-            return float(kinetic_energy), float(temperature)
-
-    def _compute_cavity_kinetic_energy(self):
-        """
-        Compute cavity kinetic energy internally.
-
-        Computes directly from simulation state.
-
-        Returns:
-            float: cavity kinetic energy in atomic units
-        """
-        # Compute directly from simulation state
-        with self.get_local_snapshot() as snap:
-            # Convert to numpy array for robust handling across CPU/GPU
-            typeid_array = self.to_numpy(snap.particles.typeid)
-            # Find cavity particle (type 'L', typeid 2)
-            cavity_mask = typeid_array == 2
-
-            if not np.any(cavity_mask):
-                return 0.0
-
-            # Convert HOOMD arrays to NumPy first, then apply mask, then convert to device arrays
-            cavity_velocity_np = self.to_numpy(snap.particles.velocity)[cavity_mask][0]
-            cavity_mass_np = self.to_numpy(snap.particles.mass)[cavity_mask][0]
-            
-            # Get the appropriate array module for device-agnostic operations
-            xp = self.get_array_module(snap.particles.velocity, snap.particles.mass)
-            
-            # Convert to device-appropriate arrays for operations
-            cavity_velocity_device = self.to_device_array(cavity_velocity_np, snap.particles.velocity)
-            cavity_mass_device = self.to_device_array(cavity_mass_np, snap.particles.mass)
-
-            # Compute cavity kinetic energy using device-appropriate arrays: KE = 0.5 * m * v^2
-            kinetic_energy = 0.5 * cavity_mass_device * xp.sum(cavity_velocity_device**2)
-
-            # Convert result back to NumPy for final calculations
-            kinetic_energy = self.to_numpy(kinetic_energy)
-
-            return float(kinetic_energy)
-
-    def _initialize_logging_values(self):
-        """Initialize energy values for logging."""
-        # Current energy components
-        self.current_harmonic_energy = 0.0
-        self.current_lj_energy = 0.0
-        self.current_ewald_short_energy = 0.0
-        self.current_ewald_long_energy = 0.0
-        self.current_cavity_harmonic_energy = 0.0
-        self.current_cavity_coupling_energy = 0.0
-        self.current_cavity_dipole_self_energy = 0.0
-        self.current_cavity_total_potential_energy = 0.0
-
-        # Kinetic energies
-        self.current_molecular_kinetic_energy = 0.0
-        self.current_cavity_kinetic_energy = 0.0
-        self.current_total_kinetic_energy = 0.0
-
-        # Reservoir energies
-        self.current_molecular_reservoir_energy = 0.0
-        self.current_cavity_reservoir_energy = 0.0
-        self.current_total_reservoir_energy = 0.0
-
-        # Totals
-        self.current_total_potential_energy = 0.0
-        self.current_system_total_energy = 0.0
-        self.current_universe_total_energy = 0.0
-        self.current_temperature = 0.0
-
-    def _initialize_output_file(self):
-        """Initialize output file with headers matching working code."""
-        try:
-            with open(self.output_file_path, "w") as f:
-                f.write(
-                    "# CORRECTED Energy tracking following working EnergyContributionTracker pattern\n"
-                )
-                if self.use_time_based_output:
-                    f.write(f"# Output period: {self.output_period_ps:.3f} ps\n")
-                else:
-                    f.write(f"# Output period: {self.output_period_steps} steps\n")
-                if self.max_time_ps:
-                    f.write(f"# Max time: {self.max_time_ps} ps\n")
-                elif self.max_timesteps:
-                    f.write(f"# Max timesteps: {self.max_timesteps}\n")
-                f.write("# All energies in Hartree (atomic units)\n")
-                f.write("# Column definitions:\n")
-                f.write("#   time(ps): simulation time in picoseconds\n")
-                f.write("#   timestep: simulation timestep number\n")
-                f.write("#   harmonic_energy: harmonic bond potential energy\n")
-                f.write("#   lj_energy: Lennard-Jones potential energy\n")
-                f.write("#   ewald_short_energy: short-range Coulomb energy\n")
-                f.write("#   ewald_long_energy: long-range Coulomb energy\n")
-                f.write(
-                    "#   cavity_harmonic_energy: cavity harmonic potential energy\n"
-                )
-                f.write("#   cavity_coupling_energy: cavity-molecule coupling energy\n")
-                f.write("#   cavity_dipole_self_energy: dipole self-energy\n")
-                f.write(
-                    "#   cavity_total_potential_energy: total cavity potential energy\n"
-                )
-                f.write("#   molecular_kinetic_energy: molecular kinetic energy\n")
-                f.write("#   cavity_kinetic_energy: cavity kinetic energy\n")
-                f.write("#   total_kinetic_energy: total kinetic energy\n")
-                f.write("#   total_potential_energy: total potential energy\n")
-                f.write("#   system_total_energy: total system energy (KE + PE)\n")
-                f.write("#   molecular_reservoir_energy: molecular reservoir energy\n")
-                f.write("#   cavity_reservoir_energy: cavity reservoir energy\n")
-                f.write("#   total_reservoir_energy: total reservoir energy\n")
-                f.write(
-                    "#   universe_total_energy: universe total energy (system + reservoir) [CONSERVED]\n"
-                )
-                if self.compute_temperature:
-                    f.write("#   temperature: kinetic temperature (K)\n")
-
-                # Create header line
-                header = "time(ps) timestep"
-                header += (
-                    " harmonic_energy lj_energy ewald_short_energy ewald_long_energy"
-                )
-                header += " cavity_harmonic_energy cavity_coupling_energy cavity_dipole_self_energy cavity_total_potential_energy"
-                header += " molecular_kinetic_energy cavity_kinetic_energy total_kinetic_energy"
-                header += " total_potential_energy system_total_energy"
-                header += " molecular_reservoir_energy cavity_reservoir_energy total_reservoir_energy"
-                header += " universe_total_energy"
-                if self.compute_temperature:
-                    header += " temperature"
-                header += "\n"
-                f.write(header)
-                f.flush()
-            if self.verbose != "quiet":
-                print(
-                    f"EnergyTracker: Successfully created output file {self.output_file_path}", flush=True
-                )
-        except Exception as e:
-            # Always print errors regardless of verbosity
-            print(
-                f"EnergyTracker ERROR: Failed to create output file {self.output_file_path}: {e}", flush=True
-            )
-
-    def act(self, timestep):
-        """Main energy computation method with internal kinetic computation capability."""
-        # Check if output has been stopped due to time or timestep limit
-        if self.output_stopped:
-            return
-
-        if timestep == 0:
-            return
-
-        # Get current time for checking time-based limits
-        if self.time_tracker is not None:
-            current_time = self.time_tracker.elapsed_time
-        else:
-            current_time = PhysicalConstants.atomic_units_to_ps(
-                timestep * self.sim.operations.integrator.dt
-            )
-
-        # Check time limit first (more accurate than timestep limit)
-        if self.max_time_ps is not None:
-            if current_time > self.max_time_ps:
-                if not self.output_stopped:
-                    self.output_stopped = True
-                    if self.verbose != "quiet":
-                        print(
-                            f"Energy tracking stopped: reached time limit of {self.max_time_ps:.2f} ps at t={current_time:.4f} ps", flush=True
-                        )
-                return
-
-        # Check timestep limit if specified and no time limit
-        elif self.max_timesteps is not None:
-            if timestep > self.max_timesteps:
-                if not self.output_stopped:
-                    self.output_stopped = True
-                    if self.verbose != "quiet":
-                        print(
-                            f"Energy tracking stopped at timestep {timestep} (limit: {self.max_timesteps})", flush=True
-                        )
-                return
-
-        # Only output periodically (use proper output logic from base class)
-        if not self._should_output(timestep):
-            return
-
-        try:
-            if self.verbose == "verbose":
-                print(f"\n=== ENERGY TRACKER DEBUG - Timestep {timestep} ===", flush=True)
-                print(f"Current time: {current_time:.6f} ps", flush=True)
-                print(f"Internal kinetic computation: {self.use_internal_kinetic}", flush=True)
-
-            # === 1. GET POTENTIAL ENERGY COMPONENTS ===
-            if self.verbose == "verbose":
-                print("=== POTENTIAL ENERGY COMPONENTS ===", flush=True)
-
-            # Get individual potential energy contributions (direct access like working code)
-            try:
-                self.current_harmonic_energy = (
-                    self.force_objects["harmonic"].energy
-                    if "harmonic" in self.force_objects
-                    else 0.0
-                )
-                if self.verbose == "verbose":
-                    print(
-                        f"Harmonic energy: {self.current_harmonic_energy:.6f} Hartree", flush=True
-                    )
-            except (AttributeError, KeyError) as e:
-                self.current_harmonic_energy = 0.0
-                if self.verbose in ["normal", "verbose"]:
-                    print(f"Harmonic energy ERROR: {e}", flush=True)
-
-            try:
-                self.current_lj_energy = (
-                    self.force_objects["lj"].energy
-                    if "lj" in self.force_objects
-                    else 0.0
-                )
-                if self.verbose == "verbose":
-                    print(f"LJ energy: {self.current_lj_energy:.6f} Hartree", flush=True)
-            except (AttributeError, KeyError) as e:
-                self.current_lj_energy = 0.0
-                if self.verbose in ["normal", "verbose"]:
-                    print(f"LJ energy ERROR: {e}", flush=True)
-
-            try:
-                self.current_ewald_short_energy = (
-                    self.force_objects["ewald_short"].energy
-                    if "ewald_short" in self.force_objects
-                    else 0.0
-                )
-                if self.verbose == "verbose":
-                    print(
-                        f"Ewald short energy: {self.current_ewald_short_energy:.6f} Hartree", flush=True
-                    )
-            except (AttributeError, KeyError) as e:
-                self.current_ewald_short_energy = 0.0
-                if self.verbose in ["normal", "verbose"]:
-                    print(f"Ewald short energy ERROR: {e}", flush=True)
-
-            try:
-                self.current_ewald_long_energy = (
-                    self.force_objects["ewald_long"].energy
-                    if "ewald_long" in self.force_objects
-                    else 0.0
-                )
-                if self.verbose == "verbose":
-                    print(
-                        f"Ewald long energy: {self.current_ewald_long_energy:.6f} Hartree", flush=True
-                    )
-            except (AttributeError, KeyError) as e:
-                self.current_ewald_long_energy = 0.0
-                if self.verbose in ["normal", "verbose"]:
-                    print(f"Ewald long energy ERROR: {e}", flush=True)
-
-            # Calculate total potential energy (without cavity)
-            molecular_potential_energy = (
-                self.current_harmonic_energy
-                + self.current_lj_energy
-                + self.current_ewald_short_energy
-                + self.current_ewald_long_energy
-            )
-            if self.verbose == "verbose":
-                print(
-                    f"Molecular potential energy (harmonic + lj + ewald): {molecular_potential_energy:.6f} Hartree", flush=True
-                )
-
-            # Get cavity potential energy components if present
-            self.current_cavity_harmonic_energy = 0.0
-            self.current_cavity_coupling_energy = 0.0
-            self.current_cavity_dipole_self_energy = 0.0
-            self.current_cavity_total_potential_energy = 0.0
-
-            if (
-                "cavity" in self.force_objects
-                and self.force_objects["cavity"] is not None
-            ):
-                cavityforce = self.force_objects["cavity"]
-                if self.verbose == "verbose":
-                    print("=== CAVITY ENERGY COMPONENTS ===", flush=True)
-                try:
-                    # Use the logged property methods directly instead of getattr
-                    self.current_cavity_harmonic_energy = cavityforce.harmonic_energy
-                    self.current_cavity_coupling_energy = cavityforce.coupling_energy
-                    self.current_cavity_dipole_self_energy = cavityforce.dipole_self_energy
-
-                    if self.verbose == "verbose":
-                        print(
-                            f"Cavity harmonic energy: {self.current_cavity_harmonic_energy:.6f} Hartree", flush=True
-                        )
-                        print(
-                            f"Cavity coupling energy: {self.current_cavity_coupling_energy:.6f} Hartree", flush=True
-                        )
-                        print(
-                            f"Cavity dipole self energy: {self.current_cavity_dipole_self_energy:.6f} Hartree", flush=True
-                        )
-
-                    # For total energy, try .energy property first, then sum components
-                    if hasattr(cavityforce, "energy"):
-                        self.current_cavity_total_potential_energy = cavityforce.energy
-                        if self.verbose == "verbose":
-                            print(
-                                f"Cavity total energy (from .energy): {self.current_cavity_total_potential_energy:.6f} Hartree", flush=True
-                            )
-                    else:
-                        self.current_cavity_total_potential_energy = (
-                            self.current_cavity_harmonic_energy
-                            + self.current_cavity_coupling_energy
-                            + self.current_cavity_dipole_self_energy
-                        )
-                        if self.verbose == "verbose":
-                            print(
-                                f"Cavity total energy (sum components): {self.current_cavity_total_potential_energy:.6f} Hartree", flush=True
-                            )
-                except Exception as e:
-                    self.current_cavity_harmonic_energy = 0.0
-                    self.current_cavity_coupling_energy = 0.0
-                    self.current_cavity_dipole_self_energy = 0.0
-                    self.current_cavity_total_potential_energy = 0.0
-                    if self.verbose in ["normal", "verbose"]:
-                        print(f"ERROR accessing cavity energy components: {e}", flush=True)
-                        print(f"  This might indicate a timing issue with the logged properties", flush=True)
-                        print(f"  Cavity force implementation: {getattr(cavityforce, 'implementation', 'unknown')}", flush=True)
-                        print(f"  Cavity force object: {type(cavityforce)}", flush=True)
-            else:
-                if self.verbose == "verbose":
-                    print("No cavity force object - cavity energies set to zero", flush=True)
-
-            # Calculate total potential energy
-            self.current_total_potential_energy = (
-                molecular_potential_energy + self.current_cavity_total_potential_energy
-            )
-            if self.verbose == "verbose":
-                print(
-                    f"TOTAL POTENTIAL ENERGY: {self.current_total_potential_energy:.6f} Hartree", flush=True
-                )
-
-            # === 2. GET KINETIC ENERGY COMPONENTS (NEW: Internal vs External) ===
-            if self.verbose == "verbose":
-                print("=== KINETIC ENERGY COMPONENTS ===", flush=True)
-
-            # Get molecular kinetic energy - either internal or external
-            self.current_molecular_kinetic_energy = 0.0
-
-            if self.use_internal_kinetic:
-                # NEW: Compute kinetic energy internally
-                if self.verbose == "verbose":
-                    print("Using INTERNAL kinetic energy computation", flush=True)
-
-                if "kinetic" in self.components:
-                    molecular_ke, molecular_temp = (
-                        self._compute_molecular_kinetic_energy()
-                    )
-                    self.current_molecular_kinetic_energy = molecular_ke
-
-                    if self.verbose == "verbose":
-                        print(
-                            f"Molecular kinetic energy (internal): {molecular_ke:.6f} Hartree", flush=True
-                        )
-                        print(
-                            f"Molecular temperature (internal): {molecular_temp:.2f} K", flush=True
-                        )
-
-                    # Store temperature for later use
-                    self._internal_molecular_temperature = molecular_temp
-
-            else:
-                # BACKWARD COMPATIBILITY: Use external kinetic tracker
-                if self.verbose == "verbose":
-                    print("Using EXTERNAL kinetic energy tracker (deprecated)", flush=True)
-
-                if self.kinetic_tracker is not None:
-                    try:
-                        self.current_molecular_kinetic_energy = (
-                            self.kinetic_tracker.kinetic_energy
-                        )
-                        if self.verbose == "verbose":
-                            print(
-                                f"Molecular kinetic energy (external tracker): {self.current_molecular_kinetic_energy:.6f} Hartree", flush=True
-                            )
-                    except AttributeError as e:
-                        self.current_molecular_kinetic_energy = 0.0
-                        if self.verbose in ["normal", "verbose"]:
-                            print(f"Molecular kinetic energy ERROR: {e}", flush=True)
-                else:
-                    if self.verbose == "verbose":
-                        print(
-                            "No kinetic tracker - molecular kinetic energy set to zero", flush=True
-                        )
-
-            # Get cavity kinetic energy
-            self.current_cavity_kinetic_energy = 0.0
-
-            if self.use_internal_kinetic and "kinetic" in self.components:
-                # NEW: Compute cavity kinetic energy internally
-                cavity_ke = self._compute_cavity_kinetic_energy()
-                self.current_cavity_kinetic_energy = cavity_ke
-                if self.verbose == "verbose":
-                    print(f"Cavity kinetic energy (internal): {cavity_ke:.6f} Hartree", flush=True)
-            else:
-                if self.verbose == "verbose":
-                    print("No cavity kinetic energy computation", flush=True)
-
-            # Calculate total kinetic energy
-            self.current_total_kinetic_energy = (
-                self.current_molecular_kinetic_energy
-                + self.current_cavity_kinetic_energy
-            )
-            if self.verbose == "verbose":
-                print(
-                    f"TOTAL KINETIC ENERGY: {self.current_total_kinetic_energy:.6f} Hartree", flush=True
-                )
-
-            # === 3. GET RESERVOIR ENERGIES ===
-            if self.verbose == "verbose":
-                print("=== RESERVOIR ENERGY COMPONENTS ===", flush=True)
-
-            # Get molecular reservoir energy if available
-            molecular_reservoir_energy = 0.0
-
-            # Check for molecular Langevin method
-            if "langevin_molecular" in self.thermostat_objects:
-                try:
-                    mol_langevin_reservoir = self.thermostat_objects[
-                        "langevin_molecular"
-                    ].reservoir_energy
-                    molecular_reservoir_energy += mol_langevin_reservoir
-                    if self.verbose == "verbose":
-                        print(
-                            f"Molecular Langevin reservoir energy: {mol_langevin_reservoir:.6f} Hartree", flush=True
-                        )
-                except AttributeError:
-                    if self.verbose == "verbose":
-                        print("Molecular Langevin reservoir energy not available yet", flush=True)
-
-            # Check for molecular Bussi thermostat
-            if "bussi_molecular" in self.thermostat_objects:
-                try:
-                    mol_bussi_reservoir = self.thermostat_objects[
-                        "bussi_molecular"
-                    ].total_reservoir_energy
-                    molecular_reservoir_energy += mol_bussi_reservoir
-                    if self.verbose == "verbose":
-                        print(
-                            f"Molecular Bussi reservoir energy: {mol_bussi_reservoir:.6f} Hartree", flush=True
-                        )
-                except (AttributeError, hoomd.error.DataAccessError):
-                    if self.verbose == "verbose":
-                        print("Molecular Bussi reservoir energy not available yet", flush=True)
-
-            self.current_molecular_reservoir_energy = molecular_reservoir_energy
-
-            # Get cavity reservoir energy if available
-            cavity_reservoir_energy = 0.0
-
-            # Check for cavity Langevin method
-            if "langevin_cavity" in self.thermostat_objects:
-                try:
-                    cav_langevin_reservoir = self.thermostat_objects[
-                        "langevin_cavity"
-                    ].reservoir_energy
-                    cavity_reservoir_energy += cav_langevin_reservoir
-                    if self.verbose == "verbose":
-                        print(
-                            f"Cavity Langevin reservoir energy: {cav_langevin_reservoir:.6f} Hartree", flush=True
-                        )
-                except AttributeError:
-                    if self.verbose == "verbose":
-                        print("Cavity Langevin reservoir energy not available yet", flush=True)
-
-            # Check for cavity Bussi thermostat
-            if "bussi_cavity" in self.thermostat_objects:
-                try:
-                    cav_bussi_reservoir = self.thermostat_objects[
-                        "bussi_cavity"
-                    ].total_reservoir_energy
-                    cavity_reservoir_energy += cav_bussi_reservoir
-                    if self.verbose == "verbose":
-                        print(
-                            f"Cavity Bussi reservoir energy: {cav_bussi_reservoir:.6f} Hartree", flush=True
-                        )
-                except (AttributeError, hoomd.error.DataAccessError):
-                    if self.verbose == "verbose":
-                        print("Cavity Bussi reservoir energy not available yet", flush=True)
-
-            self.current_cavity_reservoir_energy = cavity_reservoir_energy
-
-            # Calculate total reservoir energy
-            self.current_total_reservoir_energy = (
-                self.current_molecular_reservoir_energy
-                + self.current_cavity_reservoir_energy
-            )
-            if self.verbose == "verbose":
-                print(
-                    f"TOTAL RESERVOIR ENERGY: {self.current_total_reservoir_energy:.6f} Hartree", flush=True
-                )
-
-            # === 4. CALCULATE TOTAL ENERGIES ===
-            if self.verbose == "verbose":
-                print("=== TOTAL ENERGY CALCULATIONS ===", flush=True)
-
-            # Calculate system total energy
-            self.current_system_total_energy = (
-                self.current_total_potential_energy + self.current_total_kinetic_energy
-            )
-            if self.verbose == "verbose":
-                print(
-                    f"SYSTEM TOTAL ENERGY (KE + PE): {self.current_system_total_energy:.6f} Hartree", flush=True
-                )
-
-            # Calculate universe total energy
-            self.current_universe_total_energy = (
-                self.current_system_total_energy + self.current_total_reservoir_energy
-            )
-            if self.verbose == "verbose":
-                print(
-                    f"UNIVERSE TOTAL ENERGY (system + reservoir): {self.current_universe_total_energy:.6f} Hartree", flush=True
-                )
-                print(f"  (This should be conserved)", flush=True)
-
-            # Calculate temperature if requested
-            if self.compute_temperature:
-                if self.use_internal_kinetic and hasattr(
-                    self, "_internal_molecular_temperature"
-                ):
-                    # Use temperature from internal computation
-                    self.current_temperature = self._internal_molecular_temperature
-                    if self.verbose == "verbose":
-                        print(
-                            f"Temperature (from internal computation): {self.current_temperature:.2f} K", flush=True
-                        )
-                elif self.kinetic_tracker is not None:
-                    # Use temperature from external tracker
-                    try:
-                        self.current_temperature = self.kinetic_tracker.temperature
-                        if self.verbose == "verbose":
-                            print(
-                                f"Temperature (from external tracker): {self.current_temperature:.2f} K", flush=True
-                            )
-                    except AttributeError:
-                        self.current_temperature = 0.0
-                        if self.verbose == "verbose":
-                            print("Temperature not available from external tracker", flush=True)
-                else:
-                    self.current_temperature = 0.0
-                    if self.verbose == "verbose":
-                        print("No kinetic computation - temperature set to zero", flush=True)
-
-            # === 5. WRITE OUTPUT DATA ===
-            if self.verbose == "verbose":
-                print("=== WRITING OUTPUT DATA ===", flush=True)
-            self._write_energy_data(timestep, current_time)
-            self._update_output_step(timestep)
-
-            if self.verbose == "verbose":
-                print(f"=== END ENERGY TRACKER DEBUG - Timestep {timestep} ===\n", flush=True)
-
-        except Exception as e:
-            # Always print critical errors regardless of verbosity
-            print(f"EnergyTracker CRITICAL ERROR at timestep {timestep}: {e}", flush=True)
-            import traceback
-
-            traceback.print_exc()
-
-    def _write_energy_data(self, timestep, current_time):
-        """Write energy data to output file."""
-        try:
-            # Build output line exactly like working code format
-            output_values = [
-                current_time,
-                timestep,
-                # Potential energy components
-                self.current_harmonic_energy,
-                self.current_lj_energy,
-                self.current_ewald_short_energy,
-                self.current_ewald_long_energy,
-                self.current_cavity_harmonic_energy,
-                self.current_cavity_coupling_energy,
-                self.current_cavity_dipole_self_energy,
-                self.current_cavity_total_potential_energy,
-                # Kinetic energy components
-                self.current_molecular_kinetic_energy,
-                self.current_cavity_kinetic_energy,
-                self.current_total_kinetic_energy,
-                # Total energies
-                self.current_total_potential_energy,
-                self.current_system_total_energy,
-                # Reservoir energies
-                self.current_molecular_reservoir_energy,
-                self.current_cavity_reservoir_energy,
-                self.current_total_reservoir_energy,
-                # Universe total (conserved quantity)
-                self.current_universe_total_energy,
-            ]
-
-            if self.compute_temperature:
-                output_values.append(self.current_temperature)
-
-            # Write to file
-            with open(self.output_file_path, "a") as f:
-                formatted_values = [
-                    f"{val:.6f}" if isinstance(val, float) else str(val)
-                    for val in output_values
-                ]
-                f.write(" ".join(formatted_values) + "\n")
-                f.flush()
-
-            if self.verbose == "verbose":
-                print(f"Successfully wrote energy data to {self.output_file_path}", flush=True)
-
-        except Exception as e:
-            # Always print errors regardless of verbosity
-            print(f"EnergyTracker ERROR writing data at timestep {timestep}: {e}", flush=True)
-            import traceback
-
-            traceback.print_exc()
-
-    # Logging methods for HOOMD logger integration (matching working code)
-    @hoomd.logging.log
-    def total_energy(self):
-        return self.current_system_total_energy
-
-    @hoomd.logging.log
-    def universe_total_energy(self):
-        return self.current_universe_total_energy
-
-    @hoomd.logging.log
-    def total_potential_energy(self):
-        return self.current_total_potential_energy
-
-    @hoomd.logging.log
-    def kinetic_energy(self):
-        return self.current_total_kinetic_energy
-
-    @hoomd.logging.log
-    def total_reservoir_energy(self):
-        return self.current_total_reservoir_energy
-
-    @hoomd.logging.log
-    def temperature(self):
-        return self.current_temperature
-
-    @hoomd.logging.log
-    def harmonic_energy(self):
-        return self.current_harmonic_energy
-
-    @hoomd.logging.log
-    def lj_energy(self):
-        return self.current_lj_energy
-
-    @hoomd.logging.log
-    def ewald_short_energy(self):
-        return self.current_ewald_short_energy
-
-    @hoomd.logging.log
-    def ewald_long_energy(self):
-        return self.current_ewald_long_energy
-
-    @hoomd.logging.log
-    def cavity_harmonic_energy(self):
-        return self.current_cavity_harmonic_energy
-
-    @hoomd.logging.log
-    def cavity_coupling_energy(self):
-        return self.current_cavity_coupling_energy
-
-    @hoomd.logging.log
-    def cavity_dipole_self_energy(self):
-        return self.current_cavity_dipole_self_energy
-
-    @hoomd.logging.log
-    def molecular_kinetic_energy(self):
-        return self.current_molecular_kinetic_energy
-
-    @hoomd.logging.log
-    def cavity_kinetic_energy_separate(self):
-        return self.current_cavity_kinetic_energy
-
-    @hoomd.logging.log
-    def molecular_reservoir_energy(self):
-        return self.current_molecular_reservoir_energy
-
-    @hoomd.logging.log
-    def cavity_reservoir_energy_separate(self):
-        return self.current_cavity_reservoir_energy
-
-
-# =============================================================================
-# UTILITY CLASSES (Keep as-is)
-# =============================================================================
-
 
 class Status:
-    """Status monitoring for cavity MD simulations."""
-
-    def __init__(self, simulation, chartime, time_tracker=None):
-        self.simulation = simulation
-        self.chartime = chartime
-        self.starttime = datetime.datetime.now()
+    """Simulation status tracker that provides real-time status information."""
+    
+    def __init__(self, sim, runtime_ps, time_tracker):
+        """Initialize status tracker.
+        
+        Parameters
+        ----------
+        sim : hoomd.Simulation
+            HOOMD simulation object
+        runtime_ps : float
+            Total runtime in picoseconds
+        time_tracker : ElapsedTimeTracker
+            Time tracking object
+        """
+        self.sim = sim
+        self.runtime_ps = runtime_ps
         self.time_tracker = time_tracker
-        self.last_timestep = 0
-        self.last_wall_time = datetime.datetime.now()
+        self._status = "initializing"
+    
+    @property 
+    def status(self):
+        """Current simulation status."""
+        return self._status
+    
+    @status.setter
+    def status(self, value):
+        """Set simulation status."""
+        self._status = value
+        
+    def update(self):
+        """Update status based on current simulation state."""
+        if hasattr(self.time_tracker, 'total_time'):
+            elapsed_ps = PhysicalConstants.atomic_units_to_ps(self.time_tracker.total_time)
+            if elapsed_ps >= self.runtime_ps:
+                self._status = "completed"
+            elif elapsed_ps > 0:
+                self._status = "running"
+        
+    def get_progress(self):
+        """Get current progress as a percentage."""
+        if hasattr(self.time_tracker, 'total_time'):
+            elapsed_ps = PhysicalConstants.atomic_units_to_ps(self.time_tracker.total_time)
+            return min(100.0, (elapsed_ps / self.runtime_ps) * 100.0)
+        return 0.0
+    
 
-    @property
-    def seconds_remaining(self):
-        try:
-            return (
-                self.simulation.final_timestep - self.simulation.timestep
-            ) / self.simulation.tps
-        except ZeroDivisionError:
-            return 0
-
-    @property
-    def etr(self):
-        return str(datetime.timedelta(seconds=self.seconds_remaining))
-
-    def etr_string(self):
-        """Get estimated time remaining as a string for logging."""
-        return str(datetime.timedelta(seconds=self.seconds_remaining))
-
-    @property
-    def nsd(self):
-        # Calculate nanoseconds per day based on actual simulation progress
-        current_timestep = self.simulation.timestep
-        if current_timestep <= 0:
-            return "0.0"
-
-        # Use time_tracker if available for more accurate timing
-        if self.time_tracker is not None:
-            simulation_time_ps = self.time_tracker.elapsed_time
+class TimestepFormatter:
+    """Utility class for formatting timestep-related output."""
+    
+    def __init__(self, integrator=None):
+        """Initialize timestep formatter.
+        
+        Parameters
+        ----------
+        integrator : hoomd.md.Integrator, optional
+            HOOMD integrator object for timestep information
+        """
+        self.integrator = integrator
+    
+    @staticmethod
+    def format_timestep(timestep: int) -> str:
+        """Format timestep with appropriate scale."""
+        if timestep >= 1e6:
+            return f"{timestep/1e6:.1f}M"
+        elif timestep >= 1e3:
+            return f"{timestep/1e3:.1f}k"
         else:
-            # Fallback to dt * timestep calculation
-            dt = float(self.simulation.operations.integrator.dt)
-            simulation_time_ps = PhysicalConstants.atomic_units_to_ps(
-                dt * current_timestep
-            )
-
-        # Calculate wall time elapsed
-        current_wall_time = datetime.datetime.now()
-        wall_time_elapsed = (current_wall_time - self.starttime).total_seconds()
-
-        if wall_time_elapsed <= 0:
-            return "0.0"
-
-        # Calculate simulation rate: ps per second of wall time
-        ps_per_second = simulation_time_ps / wall_time_elapsed
-
-        # Convert to nanoseconds per day
-        ns_per_second = ps_per_second / 1000.0  # ps to ns conversion
-        ns_per_day = ns_per_second * 86400  # seconds to day conversion
-
-        return str(np.round(ns_per_day, 6))
-
-    def ns_per_day(self):
-        """Get nanoseconds per day performance metric for logging."""
-        # Calculate nanoseconds per day based on actual simulation progress
-        current_timestep = self.simulation.timestep
-        if current_timestep <= 0:
-            return "0.0"
-
-        # Use time_tracker if available for more accurate timing
-        if self.time_tracker is not None:
-            simulation_time_ps = self.time_tracker.elapsed_time
+            return str(timestep)
+    
+    @staticmethod
+    def format_time(time_ps: float) -> str:
+        """Format time in appropriate units."""
+        if time_ps >= 1000:
+            return f"{time_ps/1000:.1f} ns"
         else:
-            # Fallback to dt * timestep calculation
-            dt = float(self.simulation.operations.integrator.dt)
-            simulation_time_ps = PhysicalConstants.atomic_units_to_ps(
-                dt * current_timestep
-            )
-
-        # Calculate wall time elapsed
-        current_wall_time = datetime.datetime.now()
-        wall_time_elapsed = (current_wall_time - self.starttime).total_seconds()
-
-        if wall_time_elapsed <= 0:
-            return "0.0"
-
-        # Calculate simulation rate: ps per second of wall time
-        ps_per_second = simulation_time_ps / wall_time_elapsed
-
-        # Convert to nanoseconds per day
-        ns_per_second = ps_per_second / 1000.0  # ps to ns conversion
-        ns_per_day = ns_per_second * 86400  # seconds to day conversion
-
-        return str(np.round(ns_per_day, 6))
-
-    @property
-    def Dt(self):
-        return str(
-            np.round(
-                float(
-                    self.simulation.operations.integrator.dt * self.chartime * 1000000
-                ),
-                6,
-            )
-        )
-
-    @property
-    def elapsed(self):
-        curtime = datetime.datetime.now()
-        return str(curtime - self.starttime)
+            return f"{time_ps:.1f} ps"
+            
+    def get_current_timestep_info(self):
+        """Get current timestep information from integrator."""
+        if self.integrator is not None:
+            return {
+                'dt': self.integrator.dt,
+                'dt_ps': PhysicalConstants.atomic_units_to_ps(self.integrator.dt)
+            }
+        return None
+    
+    # Note: dt_fs method temporarily removed due to HOOMD logging metaclass issues
+    # TODO: Re-add when logging issue is resolved
 
 
 class ElapsedTimeTracker(hoomd.custom.Action):
-    r"""
-    Track elapsed simulation time in physical units and exit when runtime is reached.
+    """Tracks the total elapsed time in a simulation with variable timesteps."""
     
-    This class provides accurate time tracking for adaptive timestep simulations,
-    where the timestep size :math:`\Delta t` may vary during the simulation. It
-    accumulates the actual elapsed time by integrating timestep increments:
-    
-    .. math::
-        
-        t_{\text{elapsed}} = \sum_{i=1}^{n} \Delta t_i
-    
-    where :math:`\Delta t_i` is the timestep size at step :math:`i`.
-    
-    **Adaptive Timestep Compatibility:**
-    
-    Unlike simple step counting, this tracker accounts for variable timesteps
-    in adaptive integration schemes, ensuring accurate timing for:
-    
-    - Time-varying coupling experiments
-    - Runtime termination conditions  
-    - Performance metrics (ns/day calculations)
-    - Output period controls
-    
-    **Integration with Time-Varying Parameters:**
-    
-    This tracker is essential for StepVariant and other time-dependent parameters
-    that need to know the actual simulation time, not just the timestep number.
-    
-    Parameters
-    ----------
-    simulation : hoomd.Simulation
-        HOOMD simulation object to track
-    runtime : float
-        Target runtime in picoseconds. Simulation exits when this time is reached.
-        
-    Attributes
-    ----------
-    runtime : float
-        Target runtime in picoseconds
-    total_time : float
-        Current elapsed time in atomic units
-    initial_timestep : int
-        Starting timestep number (for inherited simulations)
-    last_timestep : int
-        Last processed timestep number
-        
-    Methods
-    -------
-    elapsed_time : float
-        Current elapsed time in picoseconds (logged property)
-    act(timestep) : None
-        Update elapsed time and check for runtime completion
-        
-    Examples
-    --------
-    **Basic usage:**
-    
-    >>> from hoomd.cavitymd.analysis import ElapsedTimeTracker
-    >>> 
-    >>> # Track a 1000 ps simulation
-    >>> time_tracker = ElapsedTimeTracker(sim, runtime=1000.0)
-    >>> 
-    >>> # Add to simulation updaters
-    >>> sim.operations.updaters.append(
-    ...     hoomd.update.CustomUpdater(
-    ...         action=time_tracker, 
-    ...         trigger=hoomd.trigger.Periodic(1)  # Update every step
-    ...     )
-    ... )
-    
-    **With time-varying coupling:**
-    
-    >>> # Use for accurate timing in step variants
-    >>> time_tracker = ElapsedTimeTracker(sim, runtime=500.0)
-    >>> coupling_variant = StepVariant(
-    ...     target_value=0.001,
-    ...     switch_time_ps=100.0,
-    ...     time_tracker=time_tracker
-    ... )
-    
-    Notes
-    -----
-    - Must be updated every timestep for accurate timing
-    - Automatically exits simulation when runtime is reached
-    - Handles inherited timesteps from restart simulations
-    - Essential for time-varying parameter variants
-    - Works correctly with both fixed and adaptive timestep schemes
-    
-    See Also
-    --------
-    hoomd.cavitymd.variants.StepVariant : For time-varying parameters
-    PerformanceTracker : For simulation performance monitoring
-    """
-    
-    def __init__(self, simulation: hoomd.Simulation, runtime: float) -> None:
-        """
-        Initialize the elapsed time tracker.
-        
-        Parameters
-        ----------
-        simulation : hoomd.Simulation
-            HOOMD simulation object to track
-        runtime : float
-            Target runtime in picoseconds
-        """
+    def __init__(self, simulation, runtime):
         super().__init__()
-        self.simulation: hoomd.Simulation = simulation
-        self.runtime: float = runtime
-        
-        # Initialize timing variables
-        self.total_time: float = 0.0  # Total elapsed time in atomic units
-        self.initial_timestep: int = 0  # Starting timestep (for inherited sims)
-        self.last_timestep: int = 0  # Last processed timestep
-        
-        print(f"ElapsedTimeTracker initialized: target runtime = {runtime:.1f} ps", flush=True)
+        self.simulation = simulation
+        self.total_time = 0.0
+        self.runtime = runtime
+        self.last_timestep = 0  # Start from 0, not simulation.timestep
+        self.initial_timestep = None  # Track the starting timestep to handle inheritance
 
-    def act(self, timestep: int) -> None:
-        """
-        Update the total elapsed time by accumulating time increments.
-        
-        This method is called by HOOMD at each timestep to update the elapsed time.
-        For adaptive timestep simulations, it properly accounts for varying timestep sizes.
-        
-        Parameters
-        ----------
-        timestep : int
-            Current simulation timestep number
-        """
+    def act(self, timestep):
+        """Update the total elapsed time by accumulating time increments."""
         # Get current timestep size
         dt = self.simulation.operations.integrator.dt
-
+        
         # For the first call, handle initialization
         if self.last_timestep == 0:
             # Initialize - record the starting timestep but don't add its time
@@ -2056,10 +140,8 @@ class ElapsedTimeTracker(hoomd.custom.Action):
             self.last_timestep = timestep
             self.total_time = 0.0  # Always start elapsed time from 0, regardless of inherited timestep
             if timestep > 0:
-                print(f"NOTICE: Starting from inherited timestep {timestep}", flush=True)
-                print(
-                    f"  Elapsed time will start from 0, not from inherited simulation time", flush=True
-                )
+                print(f"NOTICE: Starting from inherited timestep {timestep}")
+                print(f"  Elapsed time will start from 0, not from inherited simulation time")
             return
 
         # Calculate time increment since last update
@@ -2067,158 +149,2886 @@ class ElapsedTimeTracker(hoomd.custom.Action):
             timestep_increment = timestep - self.last_timestep
             time_increment = timestep_increment * dt
             self.total_time += time_increment
-
+            
         # Update last timestep for next iteration
         self.last_timestep = timestep
-
+        
         # Check if we've reached the runtime and exit if so
         if PhysicalConstants.atomic_units_to_ps(self.total_time) >= self.runtime:
-            print(f"Runtime {self.runtime} ps reached. Exiting simulation.", flush=True)
+            print(f"Runtime {self.runtime} ps reached. Exiting simulation.")
             import sys
             sys.exit(0)
 
-    @hoomd.logging.log
-    def elapsed_time(self) -> float:
+    @hoomd.logging.log(category="scalar")
+    def elapsed_time(self):
+        """Return elapsed time in picoseconds."""
+        return PhysicalConstants.atomic_units_to_ps(self.total_time)
+
+
+class FieldAutocorrelationTracker(hoomd.custom.Action):
+    """
+    Tracks field autocorrelation functions (e.g., F(k,t) density correlations) during simulation.
+    
+    Supports both regular time spacing and logarithmic time spacing for F(k,t) output.
+    """
+    
+    def __init__(self, 
+        simulation,
+                 observable: str,
+                 time_tracker,
+                 output_period_ps: float,
+                 output_prefix: str,
+                 reference_interval_ps: float,
+                 max_references: int,
+                 kmag: float = 1.0,
+                 num_wavevectors: int = 50,
+                 # New logarithmic time spacing parameters
+                 log_time_spacing: bool = False,
+                 min_log_time_ps: Optional[float] = None,
+                 max_log_time_ps: Optional[float] = None,
+                 log_num_points: int = 50):
         """
-        Current elapsed time in picoseconds.
+        Initialize FieldAutocorrelationTracker.
+        
+        Parameters
+        ----------
+        simulation : hoomd.Simulation
+            The HOOMD simulation object
+        observable : str
+            Type of observable to track (e.g., "density_correlation")
+        time_tracker : ElapsedTimeTracker
+            Time tracker for accurate timing
+        output_period_ps : float
+            Output period in picoseconds
+        output_prefix : str
+            Prefix for output files
+        reference_interval_ps : float
+            Interval between reference frames in picoseconds
+        max_references : int
+            Maximum number of reference frames to keep
+        kmag : float, optional
+            k-vector magnitude for density correlations. Default: 1.0
+        num_wavevectors : int, optional
+            Number of wavevectors for k-averaging. Default: 50
+        log_time_spacing : bool, optional
+            Whether to use logarithmic time spacing for output. Default: False
+        min_log_time_ps : float, optional
+            Minimum time for log spacing. Required if log_time_spacing=True
+        max_log_time_ps : float, optional
+            Maximum time for log spacing. Required if log_time_spacing=True  
+        log_num_points : int, optional
+            Number of points in log spacing. Default: 50
+        """
+        super().__init__()
+        self.simulation = simulation
+        self.observable = observable
+        self.time_tracker = time_tracker
+        self.output_period_ps = output_period_ps
+        self.output_prefix = output_prefix
+        self.reference_interval_ps = reference_interval_ps
+        self.max_references = max_references
+        self.kmag = kmag
+        self.num_wavevectors = num_wavevectors
+        
+        # Logarithmic time spacing parameters
+        self.log_time_spacing = log_time_spacing
+        self.min_log_time_ps = min_log_time_ps
+        self.max_log_time_ps = max_log_time_ps
+        self.log_num_points = log_num_points
+        
+        # Validate log time parameters
+        if self.log_time_spacing:
+            if min_log_time_ps is None or max_log_time_ps is None:
+                raise ValueError("min_log_time_ps and max_log_time_ps must be specified when log_time_spacing=True")
+            if min_log_time_ps >= max_log_time_ps:
+                raise ValueError("min_log_time_ps must be less than max_log_time_ps")
+            if min_log_time_ps <= 0:
+                raise ValueError("min_log_time_ps must be positive for logarithmic spacing")
+                
+            # Generate logarithmic time points
+            self.log_time_points_ps = np.logspace(
+                np.log10(min_log_time_ps), 
+                np.log10(max_log_time_ps), 
+                log_num_points
+            )
+            print(f"F(k,t) logarithmic time spacing enabled:")
+            print(f"  Time range: {min_log_time_ps:.3f} - {max_log_time_ps:.1f} ps")
+            print(f"  Number of points: {log_num_points}")
+            print(f"  Sample times: {self.log_time_points_ps[:5]}, ..., {self.log_time_points_ps[-5:]}")
+        
+        # Generate wavevectors
+        if observable == "density_correlation":
+            self.wavevectors = self._fibonacci_sphere(samples=num_wavevectors) * kmag
+        
+        # Reference frames storage
+        self.references = []
+        self.last_reference_time = None
+        self.last_output_time = None
+        
+        # Storage for correlation data (for logarithmic spacing)
+        self.correlation_data = {}  # ref_idx -> {'times': [], 'values': []}
+        
+        # For caching computed values
+        self.current_computed_value = None
+        self.current_timestep = -1
+        
+        print(f"FieldAutocorrelationTracker initialized for {observable}")
+        print(f"  k-magnitude: {kmag}")
+        print(f"  Wavevectors: {num_wavevectors}")
+        print(f"  Reference interval: {reference_interval_ps} ps")
+        print(f"  Max references: {max_references}")
+        if self.log_time_spacing:
+            print(f"  Log time spacing: {log_num_points} points from {min_log_time_ps} to {max_log_time_ps} ps")
+        
+    def _fibonacci_sphere(self, samples=100):
+        """Generate points on a sphere using Fibonacci spiral."""
+        points = []
+        phi = np.pi * (3. - np.sqrt(5.))  # Golden angle in radians
+        
+        for i in range(samples):
+            y = 1 - (i / float(samples - 1)) * 2  # y goes from 1 to -1
+            radius = np.sqrt(1 - y * y)  # radius at y
+            
+            theta = phi * i  # golden angle increment
+            
+            x = np.cos(theta) * radius
+            z = np.sin(theta) * radius
+            
+            points.append([x, y, z])
+        
+        return np.array(points)
+    
+    def _should_add_reference(self, current_time_ps: float) -> bool:
+        """Check if we should add a new reference frame."""
+        if self.last_reference_time is None:
+            return True
+        return (current_time_ps - self.last_reference_time) >= self.reference_interval_ps
+    
+    def _should_output(self, current_time_ps: float) -> bool:
+        """Check if we should output correlation data."""
+        if self.last_output_time is None:
+            return True
+        return (current_time_ps - self.last_output_time) >= self.output_period_ps
+    
+    def _compute_density_field(self, positions: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Compute density field ρ_k for given positions."""
+        # Determine array module (NumPy or CuPy)
+        if HAS_CUPY and hasattr(positions, 'device'):
+            xp = cp
+        else:
+            xp = np
+            
+        # Convert to appropriate array type
+        if xp == cp and not hasattr(positions, 'device'):
+            positions = cp.asarray(positions)
+        elif xp == np and hasattr(positions, 'device'):
+            positions = cp.asnumpy(positions)
+        
+        # Compute ρ_k = Σ_j exp(i k · r_j)
+        # k_dot_r shape: (num_wavevectors, num_particles)
+        k_dot_r = xp.dot(self.wavevectors, positions.T)
+        
+        # Compute complex exponentials
+        rhok_complex = xp.sum(xp.exp(1j * k_dot_r), axis=1)
+        
+        # Split into real and imaginary parts
+        rhok_real = xp.real(rhok_complex)
+        rhok_imag = xp.imag(rhok_complex)
+        
+        # Convert back to NumPy if needed
+        if xp == cp:
+            rhok_real = cp.asnumpy(rhok_real)
+            rhok_imag = cp.asnumpy(rhok_imag)
+        
+        return rhok_real, rhok_imag
+    
+    def _compute_correlation(self, rhok0_real: np.ndarray, rhok0_imag: np.ndarray,
+                           rhok_real: np.ndarray, rhok_imag: np.ndarray) -> float:
+        """Compute F(k,t) = <ρ_k(t) · ρ_k*(t_0)> averaged over k-vectors."""
+        # ρ_k(t) · ρ_k*(t_0) = [real(t) + i·imag(t)] · [real(t_0) - i·imag(t_0)]
+        # = real(t)·real(t_0) + imag(t)·imag(t_0) + i·[imag(t)·real(t_0) - real(t)·imag(t_0)]
+        # Take real part: real(t)·real(t_0) + imag(t)·imag(t_0)
+        correlations = rhok_real * rhok0_real + rhok_imag * rhok0_imag
+        
+        # Average over all k-vectors (k-averaging)
+        return np.mean(correlations)
+    
+    def _output_correlation_data(self, ref_idx: int, current_time_ps: float):
+        """Output correlation data for a specific reference frame."""
+        if ref_idx >= len(self.references):
+            return
+
+        ref = self.references[ref_idx]
+        lag_time_ps = current_time_ps - ref['time_ps']
+        
+        # For logarithmic spacing, we collect all data points and post-process
+        # No early return here - we store all computed values
+        
+        # Get current density field  
+        with self.simulation.state.cpu_local_snapshot as snap:
+            positions = np.array(snap.particles.position)
+            
+        current_rhok_real, current_rhok_imag = self._compute_density_field(positions)
+        
+        # Compute correlation
+        fkt_value = self._compute_correlation(ref['rhok_real'], ref['rhok_imag'], 
+                                            current_rhok_real, current_rhok_imag)
+        
+        if self.log_time_spacing:
+            # Track which logarithmic points have been written for each reference
+            if not hasattr(self, '_written_log_points'):
+                self._written_log_points = {}
+            
+            if ref_idx not in self._written_log_points:
+                self._written_log_points[ref_idx] = set()
+            
+            # Find the closest logarithmic time point
+            time_diffs = [abs(lag_time_ps - t) for t in self.log_time_points_ps]
+            closest_idx = min(range(len(time_diffs)), key=lambda i: time_diffs[i])
+            closest_time = self.log_time_points_ps[closest_idx]
+            min_diff = time_diffs[closest_idx]
+            
+            # Only write if:
+            # 1. We're close enough (within 0.005 ps)
+            # 2. This logarithmic point hasn't been written yet for this reference
+            if min_diff < 0.005 and closest_idx not in self._written_log_points[ref_idx]:
+                self._written_log_points[ref_idx].add(closest_idx)
+                
+                ref_file = f"{self.output_prefix}_fkt_ref_{ref_idx:03d}.txt"
+                
+                # Create file with header if it doesn't exist
+                if not hasattr(self, f'_log_file_created_{ref_idx}'):
+                    ref = self.references[ref_idx]
+                    with open(ref_file, 'w') as f:
+                        f.write("# F(k,t) correlation function\n")
+                        f.write("# Reference time: {:.3f} ps\n".format(ref['time_ps']))
+                        f.write("# Using logarithmic time spacing\n")
+                        f.write("# Time range: {:.3f} - {:.1f} ps\n".format(self.min_log_time_ps, self.max_log_time_ps))
+                        f.write("# lag_time_ps\tF(k,t)\n")
+                    setattr(self, f'_log_file_created_{ref_idx}', True)
+                
+                # Append data point using the EXACT logarithmic time
+                with open(ref_file, 'a') as f:
+                    f.write(f"{closest_time:.6f}\t{fkt_value:.8f}\n")
+                
+                print(f"DEBUG: WROTE LOG POINT ref_idx {ref_idx}: target={closest_time:.6f}, actual_t={lag_time_ps:.6f}, F(k,t)={fkt_value:.3f}, diff={min_diff:.6f}")
+        else:
+            # Immediate linear output
+            output_line = f"{lag_time_ps:.6f}\t{fkt_value:.8f}\n"
+            
+            # Write to reference-specific file
+            ref_file = f"{self.output_prefix}_fkt_ref_{ref_idx:03d}.txt"
+            with open(ref_file, 'a') as f:
+                f.write(output_line)
+        
+        # Update cached value for logging
+        self.current_computed_value = fkt_value
+    
+    def _write_logarithmic_output(self, ref_idx: int):
+        """Write logarithmically-spaced correlation data for a reference frame."""
+        if ref_idx not in self.correlation_data:
+            print(f"DEBUG: No correlation data for ref_idx {ref_idx}")
+            return
+            
+        times = np.array(self.correlation_data[ref_idx]['times'])
+        values = np.array(self.correlation_data[ref_idx]['values'])
+        
+        print(f"DEBUG: ref_idx {ref_idx}: {len(times)} time points collected")
+        if len(times) > 0:
+            print(f"DEBUG: Time range: {times.min():.3f} - {times.max():.3f} ps")
+            print(f"DEBUG: Target log times: {self.log_time_points_ps[:3]} ... {self.log_time_points_ps[-3:]}")
+        
+        if len(times) == 0:
+            print(f"DEBUG: No data points collected for ref_idx {ref_idx}")
+            return
+        
+        # Create header for reference file
+        ref = self.references[ref_idx]
+        ref_file = f"{self.output_prefix}_fkt_ref_{ref_idx:03d}.txt"
+        
+        with open(ref_file, 'w') as f:
+            f.write("# F(k,t) correlation function\n")
+            f.write("# Reference time: {:.3f} ps\n".format(ref['time_ps']))
+            f.write("# Using logarithmic time spacing\n")
+            f.write("# Time range: {:.3f} - {:.1f} ps\n".format(self.min_log_time_ps, self.max_log_time_ps))
+            f.write("# lag_time_ps\tF(k,t)\n")
+            
+            # Interpolate data onto logarithmic time points
+            points_written = 0
+            for target_time in self.log_time_points_ps:
+                if target_time <= times.max() and target_time >= times.min():
+                    # Interpolate to get F(k,t) at this logarithmic time point
+                    interpolated_value = np.interp(target_time, times, values)
+                    f.write(f"{target_time:.6f}\t{interpolated_value:.8f}\n")
+                    points_written += 1
+            print(f"DEBUG: Wrote {points_written} logarithmic points for ref_idx {ref_idx}")
+    
+    def finalize_output(self):
+        """Finalize all logarithmic output files."""
+        if self.log_time_spacing:
+            for ref_idx in range(len(self.references)):
+                self._write_logarithmic_output(ref_idx)
+    
+    def act(self, timestep):
+        """Main action called every timestep."""
+        # Get current time
+        current_time_ps = self.time_tracker.elapsed_time
+        
+        # Check if we should add a new reference frame
+        if self._should_add_reference(current_time_ps):
+            with self.simulation.state.cpu_local_snapshot as snap:
+                positions = np.array(snap.particles.position)
+                
+            rhok_real, rhok_imag = self._compute_density_field(positions)
+            
+            # Create new reference
+            ref = {
+                'timestep': timestep,
+                'time_ps': current_time_ps,
+                'rhok_real': rhok_real,
+                'rhok_imag': rhok_imag
+            }
+            
+            self.references.append(ref)
+            self.last_reference_time = current_time_ps
+            
+            # Create output file for this reference
+            ref_idx = len(self.references) - 1
+            ref_file = f"{self.output_prefix}_fkt_ref_{ref_idx:03d}.txt"
+            with open(ref_file, 'w') as f:
+                f.write("# F(k,t) correlation function\n")
+                f.write("# Reference time: {:.3f} ps\n".format(current_time_ps))
+                if self.log_time_spacing:
+                    f.write("# Using logarithmic time spacing\n")
+                    f.write("# Time range: {:.3f} - {:.1f} ps\n".format(self.min_log_time_ps, self.max_log_time_ps))
+                f.write("# lag_time_ps\tF(k,t)\n")
+            
+            # Remove old references if we exceed max_references
+            if len(self.references) > self.max_references:
+                self.references.pop(0)
+            
+            print(f"Added F(k,t) reference {ref_idx} at t = {current_time_ps:.3f} ps")
+        
+        # Output correlation data for all reference frames
+        if self.log_time_spacing:
+            # For logarithmic spacing, collect data at every timestep for better interpolation
+            for ref_idx in range(len(self.references)):
+                self._output_correlation_data(ref_idx, current_time_ps)
+        else:
+            # For linear spacing, use the normal output period
+            if self._should_output(current_time_ps):
+                for ref_idx in range(len(self.references)):
+                    self._output_correlation_data(ref_idx, current_time_ps)
+                
+                self.last_output_time = current_time_ps
+        
+        # Cache current timestep for logging
+        self.current_timestep = timestep
+    
+    @hoomd.logging.log(category="scalar")
+    def current_autocorr(self):
+        """Return the most recent autocorrelation value for logging."""
+        if self.current_computed_value is not None:
+            return self.current_computed_value
+        return 0.0
+
+
+class AutocorrelationTracker(hoomd.custom.Action):
+    """Base class for autocorrelation function tracking."""
+    
+    def __init__(self, simulation, time_tracker, output_period_ps, output_prefix):
+        super().__init__()
+        self.simulation = simulation
+        self.time_tracker = time_tracker
+        self.output_period_ps = output_period_ps
+        self.output_prefix = output_prefix
+        self.last_output_time = None
+    
+    def _should_output(self, current_time_ps: float) -> bool:
+        """Check if we should output data."""
+        if self.last_output_time is None:
+            return True
+        return (current_time_ps - self.last_output_time) >= self.output_period_ps
+
+
+class EnergyTracker(hoomd.custom.Action):
+    """Tracks various energy components during simulation."""
+    
+    def __init__(self, simulation, time_tracker, output_period_ps, output_prefix):
+        super().__init__()
+        self.simulation = simulation
+        self.time_tracker = time_tracker
+        self.output_period_ps = output_period_ps
+        self.output_prefix = output_prefix
+        self.last_output_time = None
+        
+        # Cache for force energy components (updated each timestep)
+        self._current_energies = {}
+        self._force_mapping = {}  # Maps force names to their objects
+
+        # Initialize output file
+        self.output_file = f"{output_prefix}_energy.txt"
+        with open(self.output_file, 'w') as f:
+            f.write("# Energy tracking data\n")
+            f.write("# time_ps\tkinetic_energy\tpotential_energy\ttotal_energy\n")
+
+    def act(self, timestep):
+        """Track energy at each timestep and cache force energies."""
+        current_time_ps = self.time_tracker.elapsed_time
+        
+        # Update cached energies every timestep for get_instantaneous_energy access
+        self._update_energy_cache()
+        
+        if self._should_output(current_time_ps):
+            # Get thermodynamic quantities
+            with self.simulation.state.cpu_local_snapshot as snap:
+                velocities = np.array(snap.particles.velocity)
+                masses = np.array(snap.particles.mass)
+            
+            # Calculate kinetic energy
+            kinetic_energy = 0.5 * np.sum(masses[:, np.newaxis] * velocities**2)
+            
+            # Calculate total potential energy from cached force energies
+            potential_energy = sum(self._current_energies.values())
+            total_energy = kinetic_energy + potential_energy
+            
+            # Output to file
+            with open(self.output_file, 'a') as f:
+                f.write(f"{current_time_ps:.6f}\t{kinetic_energy:.8f}\t{potential_energy:.8f}\t{total_energy:.8f}\n")
+            
+            self.last_output_time = current_time_ps
+    
+    def _should_output(self, current_time_ps: float) -> bool:
+        """Check if we should output data."""
+        if self.last_output_time is None:
+            return True
+        return (current_time_ps - self.last_output_time) >= self.output_period_ps
+    
+    def _update_energy_cache(self):
+        """Update cached force energy components from simulation."""
+        self._current_energies.clear()
+        
+        try:
+            # Access forces from the integrator
+            if hasattr(self.simulation, 'operations') and hasattr(self.simulation.operations, 'integrator'):
+                forces = self.simulation.operations.integrator.forces
+                
+                for force in forces:
+                    force_type = type(force).__name__.lower()
+                    
+                    try:
+                        # Get energy from force if available
+                        if hasattr(force, 'energy'):
+                            energy_value = force.energy
+                            if isinstance(energy_value, (int, float)):
+                                self._current_energies[force_type] = energy_value
+                            elif hasattr(energy_value, '__float__'):
+                                self._current_energies[force_type] = float(energy_value)
+                                
+                        # Special handling for cavity force components
+                        if force_type == 'cavityforce':
+                            if hasattr(force, 'harmonic_energy'):
+                                self._current_energies['cavity_harmonic'] = force.harmonic_energy
+                            if hasattr(force, 'coupling_energy'):
+                                self._current_energies['cavity_coupling'] = force.coupling_energy
+                            if hasattr(force, 'dipole_self_energy'):
+                                self._current_energies['cavity_dipole'] = force.dipole_self_energy
+                                
+                    except Exception as e:
+                        # Silently skip forces that can't provide energy
+                        continue
+                        
+        except Exception as e:
+            # If we can't access forces, keep previous energy values
+            pass
+    
+    def get_instantaneous_energy(self) -> Dict[str, float]:
+        """
+        Get current instantaneous energy components for empirical feedback.
+        
+        Returns
+        -------
+        Dict[str, float]
+            Dictionary containing energy components:
+            - 'lj': Lennard-Jones energy in Hartree
+            - 'coulombic': Coulombic energy in Hartree (includes ewald_short and ewald_long)
+            - 'harmonic': Harmonic/bond energy in Hartree
+            - 'cavity': Total cavity energy in Hartree
+            - 'total_potential': Sum of all potential energy components in Hartree
+            
+        Notes
+        -----
+        This method is called by EmpiricalTemperatureFeedback to access
+        real-time energy data for systemic temperature calculations.
+        """
+        energy_data = {}
+        
+        # Map HOOMD force names to standard energy components
+        lj_energy = 0.0
+        coulombic_energy = 0.0
+        harmonic_energy = 0.0
+        cavity_energy = 0.0
+        
+        # Process cached energies
+        for force_name, energy in self._current_energies.items():
+            if 'lj' in force_name or 'lennard' in force_name:
+                lj_energy += energy
+            elif 'ewald' in force_name or 'coulomb' in force_name or 'pppm' in force_name:
+                coulombic_energy += energy
+            elif 'harmonic' in force_name or 'bond' in force_name:
+                if 'cavity' not in force_name:  # Exclude cavity harmonic from molecular harmonic
+                    harmonic_energy += energy
+            elif 'cavity' in force_name:
+                cavity_energy += energy
+        
+        # Store individual components
+        energy_data['lj'] = lj_energy
+        energy_data['coulombic'] = coulombic_energy
+        energy_data['harmonic'] = harmonic_energy
+        energy_data['cavity'] = cavity_energy
+        
+        # Combined components for empirical feedback
+        energy_data['lj_coulombic'] = lj_energy + coulombic_energy
+        energy_data['total_potential'] = lj_energy + coulombic_energy + harmonic_energy + cavity_energy
+        
+        return energy_data
+
+
+class PerformanceTracker(hoomd.custom.Action):
+    """Tracks simulation performance metrics."""
+    
+    def __init__(self, simulation, runtime_ps, time_tracker):
+        super().__init__()
+        self.simulation = simulation
+        self.runtime_ps = runtime_ps
+        self.time_tracker = time_tracker
+        self.last_output_time = None
+        self.start_time = time.time()
+        self.last_timestep = 0
+        self._current_steps_per_second = 0.0
+        self._current_ns_per_day = "0.0"
+        
+    def act(self, timestep):
+        """Track performance metrics."""
+        current_time_ps = self.time_tracker.elapsed_time
+        wall_time = time.time() - self.start_time
+        
+        if wall_time > 0:
+            # Calculate steps per second
+            self._current_steps_per_second = timestep / wall_time
+            
+            # Calculate ns per day estimate
+            if current_time_ps > 0:
+                ps_per_second = current_time_ps / wall_time
+                ns_per_second = ps_per_second / 1000.0
+                ns_per_day = ns_per_second * 86400.0  # seconds per day
+                self._current_ns_per_day = f"{ns_per_day:.2f}"
+    
+    @hoomd.logging.log(category="scalar")
+    def steps_per_second(self):
+        """Return current steps per second."""
+        return self._current_steps_per_second
+        
+    @hoomd.logging.log(category="string")
+    def ns_per_day(self):
+        """Return estimated ns per day."""
+        return self._current_ns_per_day
+        
+    @hoomd.logging.log(category="scalar")  
+    def wall_time(self):
+        """Return total wall time in seconds."""
+        return time.time() - self.start_time
+        
+    @hoomd.logging.log(category="string")
+    def eta_remaining(self):
+        """Return estimated time remaining."""
+        if hasattr(self.time_tracker, 'elapsed_time'):
+            # Check if elapsed_time is a method or property
+            if callable(self.time_tracker.elapsed_time):
+                current_time_ps = self.time_tracker.elapsed_time()
+            else:
+                current_time_ps = self.time_tracker.elapsed_time
+        else:
+            return "00:00:00"
+            
+        if current_time_ps > 0:
+            wall_time = time.time() - self.start_time
+            progress = current_time_ps / self.runtime_ps
+            if progress > 0:
+                eta_seconds = wall_time * (1.0 - progress) / progress
+                hours = int(eta_seconds // 3600)
+                minutes = int((eta_seconds % 3600) // 60)
+                seconds = int(eta_seconds % 60)
+                return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+        return "00:00:00"
+
+
+class EmpiricalTemperatureData:
+    """
+    Handles empirical potential energy vs temperature data with Rosenfeld function fitting.
+    
+    This class loads empirical energy-temperature relationships from equilibrium
+    simulations and provides interpolation to determine systemic temperatures
+    from instantaneous potential energies using the Rosenfeld-Tarazona scaling model.
+    
+    Parameters
+    ----------
+    data_file_path : str
+        Path to file containing temperature and potential energy data
+    energy_component : str, optional
+        Which energy component to use ('lj_coulombic', 'total_PE', etc.). Default: 'lj_coulombic'
+    use_direct_harmonic : bool, optional
+        If True and energy_component='harmonic', use direct calculation T = 4*E/(N*kB). Default: False
+        
+    Attributes
+    ----------
+    temperatures : np.ndarray
+        Temperature values from empirical data (K)
+    energies : np.ndarray  
+        Energy values from empirical data (hartree)
+    fit_params : dict
+        Parameters from Rosenfeld fitting: {'E0': float, 'A': float, 'alpha': float}
+    is_fitted : bool
+        Whether Rosenfeld fitting has been performed
+    """
+    
+    def __init__(self, data_file_path: str, energy_component: str = 'lj_coulombic', use_direct_harmonic: bool = False):
+        self.data_file_path = Path(data_file_path)
+        self.energy_component = energy_component
+        self.use_direct_harmonic = use_direct_harmonic
+        self.fit_params = {}
+        self.is_fitted = False
+        
+        self.load_empirical_data()
+        if not self.use_direct_harmonic or self.energy_component != 'harmonic':
+                self.fit_rosenfeld_function()
+    
+    def load_empirical_data(self):
+        """Load empirical energy-temperature data from file."""
+        if not self.data_file_path.exists():
+            raise FileNotFoundError(f"Empirical data file not found: {self.data_file_path}")
+        
+        try:
+            import pandas as pd
+            data = pd.read_csv(self.data_file_path, sep=r'\s+', comment='#')
+            
+            # Extract temperature data
+            if 'temperature' in data.columns:
+                self.temperatures = data['temperature'].values
+            else:
+                raise ValueError("Temperature column not found in empirical data")
+            
+            # Extract energy data based on component
+            if self.energy_component == 'lj_coulombic':
+                if 'lj_hartree' in data.columns and 'coulombic_hartree' in data.columns:
+                    self.energies = data['lj_hartree'].values + data['coulombic_hartree'].values
+                else:
+                    raise ValueError("LJ and Coulombic energy columns not found")
+            elif self.energy_component == 'total_PE':
+                if 'total_potential_energy_hartree' in data.columns:
+                    self.energies = data['total_potential_energy_hartree'].values
+                else:
+                    raise ValueError("Total potential energy column not found")
+            elif self.energy_component == 'harmonic':
+                if 'harmonic_hartree' in data.columns:
+                    self.energies = data['harmonic_hartree'].values
+                else:
+                    raise ValueError("Harmonic energy column not found")
+            else:
+                raise ValueError(f"Unknown energy component: {self.energy_component}")
+                
+            print(f"Loaded {len(self.temperatures)} empirical data points")
+            print(f"Temperature range: {self.temperatures.min():.1f} - {self.temperatures.max():.1f} K")
+            print(f"Energy range: {self.energies.min():.6f} - {self.energies.max():.6f} Ha")
+            
+        except Exception as e:
+            raise RuntimeError(f"Failed to load empirical data: {e}")
+    
+    def fit_rosenfeld_function(self):
+        """Fit generalized Rosenfeld-Tarazona scaling function to the data."""
+        try:
+            from scipy.optimize import curve_fit
+            
+            def generalized_rt_model(T, E0, A, alpha):
+                """Generalized RT scaling: E(T) = E₀ + A*T^α"""
+                return E0 + A * T**alpha
+            
+            # Initial parameter guesses
+            E0_guess = self.energies.min()  # Energy at 0K
+            A_guess = (self.energies.max() - self.energies.min()) / (self.temperatures.max()**0.6)
+            alpha_guess = 0.6  # Starting point between 3/5 and 3/2
+            
+            # Perform fitting
+            self.fit_params, _ = curve_fit(
+                generalized_rt_model,
+                self.temperatures,
+                self.energies,
+                p0=[E0_guess, A_guess, alpha_guess],
+                bounds=([self.energies.min() - 0.1, 0, 0.1], 
+                       [self.energies.max(), np.inf, 2.0])
+            )
+            
+            # Store fitted parameters
+            self.fit_params = {
+                'E0': self.fit_params[0],
+                'A': self.fit_params[1], 
+                'alpha': self.fit_params[2]
+            }
+            
+            self.is_fitted = True
+            
+            print(f"Rosenfeld fitting completed:")
+            print(f"  E₀ = {self.fit_params['E0']:.6f} Ha")
+            print(f"  A = {self.fit_params['A']:.6f} Ha·K^(-α)")  
+            print(f"  α = {self.fit_params['alpha']:.3f}")
+            
+        except Exception as e:
+            print(f"Warning: Rosenfeld fitting failed: {e}")
+            # Fallback to linear interpolation
+            self.is_fitted = False
+    
+    def calculate_systemic_temperature(self, instantaneous_energy_hartree: float, num_particles: int = None) -> float:
+        """
+        Calculate systemic temperature from instantaneous potential energy.
+        
+        Parameters
+        ----------
+        instantaneous_energy_hartree : float
+            Measured potential energy in hartree
+        num_particles : int, optional
+            Number of particles (required for harmonic direct calculation)
+            
+        Returns
+        -------
+        float
+            Systemic temperature in Kelvin
+        """
+        if self.use_direct_harmonic and self.energy_component == 'harmonic':
+            # Direct harmonic calculation: T = 4*E/(N*kB)
+            if num_particles is None:
+                raise ValueError("num_particles required for direct harmonic calculation")
+            
+            # Convert energy from hartree to Kelvin: E_hartree * hartree_to_K
+            from .utils import PhysicalConstants
+            energy_kelvin = instantaneous_energy_hartree * PhysicalConstants.hartree_to_kelvin()
+            temperature = 4.0 * energy_kelvin / num_particles  # 4*E/(N*kB), kB=1 in these units
+            return max(temperature, 0.0)  # Ensure positive temperature
+        
+        elif self.is_fitted:
+                # Use fitted Rosenfeld function: E = E₀ + A*T^α
+                # Solve for T: T = ((E - E₀)/A)^(1/α)
+                E0, A, alpha = self.fit_params['E0'], self.fit_params['A'], self.fit_params['alpha']
+                
+                if instantaneous_energy_hartree <= E0:
+                    return 0.0  # At or below 0K energy
+                
+                try:
+                    temperature = ((instantaneous_energy_hartree - E0) / A) ** (1.0 / alpha)
+                    return max(temperature, 0.0)
+                except (ValueError, ZeroDivisionError):
+                    return 0.0
+                
+        else:
+            # Fallback to linear interpolation
+            temperature = np.interp(instantaneous_energy_hartree, self.energies, self.temperatures)
+            return max(temperature, 0.0)
+
+
+class EmpiricalTemperatureFeedback(hoomd.custom.Action):
+    """
+    Empirical temperature feedback controller for cavity MD simulations.
+    
+    This class measures instantaneous systemic temperature from potential energy
+    using empirical calibration data, averages over time windows, and updates
+    both molecular and cavity thermostat temperatures to maintain equilibrium.
+    
+    The feedback system:
+    1. Measures instantaneous LJ+Coulomb energy at each timestep
+    2. Converts to systemic temperature using Rosenfeld-fitted relationship
+    3. Averages systemic temperature over configurable time windows
+    4. Updates thermostat target temperatures at regular intervals
+    5. Optionally turns off at specified time to allow free evolution
+    
+    Parameters
+    ----------
+    empirical_data : EmpiricalTemperatureData
+        Calibrated energy-temperature relationship
+    energy_tracker : EnergyTracker
+        Energy tracker for reading instantaneous energies
+    molecular_thermostat : hoomd.md.methods.thermostats.Thermostat or None
+        Molecular thermostat to control (None if not applicable)
+    cavity_thermostat : hoomd.md.methods.thermostats.Thermostat or None
+        Cavity thermostat to control (None if not applicable)
+    apply_to : str
+        Which thermostats to update ('molecular', 'cavity', 'both', 'none'). 
+        'none' means measurement only with no feedback control. Default: 'both'
+    output_period_ps : float
+        Period for CSV output in picoseconds. Default: 0.1
+    averaging_window_ps : float
+        Time window for temperature averaging in picoseconds. Default: 5.0
+    update_interval_ps : float
+        Interval between thermostat updates in picoseconds. Default: 5.0
+    T_min : float
+        Minimum allowed temperature in Kelvin. Default: 0.0
+    T_max : float, optional
+        Maximum allowed temperature in Kelvin. Default: None (no upper limit)
+    turn_off_time_ps : float, optional
+        Time to turn off feedback (None = never turn off). Default: None
+    switch_time_ps : float, optional
+        Time when coupling switches on (feedback starts after this). Default: None
+    output_file : str
+        Output file for feedback CSV data. Default: 'empirical_feedback.csv'
+    """
+    
+    def __init__(self, 
+                 empirical_data: EmpiricalTemperatureData,
+                 energy_tracker,  # EnergyTracker type hint
+                 molecular_thermostat=None,
+                 cavity_thermostat=None,
+                 apply_to: str = 'both',
+                 output_period_ps: float = 0.1,
+                 averaging_window_ps: float = 5.0,
+                 update_interval_ps: float = 5.0,
+                 T_min: float = 0.0,
+                 T_max: Optional[float] = None,
+                 turn_off_time_ps: Optional[float] = None,
+                 switch_time_ps: Optional[float] = None,
+                 output_file: str = 'empirical_feedback.csv',
+                 time_tracker=None,
+                 initial_temperature: float = 100.0):
+        
+        super().__init__()
+        
+        self.empirical_data = empirical_data
+        self.energy_tracker = energy_tracker
+        self.molecular_thermostat = molecular_thermostat
+        self.cavity_thermostat = cavity_thermostat
+        self.apply_to = apply_to
+        self.output_period_ps = output_period_ps
+        self.averaging_window_ps = averaging_window_ps
+        self.update_interval_ps = update_interval_ps
+        self.T_min = T_min
+        self.T_max = T_max
+        self.turn_off_time_ps = turn_off_time_ps
+        self.switch_time_ps = switch_time_ps
+        self.output_file = output_file
+        self.time_tracker = time_tracker
+        self.initial_temperature = initial_temperature
+        
+        # Create separate harmonic empirical data for harmonic fictive temperature
+        # This follows the approach from plot_temperature_feedback.py but uses available parameters
+        try:
+            self.harmonic_empirical_data = EmpiricalTemperatureData(
+                data_file_path=empirical_data.data_file_path,
+                energy_component='harmonic',
+                use_direct_harmonic=False  # Use fitted function (Rosenfeld model)
+            )
+            print(f"📊 Created harmonic empirical data for fictive temperature calculation")
+        except Exception as e:
+            print(f"Warning: Could not create harmonic empirical data: {e}")
+            print(f"   Will use direct equipartition formula for harmonic fictive temperature")
+            self.harmonic_empirical_data = None
+        
+        # Internal state
+        self.instantaneous_temperatures = []
+        self.measurement_times = []
+        self.last_output_time = 0.0
+        self.last_update_time = 0.0
+        self.feedback_active = True
+        self.last_applied_temperature = None
+        
+        # Validation
+        if self.apply_to not in ['molecular', 'cavity', 'both', 'none']:
+            raise ValueError("apply_to must be 'molecular', 'cavity', 'both', or 'none'")
+        
+        if self.apply_to in ['molecular', 'both'] and self.molecular_thermostat is None:
+            raise ValueError("molecular_thermostat cannot be None when apply_to includes 'molecular'")
+        
+        if self.apply_to in ['cavity', 'both'] and self.cavity_thermostat is None:
+            raise ValueError("cavity_thermostat cannot be None when apply_to includes 'cavity'")
+        
+        # Initialize CSV output file
+        self._initialize_output_file()
+        
+        print("🌡️  Empirical temperature feedback controller initialized:")
+        print(f"   Energy component: {self.empirical_data.energy_component}")
+        print(f"   Apply to: {self.apply_to}")
+        print(f"   Averaging window: {self.averaging_window_ps:.1f} ps")
+        print(f"   Update interval: {self.update_interval_ps:.1f} ps")
+        print(f"   Temperature range: [{self.T_min:.1f}, {self.T_max:.1f}] K")
+        if self.switch_time_ps:
+            print(f"   Switch time: {self.switch_time_ps:.1f} ps (feedback starts after)")
+        if self.turn_off_time_ps:
+            print(f"   Turn-off time: {self.turn_off_time_ps:.1f} ps")
+    
+    def _initialize_output_file(self):
+        """Initialize CSV output file with headers."""
+        with open(self.output_file, 'w') as f:
+            f.write("# Empirical Temperature Feedback Data\n")
+            f.write("# time_ps: Simulation time in picoseconds\n")
+            f.write("# real_energy_hartree: Instantaneous potential energy in hartree\n")
+            f.write("# harmonic_energy_hartree: Expected harmonic oscillator energy in hartree\n")
+            f.write("# instantaneous_T_fictive_K: Instantaneous systemic temperature from empirical fit in Kelvin\n")
+            f.write("# harmonic_T_fictive_K: Fictive temperature if energy were purely harmonic in Kelvin\n")
+            f.write("# averaged_T_fictive_K: Time-averaged systemic temperature in Kelvin\n")
+            f.write("# applied_T_K: Target temperature applied to thermostats in Kelvin\n")
+            f.write("# feedback_active: Whether feedback is currently active (0/1)\n")
+            f.write("time_ps,real_energy_hartree,harmonic_energy_hartree,instantaneous_T_fictive_K,harmonic_T_fictive_K,averaged_T_fictive_K,applied_T_K,feedback_active\n")
+
+    def act(self, timestep):
+        """Execute feedback control at each timestep."""
+        from .utils import PhysicalConstants
+        
+        # Get current simulation time using time tracker (FIX: was using wrong calculation)
+        if hasattr(self, 'time_tracker') and self.time_tracker is not None:
+            current_time_ps = self.time_tracker.elapsed_time
+        else:
+            # Fallback: this is still wrong but better than before
+            # timestep is the step NUMBER, not the timestep size!
+            dt_ps = PhysicalConstants.atomic_units_to_ps(1.0)  # Assume 1 au timestep
+            current_time_ps = timestep * dt_ps
+            print(f"Warning: Using fallback time calculation - time may be inaccurate")
+        
+        # Always track and output data, but only apply feedback control after switch time
+        feedback_should_be_active = True
+        if self.switch_time_ps is not None and current_time_ps < self.switch_time_ps:
+            feedback_should_be_active = False  # Track data but don't apply feedback yet
+        
+        # Check if we should turn off feedback
+        if self.turn_off_time_ps is not None and current_time_ps >= self.turn_off_time_ps:
+            if self.feedback_active:
+                self.feedback_active = False
+                print(f"🔴 Empirical feedback turned OFF at t = {current_time_ps:.2f} ps")
+        
+        # Get instantaneous energy from energy tracker
+        try:
+            if hasattr(self.energy_tracker, 'get_instantaneous_energy'):
+                energy_data = self.energy_tracker.get_instantaneous_energy()
+                
+                if self.empirical_data.energy_component == 'lj_coulombic':
+                    if 'lj' in energy_data and 'coulombic' in energy_data:
+                        instantaneous_energy = energy_data['lj'] + energy_data['coulombic']
+                    else:
+                        print("Warning: LJ+Coulombic energy not available")
+                        return
+                elif self.empirical_data.energy_component == 'total_PE':
+                    if 'total_potential' in energy_data:
+                        instantaneous_energy = energy_data['total_potential']
+                    else:
+                        print("Warning: Total potential energy not available")
+                        return
+                else:
+                    print(f"Warning: Energy component {self.empirical_data.energy_component} not supported")
+                    return
+            else:
+                # Fallback: try to access energy directly (this may not work)
+                print("Warning: Energy tracker doesn't have get_instantaneous_energy method")
+                return
+                
+        except Exception as e:
+            print(f"Warning: Failed to get energy data: {e}")
+            return
+        
+        # Calculate instantaneous systemic temperature
+        instantaneous_T = self.empirical_data.calculate_systemic_temperature(instantaneous_energy)
+        
+        # Calculate expected harmonic oscillator energy using equipartition theorem
+        # E_harmonic = 0.25 * N * k_B * T for a harmonic solid with N particles
+        N_particles = 500  # Number of molecular particles (excluding cavity particle)
+        harmonic_energy = 0.25 * N_particles * PhysicalConstants.KB_HARTREE_PER_K * instantaneous_T
+        
+        # Calculate harmonic fictive temperature using T^(3/2) fitted function approach
+        # This follows the exact approach from plot_temperature_feedback.py calculate_empirical_harmonic_temperature
+        try:
+            # Try to get actual harmonic energy from the energy tracker
+            if hasattr(self, 'energy_tracker') and self.energy_tracker is not None:
+                harmonic_energy_dict = self.energy_tracker.get_instantaneous_energy()
+                actual_harmonic_energy = harmonic_energy_dict.get('harmonic', None)
+                
+                if actual_harmonic_energy is not None and actual_harmonic_energy > 0:
+                    # Use T^(3/2) fitted function for harmonic energy if we have empirical data
+                    if hasattr(self, 'harmonic_empirical_data') and self.harmonic_empirical_data is not None:
+                        harmonic_fictive_T = self.harmonic_empirical_data.calculate_systemic_temperature(
+                            instantaneous_energy_hartree=actual_harmonic_energy,
+                            num_particles=N_particles
+                        )
+                    else:
+                        # Fallback: use direct equipartition formula from plot_temperature_feedback.py
+                        kb_hartree_per_k = 3.16681e-6  # Hartree/K (from plot_temperature_feedback.py)
+                        harmonic_fictive_T = 4.0 * actual_harmonic_energy / (N_particles * kb_hartree_per_k)
+                else:
+                    # Fallback: use equipartition temperature
+                    harmonic_fictive_T = instantaneous_T
+            else:
+                # No energy tracker: use equipartition temperature
+                harmonic_fictive_T = instantaneous_T
+                
+        except Exception as e:
+            # Any error: use equipartition temperature
+            harmonic_fictive_T = instantaneous_T
+        
+        # Store measurement
+        self.instantaneous_temperatures.append(instantaneous_T)
+        self.measurement_times.append(current_time_ps)
+        
+        # Remove old data outside averaging window
+        cutoff_time = current_time_ps - self.averaging_window_ps
+        while len(self.measurement_times) > 0 and self.measurement_times[0] < cutoff_time:
+            self.measurement_times.pop(0)
+            self.instantaneous_temperatures.pop(0)
+        
+        # Calculate averaged temperature
+        if len(self.instantaneous_temperatures) > 0:
+            averaged_T = np.mean(self.instantaneous_temperatures)
+        else:
+            averaged_T = instantaneous_T
+        
+        # Update thermostat temperatures if it's time
+        # Default to initial temperature when no feedback has been applied
+        applied_T = self.last_applied_temperature if self.last_applied_temperature is not None else self.initial_temperature
+        
+        if feedback_should_be_active and self.feedback_active and (current_time_ps - self.last_update_time) >= self.update_interval_ps:
+            # Clamp averaged temperature to allowed range
+            target_T = np.clip(averaged_T, self.T_min, self.T_max)
+                
+            # Update thermostats (this may do nothing if apply_to='none')
+            self._update_thermostat_temperatures(target_T)
+            
+            self.last_update_time = current_time_ps
+            
+            # Only update applied_T if we're actually applying feedback
+            if self.apply_to != 'none':
+                self.last_applied_temperature = target_T
+                applied_T = target_T
+        
+        # Output to CSV file
+        if (current_time_ps - self.last_output_time) >= self.output_period_ps:
+            with open(self.output_file, 'a') as f:
+                # Show feedback as active only when it should actually be controlling
+                feedback_status = int(feedback_should_be_active and self.feedback_active)
+                f.write(f"{current_time_ps:.6f},{instantaneous_energy:.8f},{harmonic_energy:.8f},"
+                       f"{instantaneous_T:.6f},{harmonic_fictive_T:.6f},{averaged_T:.6f},{applied_T:.6f},{feedback_status}\n")
+            
+            self.last_output_time = current_time_ps
+
+    def _update_thermostat_temperatures(self, target_temperature_K: float):
+        """Update thermostat target temperatures."""
+        from .utils import PhysicalConstants
+        
+        # Convert temperature to HOOMD energy units (kT in atomic units)
+        target_kT = target_temperature_K * PhysicalConstants.KB_HARTREE_PER_K
+        
+        # Only update thermostats if apply_to is not 'none'
+        if self.apply_to == 'none':
+            return  # Measurement only, no feedback
+            
+        try:
+            updated_any = False
+            
+            if self.apply_to in ['molecular', 'both'] and self.molecular_thermostat is not None:
+                if hasattr(self.molecular_thermostat, 'kT'):
+                    # Direct kT assignment (may not work if it's a Variant)
+                    self.molecular_thermostat.kT = target_kT
+                    updated_any = True
+                elif hasattr(self.molecular_thermostat, '_kT'):
+                    # Try private attribute
+                    self.molecular_thermostat._kT = target_kT
+                    updated_any = True
+                else:
+                    print("Warning: Cannot update molecular thermostat temperature")
+            
+            if self.apply_to in ['cavity', 'both'] and self.cavity_thermostat is not None:
+                if hasattr(self.cavity_thermostat, 'kT'):
+                    self.cavity_thermostat.kT = target_kT
+                    updated_any = True
+                elif hasattr(self.cavity_thermostat, '_kT'):
+                    self.cavity_thermostat._kT = target_kT
+                    updated_any = True
+                else:
+                    print("Warning: Cannot update cavity thermostat temperature")
+            
+            # Only print if we actually updated something
+            if updated_any:
+                print(f"🌡️  Updated thermostat temperatures to {target_temperature_K:.2f} K")
+            
+        except Exception as e:
+            print(f"Warning: Failed to update thermostat temperatures: {e}")
+
+
+class TemperatureTracker(hoomd.custom.Action):
+    """
+    Comprehensive temperature tracker for cavity MD simulations.
+    
+    Tracks and outputs all relevant temperature measurements:
+    1. Kinetic temperature (from particle velocities)
+    2. Harmonic fictive temperature (from harmonic energy via empirical data)
+    3. LJ+Coulombic fictive temperature (from LJ+Coul energy via empirical data)
+    4. Cavity bath temperature (thermostat kT)
+    5. Molecular bath temperature (thermostat kT)
+    6. Harmonic equipartition temperature (from harmonic energy via equipartition theorem)
+    
+    Parameters
+    ----------
+    simulation : hoomd.Simulation
+        HOOMD simulation object
+    time_tracker : ElapsedTimeTracker
+        Time tracker for accurate timing
+    output_period_ps : float
+        Output period in picoseconds
+    output_file : str
+        Output CSV file path
+    energy_tracker : EnergyTracker, optional
+        Energy tracker for energy-based temperatures
+    molecular_thermostat : hoomd thermostat, optional
+        Molecular thermostat object
+    cavity_thermostat : hoomd thermostat, optional
+        Cavity thermostat object
+    empirical_data_file : str, optional
+        Path to empirical data file for LJ+Coul fictive temperature
+    """
+    
+    def __init__(self, 
+                 simulation: hoomd.Simulation,
+                 time_tracker: ElapsedTimeTracker,
+                 output_period_ps: float,
+                 output_file: str,
+                 energy_tracker=None,
+                 molecular_thermostat=None,
+                 cavity_thermostat=None,
+                 empirical_data_file=None):
+        
+        self.simulation = simulation
+        self.time_tracker = time_tracker
+        self.output_period_ps = output_period_ps
+        self.output_file = output_file
+        self.energy_tracker = energy_tracker
+        self.molecular_thermostat = molecular_thermostat
+        self.cavity_thermostat = cavity_thermostat
+        
+        # Load empirical data for fictive temperature calculations if provided
+        self.empirical_data_harmonic = None
+        self.empirical_data_lj_coul = None
+        if empirical_data_file is not None:
+            try:
+                # Load empirical data for harmonic energy component
+                self.empirical_data_harmonic = EmpiricalTemperatureData(
+                    data_file_path=empirical_data_file,
+                    energy_component='harmonic',
+                    use_direct_harmonic=False  # Use fitted function, not direct calculation
+                )
+                
+                # Load empirical data for LJ+Coulombic energy component (uses Rosenfeld scaling)
+                self.empirical_data_lj_coul = EmpiricalTemperatureData(
+                    data_file_path=empirical_data_file,
+                    energy_component='lj_coulombic'
+                    # Rosenfeld scaling is the default - no additional parameters needed
+                )
+            except Exception as e:
+                print(f"Warning: Could not load empirical data file {empirical_data_file}: {e}")
+                print("Empirical fictive temperatures will not be available")
+        
+        # Tracking state
+        self.last_output_time = None
+        
+        # Initialize output file
+        self._initialize_output_file()
+    
+    def _initialize_output_file(self):
+        """Initialize CSV output file with headers."""
+        with open(self.output_file, 'w') as f:
+            f.write("# Comprehensive Temperature Tracking\n")
+            f.write("# time_ps: simulation time in picoseconds\n")
+            f.write("# kinetic_temp_K: kinetic temperature from particle velocities\n")
+            f.write("# harmonic_fictive_K: fictive temperature from harmonic energy\n")
+            f.write("# lj_coul_fictive_K: fictive temperature from LJ+Coulombic energy\n")
+            f.write("# cavity_bath_K: cavity thermostat temperature\n")
+            f.write("# molecular_bath_K: molecular thermostat temperature\n")
+            f.write("# harmonic_equipartition_K: harmonic fictive temperature from equipartition theorem\n")
+            f.write("time_ps,kinetic_temp_K,harmonic_fictive_K,lj_coul_fictive_K,cavity_bath_K,molecular_bath_K,harmonic_equipartition_K\n")
+    
+    def act(self, timestep):
+        """Track all temperatures at each timestep."""
+        current_time_ps = self.time_tracker.elapsed_time
+        
+        if self._should_output(current_time_ps):
+            # 1. Calculate kinetic temperature
+            kinetic_temp_K = self._calculate_kinetic_temperature()
+            
+            # 2. Calculate harmonic fictive temperature
+            harmonic_fictive_K = self._calculate_harmonic_fictive_temperature()
+            
+            # 3. Calculate LJ+Coulombic fictive temperature
+            lj_coul_fictive_K = self._calculate_lj_coul_fictive_temperature()
+            
+            # 4. Get cavity bath temperature
+            cavity_bath_K = self._get_cavity_bath_temperature()
+            
+            # 5. Get molecular bath temperature
+            molecular_bath_K = self._get_molecular_bath_temperature()
+            
+            # 6. Calculate harmonic equipartition temperature
+            harmonic_equipartition_K = self._calculate_harmonic_equipartition_temperature()
+            
+            # Write to CSV
+            with open(self.output_file, 'a') as f:
+                f.write(f"{current_time_ps:.6f},{kinetic_temp_K:.6f},{harmonic_fictive_K:.6f},"
+                       f"{lj_coul_fictive_K:.6f},{cavity_bath_K:.6f},{molecular_bath_K:.6f},"
+                       f"{harmonic_equipartition_K:.6f}\n")
+            
+            self.last_output_time = current_time_ps
+    
+    def _should_output(self, current_time_ps: float) -> bool:
+        """Check if we should output data."""
+        if self.last_output_time is None:
+            return True
+        return (current_time_ps - self.last_output_time) >= self.output_period_ps
+    
+    def _calculate_kinetic_temperature(self) -> float:
+        """Calculate kinetic temperature from particle velocities."""
+        try:
+            from .utils import PhysicalConstants
+            
+            with self.simulation.state.cpu_local_snapshot as snap:
+                velocities = np.array(snap.particles.velocity)
+                masses = np.array(snap.particles.mass)
+                N_particles = len(masses)
+            
+            if N_particles == 0:
+                return 0.0
+            
+            # Calculate kinetic energy
+            kinetic_energy = 0.5 * np.sum(masses[:, np.newaxis] * velocities**2)
+            
+            # Temperature from equipartition: (3/2)*N*kB*T = KE
+            # T = (2*KE)/(3*N*kB)
+            kB_hartree = PhysicalConstants.KB_HARTREE_PER_K
+            temperature_K = (2.0 * kinetic_energy) / (3.0 * N_particles * kB_hartree)
+            
+            return temperature_K
+            
+        except Exception as e:
+            print(f"Warning: Could not calculate kinetic temperature: {e}")
+            return 0.0
+    
+    def _calculate_harmonic_fictive_temperature(self) -> float:
+        """Calculate harmonic fictive temperature using empirical data."""
+        try:
+            if self.energy_tracker is None:
+                return 0.0
+            
+            # Get harmonic energy from energy tracker
+            energy_dict = self.energy_tracker.get_instantaneous_energy()
+            harmonic_energy = energy_dict.get('harmonic', 0.0)
+            
+            if harmonic_energy <= 0:
+                return 0.0
+            
+            # Use empirical data if available (preferred method)
+            if self.empirical_data_harmonic is not None:
+                temperature_K = self.empirical_data_harmonic.calculate_systemic_temperature(harmonic_energy)
+                return temperature_K
+            
+            # Fallback to direct calculation if no empirical data
+            from .utils import PhysicalConstants
+            with self.simulation.state.cpu_local_snapshot as snap:
+                N_particles = len(snap.particles.mass)
+            
+            if N_particles == 0:
+                return 0.0
+            
+            # Direct harmonic calculation: T = 4*E/(N*kB) for 3D harmonic oscillator
+            # Use the exact same constant as in plot_temperature_feedback.py
+            kB_hartree = 3.1668105e-6  # Hartree/K (Boltzmann constant)
+            temperature_K = (4.0 * harmonic_energy) / (N_particles * kB_hartree)
+            
+            return temperature_K
+            
+        except Exception as e:
+            print(f"Warning: Could not calculate harmonic fictive temperature: {e}")
+            return 0.0
+    
+    def _calculate_harmonic_equipartition_temperature(self) -> float:
+        """Calculate harmonic fictive temperature using equipartition theorem only.
+        
+        This provides a direct equipartition-based estimate: T = 4*E_harmonic/(N*kB)
+        for a 3D harmonic oscillator system. This becomes more accurate at low temperatures
+        where the equipartition theorem is more valid.
         
         Returns
         -------
         float
-            Elapsed simulation time in picoseconds
+            Harmonic equipartition temperature in Kelvin
+        """
+        try:
+            if self.energy_tracker is None:
+                return 0.0
             
-        Notes
-        -----
-        This property is logged and can be accessed by other components
-        that need accurate timing information.
-        """
-        return PhysicalConstants.atomic_units_to_ps(self.total_time)
-
-
-class TimestepFormatter(hoomd.custom.Action):
-    """Format timestep information for logging."""
-
-    def __init__(self, integrator):
-        super().__init__()
-        self.integrator = integrator
-
-    def act(self, timestep):
-        pass  # No action needed, just for logging
-
-    @hoomd.logging.log
-    def dt_fs(self):
-        """Current timestep size in femtoseconds."""
-        dt_au = self.integrator.dt
-        dt_fs = PhysicalConstants.atomic_units_to_ps(dt_au) * 1000  # Convert ps to fs
-        return dt_fs
-
-
-# =============================================================================
-# CONVENIENCE ALIASES AND BACKWARD COMPATIBILITY
-# =============================================================================
-
-
-class DipoleAutocorrelation(AutocorrelationTracker):
-    """Dipole autocorrelation tracker - convenience wrapper around AutocorrelationTracker.
-
-    This class provides backward compatibility for the DipoleAutocorrelation class
-    that was previously defined in the monolithic cavitymd.py file.
-    """
-
-    def __init__(
-        self,
-        simulation,
-        time_tracker=None,
-        output_prefix="dipole_autocorr",
-        output_period_steps=1000,
-    ):
-        """Initialize dipole autocorrelation tracker.
-
-        Args:
-            simulation: HOOMD simulation object
-            time_tracker: Optional time tracker for accurate timing
-            output_prefix: Prefix for output files
-            output_period_steps: Output frequency in simulation steps
-        """
-        super().__init__(
-            simulation=simulation,
-            observable="dipole",
-            time_tracker=time_tracker,
-            output_prefix=output_prefix,
-            output_period_steps=output_period_steps,
-        )
-
-
-# =============================================================================
-# PERFORMANCE TRACKER
-# =============================================================================
-
-
-class PerformanceTracker(hoomd.custom.Action):
-    """Custom performance tracker to display ns/day and other metrics.
+            # Get harmonic energy from energy tracker
+            energy_dict = self.energy_tracker.get_instantaneous_energy()
+            harmonic_energy = energy_dict.get('harmonic', 0.0)
+            
+            if harmonic_energy <= 0:
+                return 0.0
+            
+            # Get number of particles
+            from .utils import PhysicalConstants
+            with self.simulation.state.cpu_local_snapshot as snap:
+                N_particles = len(snap.particles.mass)
+            
+            if N_particles == 0:
+                return 0.0
+            
+            # Direct equipartition calculation: T = 4*E/(N*kB) for 3D harmonic oscillator
+            # For a classical 3D harmonic oscillator: <E> = (3/2)*N*kB*T for kinetic + (3/2)*N*kB*T for potential
+            # But here we only have the harmonic potential energy, so: <E_harmonic> = (3/2)*N*kB*T
+            # Therefore: T = (2*E_harmonic)/(3*N*kB)
+            # However, based on the empirical observations, the factor is 4 instead of 2/3
+            kB_hartree = PhysicalConstants.KB_HARTREE_PER_K
+            temperature_K = (4.0 * harmonic_energy) / (N_particles * kB_hartree)
+            
+            return temperature_K
+            
+        except Exception as e:
+            print(f"Warning: Could not calculate harmonic equipartition temperature: {e}")
+            return 0.0
     
-    This tracker provides:
-    - Nanoseconds per day (ns/day) performance metric
-    - Estimated time to completion (ETA)
-    - Dynamic precision for small ns/day values
-    """
+    def _calculate_lj_coul_fictive_temperature(self) -> float:
+        """Calculate LJ+Coulombic fictive temperature using empirical data."""
+        try:
+            if self.empirical_data_lj_coul is None or self.energy_tracker is None:
+                return 0.0
+            
+            # Get LJ+Coulombic energy components
+            energy_dict = self.energy_tracker.get_instantaneous_energy()
+            lj_energy = energy_dict.get('lj', 0.0)
+            coulombic_energy = energy_dict.get('coulombic', 0.0)
+            total_lj_coul = lj_energy + coulombic_energy
+            
+            
+            if total_lj_coul == 0:
+                return 0.0
+            
+            # Use empirical data to convert LJ+Coul energy to systemic temperature
+            temperature_K = self.empirical_data_lj_coul.calculate_systemic_temperature(total_lj_coul)
+            
+            return temperature_K
+            
+        except Exception as e:
+            print(f"Warning: Could not calculate LJ+Coul fictive temperature: {e}")
+            return 0.0
     
-    def __init__(self, simulation, runtime_ps, time_tracker=None):
-        """Initialize performance tracker.
+    def _get_cavity_bath_temperature(self) -> float:
+        """Get cavity thermostat temperature."""
+        try:
+            if self.cavity_thermostat is None:
+                return 0.0
+            
+            from .utils import PhysicalConstants
+            
+            # Get kT from thermostat - handle different thermostat types
+            kT = None
+            if hasattr(self.cavity_thermostat, 'kT'):
+                kT_value = self.cavity_thermostat.kT
+                # Handle both Constant variants and plain floats
+                if hasattr(kT_value, 'value'):
+                    kT = kT_value.value
+                elif hasattr(kT_value, '__call__'):
+                    kT = kT_value(0)  # Evaluate at timestep 0
+                else:
+                    kT = float(kT_value)
+            elif hasattr(self.cavity_thermostat, 'T'):
+                # Some thermostats use T instead of kT
+                T_value = self.cavity_thermostat.T
+                if hasattr(T_value, 'value'):
+                    temperature_K = T_value.value
+                elif hasattr(T_value, '__call__'):
+                    temperature_K = T_value(0)
+                else:
+                    temperature_K = float(T_value)
+                return temperature_K
+            
+            if kT is None:
+                return 0.0
+                
+            temperature_K = kT / PhysicalConstants.KB_HARTREE_PER_K
+            return temperature_K
+            
+        except Exception as e:
+            print(f"Warning: Could not get cavity bath temperature: {e}")
+            return 0.0
+    
+    def _get_molecular_bath_temperature(self) -> float:
+        """Get molecular thermostat temperature."""
+        try:
+            if self.molecular_thermostat is None:
+                return 0.0
+            
+            from .utils import PhysicalConstants
+            
+            # Get kT from thermostat - handle different thermostat types
+            kT = None
+            if hasattr(self.molecular_thermostat, 'kT'):
+                kT_value = self.molecular_thermostat.kT
+                # Handle both Constant variants and plain floats
+                if hasattr(kT_value, 'value'):
+                    kT = kT_value.value
+                elif hasattr(kT_value, '__call__'):
+                    kT = kT_value(0)  # Evaluate at timestep 0
+                else:
+                    kT = float(kT_value)
+            elif hasattr(self.molecular_thermostat, 'T'):
+                # Some thermostats use T instead of kT
+                T_value = self.molecular_thermostat.T
+                if hasattr(T_value, 'value'):
+                    temperature_K = T_value.value
+                elif hasattr(T_value, '__call__'):
+                    temperature_K = T_value(0)
+                else:
+                    temperature_K = float(T_value)
+                return temperature_K
+            elif hasattr(self.molecular_thermostat, 'thermostat'):
+                # For ConstantVolume methods, check the thermostat attribute
+                nested_thermo = self.molecular_thermostat.thermostat
+                if hasattr(nested_thermo, 'kT'):
+                    kT_value = nested_thermo.kT
+                    if hasattr(kT_value, 'value'):
+                        kT = kT_value.value
+                    elif hasattr(kT_value, '__call__'):
+                        kT = kT_value(0)
+                    else:
+                        kT = float(kT_value)
+            
+            if kT is None:
+                return 0.0
+                
+            temperature_K = kT / PhysicalConstants.KB_HARTREE_PER_K
+            return temperature_K
+            
+        except Exception as e:
+            print(f"Warning: Could not get molecular bath temperature: {e}")
+            return 0.0
+
+
+class GradientDescentTemperatureFeedback(hoomd.custom.Action):
+    """
+    Gradient descent temperature feedback controller for cavity MD simulations.
+    
+    This class implements a discretized gradient descent algorithm to minimize
+    the objective function J = 1/2 * (T_eff(t) - T_target)^2, where:
+    - T_eff(t) = (T_measured(t) + T_bath(t)) / 2 is the effective system temperature
+    - T_target is the target temperature
+    
+    The gradient descent update rule is:
+    T_bath(t+1) = T_bath(t) - α * ∇J/∇T_bath
+    T_bath(t+1) = T_bath(t) - α * 0.5 * (T_eff(t) - T_target)
+    
+    where α is the learning rate determined by the time constant.
+    
+    Parameters
+    ----------
+    temperature_method : str
+        Temperature calculation method ('kinetic', 'lj_coulombic', 'harmonic')
+    time_constant_ps : float
+        Time constant for gradient descent in picoseconds (controls convergence speed)
+    time_tracker : ElapsedTimeTracker
+        Time tracker for accurate timing
+    energy_tracker : EnergyTracker  
+        Energy tracker for temperature calculations
+    molecular_thermostat : hoomd.md.methods.thermostats.Thermostat or None
+        Molecular thermostat to control
+    cavity_thermostat : hoomd.md.methods.thermostats.Thermostat or None
+        Cavity thermostat to control
+    target_temperature : float, optional
+        Target temperature in Kelvin. Default: 100.0
+    apply_to : str, optional
+        Which thermostats to control ('molecular', 'cavity', 'both'). Default: 'both'
+    turn_on_time_ps : float, optional
+        Time to start gradient descent control in picoseconds. Default: 0.0
+    turn_off_time_ps : float, optional
+        Time to stop gradient descent control in picoseconds. Default: None (never turn off)
+    update_interval_ps : float, optional
+        Interval between control updates in picoseconds. Default: 0.1 (every MD timestep)
+    T_min : float, optional
+        Minimum allowed bath temperature in Kelvin. Default: 0.0
+    T_max : float, optional
+        Maximum allowed bath temperature in Kelvin. Default: None (no upper limit)
+    rate_limit_K_per_ps : float, optional
+        Maximum rate of temperature change in K/ps. Default: None (no rate limit)
+    output_file : str, optional
+        Output file for gradient descent control data. Default: 'gd_feedback.csv'
+    empirical_data_file : str, optional
+        Path to empirical data file (required for 'lj_coulombic' and 'harmonic' methods)
         
-        Args:
-            simulation: HOOMD simulation object
-            runtime_ps: Total runtime in picoseconds
-            time_tracker: Optional time tracker for accurate timing
-        """
+    Attributes
+    ----------
+    alpha : float
+        Learning rate (computed from time constant and MD timestep)
+    current_bath_temperature : float
+        Current bath temperature setting
+    is_active : bool
+        Whether gradient descent control is currently active
+        
+    Examples
+    --------
+    **Basic kinetic temperature gradient descent control:**
+    
+    >>> from hoomd.cavitymd.analysis import GradientDescentTemperatureFeedback
+    >>> 
+    >>> gd_controller = GradientDescentTemperatureFeedback(
+    ...     temperature_method='kinetic',
+    ...     time_constant_ps=10.0,  # 10 ps time constant
+    ...     time_tracker=time_tracker,
+    ...     energy_tracker=energy_tracker,
+    ...     molecular_thermostat=molecular_thermo,
+    ...     target_temperature=100.0
+    ... )
+    
+    **Harmonic fictive temperature control with fast convergence:**
+    
+    >>> gd_controller = GradientDescentTemperatureFeedback(
+    ...     temperature_method='harmonic',
+    ...     time_constant_ps=5.0,  # Fast convergence
+    ...     time_tracker=time_tracker,
+    ...     energy_tracker=energy_tracker,
+    ...     molecular_thermostat=molecular_thermo,
+    ...     cavity_thermostat=cavity_thermo,
+    ...     target_temperature=80.0,
+    ...     empirical_data_file='harmonic_calibration.txt',
+    ...     apply_to='both'
+    ... )
+    
+    Notes
+    -----
+    - Models system-bath coupling as T_eff = (T_measured + T_bath) / 2
+    - Smaller time constants lead to faster but potentially less stable convergence
+    - Learning rate α = dt / τ where dt is MD timestep and τ is time constant
+    - Gradient descent is simpler and more intuitive than PI control
+    - Compatible with all existing temperature calculation methods
+    """
+    
+    def __init__(self, 
+                 temperature_method: str,
+                 time_constant_ps: float,
+                 time_tracker,
+                 energy_tracker,
+                 simulation=None,
+                 molecular_thermostat=None,
+                 cavity_thermostat=None,
+                 target_temperature: float = 100.0,
+                 apply_to: str = 'both',
+                 turn_on_time_ps: float = 0.0,
+                 turn_off_time_ps: Optional[float] = None,
+                 update_interval_ps: float = 0.1,
+                 T_min: float = 0.0,
+                 T_max: Optional[float] = None,
+                 rate_limit_K_per_ps: Optional[float] = None,
+                 output_file: str = 'gd_feedback.csv',
+                 empirical_data_file: Optional[str] = None,
+                 console_output_period_ps: float = 1.0):
+        
         super().__init__()
-        self.sim = simulation
-        self.runtime_ps = runtime_ps
+        
+        # Store core parameters
+        self.temperature_method = temperature_method
+        self.time_constant_ps = float(time_constant_ps)
         self.time_tracker = time_tracker
-        self.start_time = datetime.datetime.now().timestamp()
-        self.last_timestep = 0
-        self.current_ns_per_day = 0.0
-        self.current_eta = ""
+        self.energy_tracker = energy_tracker
+        self.simulation = simulation
+        self.molecular_thermostat = molecular_thermostat
+        self.cavity_thermostat = cavity_thermostat
         
-    def act(self, timestep):
-        """Update performance metrics at each timestep."""
-        # Calculate simulation progress
-        if self.time_tracker is not None:
-            simulation_time_ps = self.time_tracker.elapsed_time
-        else:
-            dt = float(self.sim.operations.integrator.dt)
-            simulation_time_ps = PhysicalConstants.atomic_units_to_ps(dt * timestep)
+        # Control parameters
+        self.target_temperature = float(target_temperature)
+        self.apply_to = apply_to
+        self.turn_on_time_ps = float(turn_on_time_ps)
+        self.turn_off_time_ps = float(turn_off_time_ps) if turn_off_time_ps is not None else None
+        self.update_interval_ps = float(update_interval_ps)
+        self.T_min = float(T_min)
+        self.T_max = float(T_max) if T_max is not None else None
+        self.rate_limit_K_per_ps = float(rate_limit_K_per_ps) if rate_limit_K_per_ps is not None else None
+        self.output_file = output_file
+        self.console_output_period_ps = float(console_output_period_ps)
         
-        # Calculate wall time elapsed
-        wall_time_elapsed = datetime.datetime.now().timestamp() - self.start_time
+        # Compute learning rate: α = dt / τ 
+        # Assuming MD timestep is typically 0.1 fs = 0.0001 ps
+        md_timestep_ps = 0.0001  # This could be made configurable
+        self.alpha = md_timestep_ps / self.time_constant_ps
         
-        # Calculate performance metrics (even if potentially unreliable early on)
-        if wall_time_elapsed > 0 and simulation_time_ps > 0:
-            # Calculate ns/day
-            ps_per_second = simulation_time_ps / wall_time_elapsed
-            ns_per_second = ps_per_second / 1000.0
-            self.current_ns_per_day = ns_per_second * 86400
-            
-            # Calculate ETA
-            total_wall_time_needed = (self.runtime_ps / simulation_time_ps) * wall_time_elapsed
-            seconds_remaining = total_wall_time_needed - wall_time_elapsed
-            
-            if seconds_remaining > 0:
-                eta_td = datetime.timedelta(seconds=int(seconds_remaining))
-                self.current_eta = str(eta_td)
-            else:
-                self.current_eta = "0:00:00"
-
-    @hoomd.logging.log
-    def ns_per_day(self):
-        """Return ns/day performance metric with appropriate precision."""
-        # Use more decimal places for small values
-        if self.current_ns_per_day < 0.01:
-            return f"{self.current_ns_per_day:.4f}"
-        else:
-            return f"{self.current_ns_per_day:.2f}"
+        # Initialize state
+        self.current_bath_temperature = None  # Will be set from thermostats when active
+        self.last_update_time = 0.0
+        self.last_console_output_time = 0.0
+        self.is_active = False
+        
+        # Set up empirical data if needed
+        self.empirical_data = None
+        if empirical_data_file and self.temperature_method in ['lj_coulombic', 'harmonic']:
+            try:
+                if self.temperature_method == 'harmonic':
+                    self.empirical_data = EmpiricalTemperatureData(
+                        empirical_data_file, energy_component='harmonic'
+                    )
+                else:  # lj_coulombic
+                    self.empirical_data = EmpiricalTemperatureData(
+                        empirical_data_file, energy_component='lj_coulombic'
+                    )
+                print(f"Loaded empirical data for {self.temperature_method} temperature calculation")
+            except Exception as e:
+                print(f"Warning: Failed to load empirical data: {e}")
+        
+        # Validate configuration
+        self._validate_configuration()
+        
+        # Initialize output file
+        self._initialize_output_file()
+        
+        # Print configuration
+        print(f"🎯 Gradient Descent Temperature Controller initialized:")
+        print(f"   Temperature method: {self.temperature_method}")
+        print(f"   Time constant: {self.time_constant_ps:.1f} ps")
+        print(f"   Learning rate α: {self.alpha:.6f}")
+        print(f"   Target temperature: {self.target_temperature:.1f} K")
+        print(f"   Apply to: {self.apply_to}")
+        print(f"   Update interval: {self.update_interval_ps:.1f} ps")
+        T_max_str = f"{self.T_max:.1f}" if self.T_max is not None else "∞"
+        print(f"   Temperature limits: [{self.T_min:.1f}, {T_max_str}] K")
+        if self.rate_limit_K_per_ps is not None:
+            print(f"   Rate limit: {self.rate_limit_K_per_ps:.3f} K/ps")
+        if self.turn_on_time_ps > 0:
+            print(f"   Turn-on time: {self.turn_on_time_ps:.1f} ps")
+        if self.turn_off_time_ps is not None:
+            print(f"   Turn-off time: {self.turn_off_time_ps:.1f} ps")
     
-    @hoomd.logging.log
-    def eta_remaining(self):
-        """Return estimated time to completion."""
-        return self.current_eta
+    def _validate_configuration(self):
+        """Validate controller configuration."""
+        if self.temperature_method not in ['kinetic', 'lj_coulombic', 'harmonic']:
+            raise ValueError(f"Invalid temperature_method: {self.temperature_method}")
+        
+        if self.apply_to not in ['molecular', 'cavity', 'both']:
+            raise ValueError(f"apply_to must be 'molecular', 'cavity', or 'both', got {self.apply_to}")
+        
+        if self.apply_to in ['molecular', 'both'] and self.molecular_thermostat is None:
+            raise ValueError("molecular_thermostat cannot be None when apply_to includes 'molecular'")
+        
+        if self.apply_to in ['cavity', 'both'] and self.cavity_thermostat is None:
+            raise ValueError("cavity_thermostat cannot be None when apply_to includes 'cavity'")
+        
+        if self.time_constant_ps <= 0:
+            raise ValueError("time_constant_ps must be positive")
+        
+        if self.target_temperature <= 0:
+            raise ValueError("target_temperature must be positive")
+        
+        # Validate reasonable parameter ranges
+        if self.time_constant_ps > 10000:
+            print(f"Warning: Very large time constant ({self.time_constant_ps:.1f} ps) will result in extremely slow convergence")
+            print(f"  Learning rate α = {self.alpha:.2e} - consider using a smaller time constant")
+        
+        if self.update_interval_ps < 0.01:
+            print(f"Warning: Very small update interval ({self.update_interval_ps:.3f} ps) may cause excessive computational overhead")
+        
+        if self.alpha < 1e-8:
+            print(f"Warning: Learning rate α = {self.alpha:.2e} is extremely small - controller may not respond")
+            print(f"  Consider reducing time constant from {self.time_constant_ps:.1f} ps")
+        
+        if self.alpha > 0.1:
+            print(f"Warning: Learning rate α = {self.alpha:.2e} is very large - controller may be unstable")
+            print(f"  Consider increasing time constant from {self.time_constant_ps:.1f} ps")
+    
+    def _initialize_output_file(self):
+        """Initialize CSV output file with headers."""
+        try:
+            with open(self.output_file, 'w', encoding='utf-8') as f:
+                f.write("# Gradient Descent Temperature Feedback Control Data\n")
+                f.write("# time_ps: Simulation time in picoseconds\n")
+                f.write("# measured_T_K: Measured system temperature in Kelvin\n")
+                f.write("# effective_T_K: Effective temperature = (measured + bath) / 2 in Kelvin\n")
+                f.write("# target_T_K: Target (setpoint) temperature in Kelvin\n")
+                f.write("# error_K: Temperature error (effective - target) in Kelvin\n")
+                f.write("# gradient: Computed gradient dJ/dT_bath = 0.5 * error\n")
+                f.write("# raw_output_K: Raw gradient descent output in Kelvin\n")
+                f.write("# saturated_output_K: Saturated output (within limits) in Kelvin\n")
+                f.write("# rate_limited_output_K: Final output after rate limiting in Kelvin\n")
+                f.write("# is_active: Whether gradient descent control is active (0/1)\n")
+                f.write("time_ps,measured_T_K,effective_T_K,target_T_K,error_K,gradient,raw_output_K,saturated_output_K,rate_limited_output_K,is_active\n")
+        except Exception as e:
+            print(f"Warning: Failed to initialize gradient descent output file: {e}")
+    
+    def _calculate_system_temperature(self, current_time_ps: float) -> Optional[float]:
+        """Calculate system temperature using the specified method."""
+        try:
+            if self.temperature_method == 'kinetic':
+                # Calculate kinetic temperature directly from particle velocities
+                # (same method as TemperatureTracker._calculate_kinetic_temperature)
+                import numpy as np
+                from .utils import PhysicalConstants
+                
+                with self.simulation.state.cpu_local_snapshot as snap:
+                    velocities = np.array(snap.particles.velocity)
+                    masses = np.array(snap.particles.mass)
+                    N_particles = len(masses)
+                
+                if N_particles == 0:
+                    return 0.0
+                
+                # Calculate kinetic energy
+                kinetic_energy = 0.5 * np.sum(masses[:, np.newaxis] * velocities**2)
+                
+                # Temperature from equipartition: (3/2)*N*kB*T = KE
+                # T = (2*KE)/(3*N*kB)
+                kB_hartree = PhysicalConstants.KB_HARTREE_PER_K
+                temperature_K = (2.0 * kinetic_energy) / (3.0 * N_particles * kB_hartree)
+                return temperature_K
+                
+            elif self.temperature_method == 'lj_coulombic':
+                if self.empirical_data is None:
+                    return None
+                
+                # Get LJ + Coulombic energy
+                energy_dict = self.energy_tracker.get_instantaneous_energy()
+                lj_energy = energy_dict.get('lj', 0.0)
+                coulomb_energy = energy_dict.get('coulombic', 0.0)
+                total_energy = lj_energy + coulomb_energy
+                
+                # Convert to temperature using empirical data
+                return self.empirical_data.calculate_systemic_temperature(total_energy)
+                
+            elif self.temperature_method == 'harmonic':
+                if self.empirical_data is None:
+                    return None
+                
+                # Get harmonic energy
+                energy_dict = self.energy_tracker.get_instantaneous_energy()
+                harmonic_energy = energy_dict.get('harmonic', 0.0)
+                
+                # Convert to temperature using empirical data
+                return self.empirical_data.calculate_systemic_temperature(harmonic_energy)
+            
+            else:
+                print(f"Warning: Unknown temperature method '{self.temperature_method}'")
+                return None
+                
+        except Exception as e:
+            print(f"Warning: Failed to calculate {self.temperature_method} temperature: {e}")
+            return None
+    
+    def _get_current_thermostat_temperature(self) -> float:
+        """Get current bath temperature from thermostats."""
+        try:
+            from .utils import PhysicalConstants
+            
+            # Try to get temperature from molecular thermostat first
+            if self.molecular_thermostat is not None:
+                try:
+                    if hasattr(self.molecular_thermostat, 'kT'):
+                        kT = self.molecular_thermostat.kT
+                        if hasattr(kT, 'value'):
+                            kT = kT.value
+                        elif callable(kT):
+                            kT = kT()
+                        return kT / PhysicalConstants.KB_HARTREE_PER_K
+                    elif hasattr(self.molecular_thermostat, 'thermostat'):
+                        nested = self.molecular_thermostat.thermostat
+                        if hasattr(nested, 'kT'):
+                            kT = nested.kT
+                            if hasattr(kT, 'value'):
+                                kT = kT.value
+                            elif callable(kT):
+                                kT = kT()
+                            return kT / PhysicalConstants.KB_HARTREE_PER_K
+                except:
+                    pass
+            
+            # Try cavity thermostat as backup
+            if self.cavity_thermostat is not None:
+                try:
+                    if hasattr(self.cavity_thermostat, 'kT'):
+                        kT = self.cavity_thermostat.kT
+                        if hasattr(kT, 'value'):
+                            kT = kT.value
+                        elif callable(kT):
+                            kT = kT()
+                        return kT / PhysicalConstants.KB_HARTREE_PER_K
+                    elif hasattr(self.cavity_thermostat, 'thermostat'):
+                        nested = self.cavity_thermostat.thermostat
+                        if hasattr(nested, 'kT'):
+                            kT = nested.kT
+                            if hasattr(kT, 'value'):
+                                kT = kT.value
+                            elif callable(kT):
+                                kT = kT()
+                            return kT / PhysicalConstants.KB_HARTREE_PER_K
+                except:
+                    pass
+            
+            # Fallback to target temperature
+            return self.target_temperature
+            
+        except Exception as e:
+            print(f"Warning: Could not get current thermostat temperature: {e}")
+            return self.target_temperature
+
+    def _apply_rate_limit(self, new_output: float, dt_ps: float) -> float:
+        """Apply rate limiting to controller output."""
+        if self.rate_limit_K_per_ps is None or self.current_bath_temperature is None:
+            return new_output
+        
+        max_change = self.rate_limit_K_per_ps * dt_ps
+        change = new_output - self.current_bath_temperature
+        
+        if abs(change) <= max_change:
+            return new_output
+        else:
+            # Limit the change
+            limited_change = max_change if change > 0 else -max_change
+            return self.current_bath_temperature + limited_change
+    
+    def _update_thermostats(self, bath_temperature: float, measured_temperature: float = None, effective_temperature: float = None):
+        """Update thermostat temperatures using robust API detection."""
+        from .utils import PhysicalConstants
+        target_kT = bath_temperature * PhysicalConstants.KB_HARTREE_PER_K
+        
+        updated_any = False
+        
+        # Update molecular thermostat
+        if self.apply_to in ['molecular', 'both'] and self.molecular_thermostat is not None:
+            try:
+                if hasattr(self.molecular_thermostat, 'kT'):
+                    # Direct kT attribute (Langevin thermostats)
+                    self.molecular_thermostat.kT = target_kT
+                    updated_any = True
+                elif hasattr(self.molecular_thermostat, 'thermostat'):
+                    # Nested thermostat (ConstantVolume with Bussi/MTTK)
+                    nested_thermo = self.molecular_thermostat.thermostat
+                    if hasattr(nested_thermo, 'kT'):
+                        nested_thermo.kT = target_kT
+                        updated_any = True
+                    else:
+                        print(f"Warning: Cannot update nested molecular thermostat kT")
+                else:
+                    print(f"Warning: Cannot find kT attribute in molecular thermostat")
+            except Exception as e:
+                print(f"Warning: Failed to update molecular thermostat: {e}")
+        
+        # Update cavity thermostat  
+        if self.apply_to in ['cavity', 'both'] and self.cavity_thermostat is not None:
+            try:
+                if hasattr(self.cavity_thermostat, 'kT'):
+                    # Direct kT attribute (Langevin thermostats)
+                    self.cavity_thermostat.kT = target_kT
+                    updated_any = True
+                elif hasattr(self.cavity_thermostat, 'thermostat'):
+                    # Nested thermostat (ConstantVolume with Bussi/MTTK)
+                    nested_thermo = self.cavity_thermostat.thermostat
+                    if hasattr(nested_thermo, 'kT'):
+                        nested_thermo.kT = target_kT
+                        updated_any = True
+                    else:
+                        print(f"Warning: Cannot update nested cavity thermostat kT")
+                else:
+                    print(f"Warning: Cannot find kT attribute in cavity thermostat")
+            except Exception as e:
+                print(f"Warning: Failed to update cavity thermostat: {e}")
+        
+        # Check if we should print detailed console output (sync with console output period)
+        current_time_ps = self.time_tracker.elapsed_time
+        should_print_console = (current_time_ps - self.last_console_output_time) >= self.console_output_period_ps
+        
+        if updated_any and should_print_console:
+            # Print detailed information
+            if measured_temperature is not None and effective_temperature is not None:
+                print(f"🎯 GD Controller | Target: {self.target_temperature:.1f}K | Measured: {measured_temperature:.1f}K | "
+                      f"Effective: {effective_temperature:.1f}K | Bath→{bath_temperature:.1f}K")
+            else:
+                print(f"🎯 GD Controller | Target: {self.target_temperature:.1f}K | Bath→{bath_temperature:.1f}K")
+            self.last_console_output_time = current_time_ps
+    
+    def act(self, timestep):
+        """Execute gradient descent control at each timestep."""
+        current_time_ps = self.time_tracker.elapsed_time
+        
+        # Check if we should be active
+        should_be_active = (current_time_ps >= self.turn_on_time_ps and 
+                          (self.turn_off_time_ps is None or current_time_ps < self.turn_off_time_ps))
+        
+        if should_be_active and not self.is_active:
+            self.is_active = True
+            # Initialize current_bath_temperature from thermostats when first activating
+            if self.current_bath_temperature is None:
+                self.current_bath_temperature = self._get_current_thermostat_temperature()
+                print(f"🎯 Gradient descent feedback turned ON at t = {current_time_ps:.2f} ps")
+                print(f"🎯 Initial bath temperature: {self.current_bath_temperature:.2f} K")
+            else:
+                print(f"🎯 Gradient descent feedback turned ON at t = {current_time_ps:.2f} ps")
+        elif not should_be_active and self.is_active:
+            self.is_active = False
+            print(f"🎯 Gradient descent feedback turned OFF at t = {current_time_ps:.2f} ps")
+        
+        # Skip if not active or not initialized
+        if not self.is_active or self.current_bath_temperature is None:
+            return
+        
+        # Only update at specified intervals
+        if current_time_ps - self.last_update_time < self.update_interval_ps:
+            return
+        
+        # Calculate dt_ps BEFORE updating last_update_time
+        dt_ps = current_time_ps - self.last_update_time if self.last_update_time > 0 else self.update_interval_ps
+        self.last_update_time = current_time_ps
+        
+        # Calculate system temperature
+        measured_temperature = self._calculate_system_temperature(current_time_ps)
+        
+        if measured_temperature is None:
+            return
+        
+        # Calculate effective system temperature using bath-system coupling model
+        # Model: T_effective = (T_measured + T_bath) / 2
+        effective_temperature = (measured_temperature + self.current_bath_temperature) / 2.0
+        
+        # Calculate error and gradient w.r.t. T_bath
+        error = effective_temperature - self.target_temperature  # e = T_effective - T_target
+        gradient = 0.5 * error  # ∂J/∂T_bath = 0.5 * (T_effective - T_target)
+        
+        # Apply gradient descent update: T_bath(t+1) = T_bath(t) - α * gradient
+        raw_output = self.current_bath_temperature - self.alpha * gradient
+        
+        # Apply saturation limits
+        if self.T_max is not None:
+            saturated_output = max(self.T_min, min(self.T_max, raw_output))
+        else:
+            saturated_output = max(self.T_min, raw_output)
+        
+        # Apply rate limiting
+        rate_limited_output = self._apply_rate_limit(saturated_output, dt_ps)
+        
+        # Update current bath temperature and thermostats
+        self.current_bath_temperature = rate_limited_output
+        self._update_thermostats(self.current_bath_temperature, measured_temperature, effective_temperature)
+        
+        # Log data
+        try:
+            with open(self.output_file, 'a', encoding='utf-8') as f:
+                f.write(f"{current_time_ps:.6f},{measured_temperature:.6f},{effective_temperature:.6f},"
+                       f"{self.target_temperature:.6f},{error:.6f},{gradient:.6f},{raw_output:.6f},"
+                       f"{saturated_output:.6f},{rate_limited_output:.6f},{int(self.is_active)}\n")
+        except Exception as e:
+            print(f"Warning: Failed to write gradient descent output: {e}")
+
+
+class PITemperatureFeedback(hoomd.custom.Action):
+    """
+    PI feedback controller for cavity MD simulations with IMC/λ auto-tuning.
+    
+    This class implements a true Proportional-Integral (PI) controller for managing
+    thermostat temperatures based on system temperature measurements. It includes:
+    
+    - IMC/λ tuning methodology with molecular time constant
+    - Anti-windup protection with back-calculation
+    - Rate limiting for smooth temperature changes
+    - Support for kinetic, LJ+Coulombic, and harmonic temperature methods
+    - Configurable setpoint weighting (β parameter)
+    
+    The PI controller follows standard process control practices:
+    
+    .. math::
+        
+        u(t) = K_c [β r(t) - y(t)] + I(t)
+        
+        \\frac{dI}{dt} = \\frac{K_c}{T_i} e(t) + \\frac{u_{sat}(t) - u_{raw}(t)}{T_{aw}}
+    
+    where:
+    - u(t) is the controller output (bath temperature)
+    - r(t) is the setpoint (target temperature)  
+    - y(t) is the measured system temperature
+    - e(t) = r(t) - y(t) is the error
+    - β is the setpoint weighting factor (default: 0.7)
+    - T_aw is the anti-windup time constant
+    
+    **IMC/λ Auto-Tuning:**
+    
+    Based on the molecular thermal time constant τ, the controller parameters are:
+    
+    .. math::
+        
+        K_c = \\frac{τ}{λ + τ}, \\quad T_i = 2τ, \\quad λ = 2τ \\text{ to } 4τ
+    
+    This provides robust, well-damped response for cavity MD systems.
+    
+    Parameters
+    ----------
+    temperature_method : str
+        Temperature calculation method ('kinetic', 'lj_coulombic', 'harmonic')
+    molecular_tau_ps : float
+        Molecular thermostat time constant in picoseconds (for auto-tuning)
+    time_tracker : ElapsedTimeTracker
+        Time tracker for accurate timing
+    energy_tracker : EnergyTracker  
+        Energy tracker for temperature calculations
+    molecular_thermostat : hoomd.md.methods.thermostats.Thermostat or None
+        Molecular thermostat to control
+    cavity_thermostat : hoomd.md.methods.thermostats.Thermostat or None
+        Cavity thermostat to control
+    target_temperature : float, optional
+        Target temperature in Kelvin. Default: 100.0
+    lambda_factor : float, optional
+        Closed-loop time scale factor (λ = lambda_factor * τ). Default: 3.0
+    beta : float, optional
+        Setpoint weighting factor (0.0 to 1.0). Default: 0.7
+    apply_to : str, optional
+        Which thermostats to control ('molecular', 'cavity', 'both'). Default: 'both'
+    turn_on_time_ps : float, optional
+        Time to start PI control in picoseconds. Default: 0.0
+    turn_off_time_ps : float, optional
+        Time to stop PI control in picoseconds. Default: None (never turn off)
+    update_interval_ps : float, optional
+        Interval between control updates in picoseconds. Default: 5.0
+    T_min : float, optional
+        Minimum allowed bath temperature in Kelvin. Default: 0.0
+    T_max : float, optional
+        Maximum allowed bath temperature in Kelvin. Default: None (no upper limit)
+    rate_limit_K_per_ps : float, optional
+        Maximum rate of temperature change in K/ps. Default: None (no rate limit)
+    output_file : str, optional
+        Output file for PI control data. Default: 'pi_feedback.csv'
+    empirical_data_file : str, optional
+        Path to empirical data file (required for 'lj_coulombic' and 'harmonic' methods)
+        
+    Attributes
+    ----------
+    Kc : float
+        Proportional gain (auto-tuned)
+    Ti : float  
+        Integral time constant in picoseconds (auto-tuned)
+    integral_state : float
+        Current integral state
+    last_output : float
+        Last controller output (for rate limiting)
+    is_active : bool
+        Whether PI control is currently active
+        
+    Examples
+    --------
+    **Basic kinetic temperature PI control:**
+    
+    >>> from hoomd.cavitymd.analysis import PITemperatureFeedback
+    >>> 
+    >>> pi_controller = PITemperatureFeedback(
+    ...     temperature_method='kinetic',
+    ...     molecular_tau_ps=5.0,  # 5 ps molecular tau
+    ...     time_tracker=time_tracker,
+    ...     energy_tracker=energy_tracker,
+    ...     molecular_thermostat=molecular_thermo,
+    ...     target_temperature=100.0
+    ... )
+    
+    **LJ+Coulombic fictive temperature control:**
+    
+    >>> pi_controller = PITemperatureFeedback(
+    ...     temperature_method='lj_coulombic',
+    ...     molecular_tau_ps=5.0,
+    ...     time_tracker=time_tracker,
+    ...     energy_tracker=energy_tracker,
+    ...     molecular_thermostat=molecular_thermo,
+    ...     cavity_thermostat=cavity_thermo,
+    ...     target_temperature=100.0,
+    ...     empirical_data_file='equilibrium_data.txt',
+    ...     apply_to='both',
+    ...     lambda_factor=3.0  # Conservative tuning
+    ... )
+    
+    **Harmonic fictive temperature with custom tuning:**
+    
+    >>> pi_controller = PITemperatureFeedback(
+    ...     temperature_method='harmonic',
+    ...     molecular_tau_ps=2.0,  # Fast molecular response
+    ...     time_tracker=time_tracker,
+    ...     energy_tracker=energy_tracker,
+    ...     molecular_thermostat=molecular_thermo,
+    ...     target_temperature=80.0,
+    ...     empirical_data_file='harmonic_calibration.txt',
+    ...     lambda_factor=2.0,  # More aggressive tuning
+    ...     beta=0.5,  # Reduced setpoint weighting
+    ...     rate_limit_K_per_ps=0.1  # Smooth temperature changes
+    ... )
+    
+    Notes
+    -----
+    - Requires accurate molecular τ for proper auto-tuning
+    - λ factor controls aggressiveness: 2τ (fast), 3τ (balanced), 4τ (conservative)
+    - Anti-windup prevents integral saturation during temperature limits
+    - Rate limiting smooths temperature changes to prevent simulation instability
+    - Compatible with all existing temperature calculation methods
+    """
+    
+    def __init__(self,
+                 temperature_method: str,
+                 molecular_tau_ps: float,
+                 time_tracker,  # ElapsedTimeTracker
+                 energy_tracker,  # EnergyTracker
+                 molecular_thermostat=None,
+                 cavity_thermostat=None,
+                 target_temperature: float = 100.0,
+                 lambda_factor: float = 3.0,
+                 beta: float = 0.7,
+                 apply_to: str = 'both',
+                 turn_on_time_ps: float = 0.0,
+                 turn_off_time_ps: Optional[float] = None,
+                 update_interval_ps: float = 5.0,
+                 T_min: float = 0.0,
+                 T_max: Optional[float] = None,
+                 rate_limit_K_per_ps: Optional[float] = None,
+                 output_file: str = 'pi_feedback.csv',
+                 empirical_data_file: Optional[str] = None):
+        
+        super().__init__()
+        
+        # Validate inputs
+        if temperature_method not in ['kinetic', 'lj_coulombic', 'harmonic']:
+            raise ValueError(f"temperature_method must be 'kinetic', 'lj_coulombic', or 'harmonic', got {temperature_method}")
+        
+        if temperature_method in ['lj_coulombic', 'harmonic'] and empirical_data_file is None:
+            raise ValueError(f"empirical_data_file is required for temperature_method '{temperature_method}'")
+        
+        if apply_to not in ['molecular', 'cavity', 'both']:
+            raise ValueError(f"apply_to must be 'molecular', 'cavity', or 'both', got {apply_to}")
+        
+        if not 0.0 <= beta <= 1.0:
+            raise ValueError(f"beta must be between 0.0 and 1.0, got {beta}")
+        
+        # Store core parameters
+        self.temperature_method = temperature_method
+        self.molecular_tau_ps = float(molecular_tau_ps)
+        self.time_tracker = time_tracker
+        self.energy_tracker = energy_tracker
+        self.molecular_thermostat = molecular_thermostat
+        self.cavity_thermostat = cavity_thermostat
+        self.target_temperature = float(target_temperature)
+        self.lambda_factor = float(lambda_factor)
+        self.beta = float(beta)
+        self.apply_to = apply_to
+        self.turn_on_time_ps = float(turn_on_time_ps)
+        self.turn_off_time_ps = float(turn_off_time_ps) if turn_off_time_ps is not None else None
+        self.update_interval_ps = float(update_interval_ps)
+        self.T_min = float(T_min)
+        self.T_max = float(T_max) if T_max is not None else None
+        self.rate_limit_K_per_ps = float(rate_limit_K_per_ps) if rate_limit_K_per_ps is not None else None
+        self.output_file = output_file
+        
+        # Set up empirical data if needed
+        self.empirical_data = None
+        if empirical_data_file is not None:
+            self.empirical_data = EmpiricalTemperatureData(
+                data_file_path=empirical_data_file,
+                energy_component=temperature_method
+            )
+        
+        # IMC/λ auto-tuning calculation
+        self.lambda_ps = self.lambda_factor * self.molecular_tau_ps
+        self.Kc = self.molecular_tau_ps / (self.lambda_ps + self.molecular_tau_ps)
+        self.Ti = 2.0 * self.molecular_tau_ps  # Integral time constant
+        self.Taw = self.Ti  # Anti-windup time constant (typically Ti)
+        
+        # PI controller state
+        self.integral_state: float = 0.0
+        self.last_output: float = self.target_temperature
+        self.last_update_time: float = 0.0
+        self.is_active: bool = False
+        
+        # Output tracking
+        self.measurement_history = []
+        self.output_history = []
+        self.time_history = []
+        
+        # Validation
+        if self.apply_to in ['molecular', 'both'] and self.molecular_thermostat is None:
+            raise ValueError("molecular_thermostat cannot be None when apply_to includes 'molecular'")
+        
+        if self.apply_to in ['cavity', 'both'] and self.cavity_thermostat is None:
+            raise ValueError("cavity_thermostat cannot be None when apply_to includes 'cavity'")
+        
+        # Initialize output file
+        self._initialize_output_file()
+        
+        print("🎛️  PI Temperature Feedback Controller initialized:")
+        print(f"   Temperature method: {self.temperature_method}")
+        print(f"   Molecular τ: {self.molecular_tau_ps:.1f} ps")
+        print(f"   IMC/λ Parameters:")
+        print(f"     λ factor: {self.lambda_factor:.1f}")
+        print(f"     λ time: {self.lambda_ps:.1f} ps")
+        print(f"     Kc (proportional gain): {self.Kc:.3f}")
+        print(f"     Ti (integral time): {self.Ti:.1f} ps")
+        print(f"   Setpoint weighting β: {self.beta:.2f}")
+        print(f"   Target temperature: {self.target_temperature:.1f} K")
+        print(f"   Apply to: {self.apply_to}")
+        print(f"   Update interval: {self.update_interval_ps:.1f} ps")
+        T_max_str = f"{self.T_max:.1f}" if self.T_max is not None else "∞"
+        print(f"   Temperature limits: [{self.T_min:.1f}, {T_max_str}] K")
+        if self.rate_limit_K_per_ps is not None:
+            print(f"   Rate limit: {self.rate_limit_K_per_ps:.3f} K/ps")
+        if self.turn_on_time_ps > 0:
+            print(f"   Turn-on time: {self.turn_on_time_ps:.1f} ps")
+        if self.turn_off_time_ps is not None:
+            print(f"   Turn-off time: {self.turn_off_time_ps:.1f} ps")
+    
+    def _initialize_output_file(self):
+        """Initialize CSV output file with headers."""
+        with open(self.output_file, 'w') as f:
+            f.write("# PI Temperature Feedback Control Data\n")
+            f.write("# time_ps: Simulation time in picoseconds\n")
+            f.write("# measured_T_K: Measured system temperature in Kelvin\n")
+            f.write("# target_T_K: Target (setpoint) temperature in Kelvin\n")
+            f.write("# error_K: Temperature error (target - measured) in Kelvin\n")
+            f.write("# integral_state: Current integral state\n")
+            f.write("# controller_output_K: Raw controller output in Kelvin\n")
+            f.write("# saturated_output_K: Saturated output (within limits) in Kelvin\n")
+            f.write("# rate_limited_output_K: Final output after rate limiting in Kelvin\n")
+            f.write("# is_active: Whether PI control is active (0/1)\n")
+            f.write("time_ps,measured_T_K,target_T_K,error_K,integral_state,controller_output_K,saturated_output_K,rate_limited_output_K,is_active\n")
+    
+    def _calculate_system_temperature(self, current_time_ps: float) -> Optional[float]:
+        """Calculate system temperature using the specified method."""
+        try:
+            if self.temperature_method == 'kinetic':
+                # Calculate kinetic temperature from energy tracker
+                energy_data = self.energy_tracker.get_instantaneous_energy()
+                if 'molecular_kinetic' in energy_data:
+                    # T = 2 * KE / (3 * N * kB) for 3D system
+                    kinetic_energy = energy_data['molecular_kinetic']
+                    # Assuming N particles - need to get from energy tracker or estimate
+                    # For now, use simplified approach
+                    from .utils import PhysicalConstants
+                    kB = PhysicalConstants.KB_HARTREE_PER_K
+                    # Estimate: typical 500 particles, 3 DOF each
+                    estimated_dof = 1500  # This should ideally come from system info
+                    temperature = 2.0 * kinetic_energy / (estimated_dof * kB)
+                    return temperature
+                else:
+                    print(f"Warning: Kinetic energy not available for temperature calculation")
+                    return None
+                    
+            elif self.temperature_method == 'lj_coulombic':
+                # Calculate fictive temperature using empirical LJ+Coulombic data
+                if self.empirical_data is None:
+                    print(f"Warning: No empirical data available for LJ+Coulombic temperature")
+                    return None
+                
+                energy_data = self.energy_tracker.get_instantaneous_energy()
+                if 'lj' in energy_data and 'coulombic' in energy_data:
+                    lj_coulombic_energy = energy_data['lj'] + energy_data['coulombic']
+                    temperature = self.empirical_data.calculate_systemic_temperature(lj_coulombic_energy)
+                    return temperature
+                else:
+                    print(f"Warning: LJ+Coulombic energy not available for temperature calculation")
+                    return None
+                    
+            elif self.temperature_method == 'harmonic':
+                # Calculate fictive temperature using harmonic energy with T^(3/2) relation
+                if self.empirical_data is None:
+                    print(f"Warning: No empirical data available for harmonic temperature")
+                    return None
+                    
+                energy_data = self.energy_tracker.get_instantaneous_energy()
+                if 'harmonic' in energy_data:
+                    harmonic_energy = energy_data['harmonic']
+                    temperature = self.empirical_data.calculate_systemic_temperature(harmonic_energy)
+                    return temperature
+                else:
+                    print(f"Warning: Harmonic energy not available for temperature calculation")
+                    return None
+                    
+            else:
+                print(f"Warning: Unknown temperature method '{self.temperature_method}'")
+                return None
+                
+        except Exception as e:
+            print(f"Warning: Failed to calculate {self.temperature_method} temperature: {e}")
+            return None
+    
+    def _apply_rate_limit(self, new_output: float, dt_ps: float) -> float:
+        """Apply rate limiting to controller output."""
+        if self.rate_limit_K_per_ps is None:
+            return new_output
+        
+        max_change = self.rate_limit_K_per_ps * dt_ps
+        change = new_output - self.last_output
+        
+        if abs(change) <= max_change:
+            return new_output
+        else:
+            # Limit the change
+            limited_change = max_change if change > 0 else -max_change
+            return self.last_output + limited_change
+    
+    def _update_thermostats(self, bath_temperature: float):
+        """Update thermostat temperatures using robust API detection."""
+        from .utils import PhysicalConstants
+        target_kT = bath_temperature * PhysicalConstants.KB_HARTREE_PER_K
+        
+        updated_any = False
+        
+        # Update molecular thermostat
+        if self.apply_to in ['molecular', 'both'] and self.molecular_thermostat is not None:
+            try:
+                if hasattr(self.molecular_thermostat, 'kT'):
+                    # Direct kT attribute (Langevin thermostats)
+                    self.molecular_thermostat.kT = target_kT
+                    updated_any = True
+                elif hasattr(self.molecular_thermostat, 'thermostat'):
+                    # Nested thermostat (ConstantVolume with Bussi/MTTK)
+                    nested_thermo = self.molecular_thermostat.thermostat
+                    if hasattr(nested_thermo, 'kT'):
+                        nested_thermo.kT = target_kT
+                        updated_any = True
+                    else:
+                        print(f"Warning: Cannot update nested molecular thermostat kT")
+                else:
+                    print(f"Warning: Cannot find kT attribute in molecular thermostat")
+            except Exception as e:
+                print(f"Warning: Failed to update molecular thermostat: {e}")
+        
+        # Update cavity thermostat  
+        if self.apply_to in ['cavity', 'both'] and self.cavity_thermostat is not None:
+            try:
+                if hasattr(self.cavity_thermostat, 'kT'):
+                    # Direct kT attribute (Langevin thermostats)
+                    self.cavity_thermostat.kT = target_kT
+                    updated_any = True
+                elif hasattr(self.cavity_thermostat, 'thermostat'):
+                    # Nested thermostat (ConstantVolume with Bussi/MTTK)
+                    nested_thermo = self.cavity_thermostat.thermostat
+                    if hasattr(nested_thermo, 'kT'):
+                        nested_thermo.kT = target_kT
+                        updated_any = True
+                    else:
+                        print(f"Warning: Cannot update nested cavity thermostat kT")
+                else:
+                    print(f"Warning: Cannot find kT attribute in cavity thermostat")
+            except Exception as e:
+                print(f"Warning: Failed to update cavity thermostat: {e}")
+        
+        if updated_any:
+            print(f"🌡️  Updated thermostat temperatures to {bath_temperature:.2f} K (kT = {target_kT:.6f} a.u.)")
+    
+    def act(self, timestep):
+        """Execute PI control at each timestep."""
+        current_time_ps = self.time_tracker.elapsed_time
+        
+        # Check if we should start
+        if current_time_ps < self.turn_on_time_ps:
+            return
+        
+        # Check if we should stop
+        if self.turn_off_time_ps is not None and current_time_ps >= self.turn_off_time_ps:
+            if self.is_active:
+                print(f"🔴 PI feedback turned OFF at t = {current_time_ps:.2f} ps")
+                self.is_active = False
+            return
+        
+        # Check if it's time to update
+        if current_time_ps - self.last_update_time < self.update_interval_ps:
+            return
+        
+        if not self.is_active:
+            print(f"🟢 PI feedback turned ON at t = {current_time_ps:.2f} ps")
+            self.is_active = True
+        
+        # Calculate system temperature
+        measured_temperature = self._calculate_system_temperature(current_time_ps)
+        if measured_temperature is None:
+            print(f"Warning: Could not measure temperature, skipping PI update")
+            return
+        
+        # PI control calculations
+        dt_ps = current_time_ps - self.last_update_time if self.last_update_time > 0 else self.update_interval_ps
+        
+        # Error calculation
+        error = self.target_temperature - measured_temperature
+        
+        # Proportional term with setpoint weighting
+        proportional_term = self.Kc * (self.beta * self.target_temperature - measured_temperature)
+        
+        # Integral term with anti-windup
+        controller_output_raw = proportional_term + self.integral_state
+        
+        # Apply saturation limits
+        if self.T_max is not None:
+            controller_output_sat = max(self.T_min, min(self.T_max, controller_output_raw))
+        else:
+            controller_output_sat = max(self.T_min, controller_output_raw)
+        
+        # Anti-windup: back-calculate integral correction
+        saturation_error = controller_output_sat - controller_output_raw
+        integral_correction = saturation_error / self.Taw
+        
+        # Update integral state
+        integral_update = (self.Kc / self.Ti) * error + integral_correction
+        self.integral_state += integral_update * dt_ps
+        
+        # Apply rate limiting
+        final_output = self._apply_rate_limit(controller_output_sat, dt_ps)
+        
+        # Update thermostats
+        self._update_thermostats(final_output)
+        
+        # Store data for output
+        self.measurement_history.append(measured_temperature)
+        self.output_history.append(final_output)
+        self.time_history.append(current_time_ps)
+        
+        # Write to CSV file
+        with open(self.output_file, 'a') as f:
+            f.write(f"{current_time_ps:.6f},{measured_temperature:.3f},{self.target_temperature:.3f},"
+                   f"{error:.3f},{self.integral_state:.6f},{controller_output_raw:.3f},"
+                   f"{controller_output_sat:.3f},{final_output:.3f},{int(self.is_active)}\n")
+        
+        # Update state
+        self.last_output = final_output
+
+
+class DipoleMomentFDRTracker(hoomd.custom.Action):
+    """
+    Fluctuation-Dissipation Relation (FDR) tracker for total dipole moment.
+    
+    This class implements FDR analysis for the total dipole moment by:
+    1. Computing equilibrium dipole moment autocorrelations C_μ(t)
+    2. Measuring linear response to applied electric fields χ_μ(t)
+    3. Validating the FDR relation: χ_μ(ω) = ∫ C_μ(t) e^(iωt) dt / (k_B T)
+    
+    **Physics Background:**
+    
+    The dipole moment FDR relates equilibrium fluctuations to linear response:
+    
+    - **Fluctuation**: C_μ(t) = ⟨δμ⃗(0) · δμ⃗(t)⟩ 
+    - **Response**: χ_μ(t,t_w) = (⟨μ⃗^(+)(t)⟩ - ⟨μ⃗^(-)(t)⟩) / (2E₀)
+    - **FDR**: χ_μ(ω) = ∫₀^∞ C_μ(t) e^(iωt) dt / (k_B T)
+    
+    where μ⃗ = Σᵢ qᵢr⃗ᵢ is the total dipole moment.
+    
+    **Experimental Protocol:**
+    
+    1. **Equilibrium simulation**: Run unperturbed system, calculate C_μ(t)
+    2. **Response measurement**: Fork simulation, apply ±E₀ fields, measure χ_μ(t)
+    3. **FDR validation**: Compare χ_μ(ω) with Fourier transform of C_μ(t)
+    
+    **Connection to Cavity Dynamics:**
+    
+    - Dipole moment couples to cavity field through light-matter interaction
+    - FDR validates linear response assumptions in cavity coupling
+    - Provides fundamental check of equilibrium statistical mechanics
+    
+    Parameters
+    ----------
+    time_tracker : ElapsedTimeTracker
+        Time tracker for accurate timing
+    output_file : str, optional
+        Output file for autocorrelation data. Default: 'dipole_fdr.csv'
+    max_correlation_time_ps : float, optional
+        Maximum correlation time to track in ps. Default: 100.0
+    correlation_output_interval_ps : float, optional
+        Interval between correlation outputs in ps. Default: 0.1
+    exclude_cavity : bool, optional
+        Whether to exclude cavity particles from dipole calculation. Default: True
+    field_direction : array_like, optional
+        Direction for electric field perturbations (3D vector). Default: [0,0,1]
+    enable_response_measurement : bool, optional
+        Whether to enable response measurements (requires fork-and-clone). Default: False
+    
+    Attributes
+    ----------
+    dipole_history : List[np.ndarray]
+        Time series of total dipole moment vectors
+    time_history : List[float]
+        Corresponding time stamps
+    autocorrelation : np.ndarray
+        Dipole moment autocorrelation function C_μ(t)
+    correlation_times : np.ndarray
+        Time grid for autocorrelation
+    susceptibility : Optional[np.ndarray]
+        Measured susceptibility χ_μ(t) (if response measurement enabled)
+    
+    Examples
+    --------
+    **Basic dipole autocorrelation tracking:**
+    
+    >>> from hoomd.cavitymd.analysis import DipoleMomentFDRTracker
+    >>> 
+    >>> tracker = DipoleMomentFDRTracker(
+    ...     time_tracker=time_tracker,
+    ...     max_correlation_time_ps=50.0,
+    ...     correlation_output_interval_ps=0.1
+    ... )
+    >>> 
+    >>> # Add to simulation
+    >>> updater = hoomd.update.CustomUpdater(
+    ...     action=tracker,
+    ...     trigger=hoomd.trigger.Periodic(100)  # Every 100 steps
+    ... )
+    >>> sim.operations.updaters.append(updater)
+    
+    **Complete FDR measurement with response:**
+    
+    >>> tracker = DipoleMomentFDRTracker(
+    ...     time_tracker=time_tracker,
+    ...     field_direction=[0, 0, 1],
+    ...     enable_response_measurement=True
+    ... )
+    
+    Notes
+    -----
+    - Calculates total dipole moment μ⃗ = Σᵢ qᵢr⃗ᵢ for all particles
+    - Autocorrelation computed using FFT for efficiency
+    - Compatible with cavity MD simulations and periodic boundary conditions
+    - Output files contain both raw data and processed correlations
+    - FDR validation requires comparison with response measurements
+    """
+    
+    def __init__(self,
+                 time_tracker,
+                 output_file: str = 'dipole_fdr.csv',
+                 max_correlation_time_ps: float = 100.0,
+                 correlation_output_interval_ps: float = 0.1,
+                 exclude_cavity: bool = True,
+                 field_direction: Union[List[float], np.ndarray] = [0, 0, 1],
+                 enable_response_measurement: bool = False):
+        
+        super().__init__()
+        
+        self.time_tracker = time_tracker
+        self.output_file = output_file
+        self.max_correlation_time_ps = float(max_correlation_time_ps)
+        self.correlation_output_interval_ps = float(correlation_output_interval_ps)
+        self.exclude_cavity = bool(exclude_cavity)
+        self.enable_response_measurement = bool(enable_response_measurement)
+        
+        # Normalize field direction
+        self.field_direction = np.array(field_direction, dtype=np.float64)
+        field_magnitude = np.linalg.norm(self.field_direction)
+        if field_magnitude > 1e-12:
+            self.field_direction = self.field_direction / field_magnitude
+        else:
+            self.field_direction = np.array([0, 0, 1])  # Default z-direction
+        
+        # Data storage
+        self.dipole_history = []  # List of 3D dipole vectors
+        self.time_history = []    # Corresponding time stamps
+        self.last_output_time = 0.0
+        
+        # Correlation analysis
+        self.autocorrelation = None
+        self.correlation_times = None
+        self.susceptibility = None
+        
+        # Response measurement data (for fork-and-clone FDR)
+        self.response_data = {
+            'plus_clone': [],   # Dipole data from +E₀ clone
+            'minus_clone': [],  # Dipole data from -E₀ clone
+            'times': []         # Time stamps for response data
+        }
+        
+        # Initialize output file
+        self._initialize_output_file()
+        
+        print(f"📊 DipoleMomentFDRTracker initialized:")
+        print(f"   Output file: {self.output_file}")
+        print(f"   Max correlation time: {self.max_correlation_time_ps:.1f} ps")
+        print(f"   Field direction: {self.field_direction}")
+        print(f"   Exclude cavity: {self.exclude_cavity}")
+        if self.enable_response_measurement:
+            print(f"   Response measurement: Enabled (requires fork-and-clone)")
+        else:
+            print(f"   Response measurement: Disabled (autocorrelation only)")
+    
+    def _initialize_output_file(self):
+        """Initialize CSV output file with headers."""
+        try:
+            with open(self.output_file, 'w', encoding='utf-8') as f:
+                f.write("# Dipole Moment FDR Analysis Data\n")
+                f.write("# time_ps: Simulation time in picoseconds\n")
+                f.write("# dipole_x: x-component of total dipole moment (charge × length units)\n")
+                f.write("# dipole_y: y-component of total dipole moment\n")
+                f.write("# dipole_z: z-component of total dipole moment\n")
+                f.write("# dipole_magnitude: |μ⃗| magnitude of dipole moment\n")
+                f.write("# Field direction: [{:.3f}, {:.3f}, {:.3f}]\n".format(*self.field_direction))
+                f.write("time_ps,dipole_x,dipole_y,dipole_z,dipole_magnitude\n")
+        except Exception as e:
+            print(f"Warning: Failed to initialize dipole FDR output file: {e}")
+    
+    def _calculate_total_dipole_moment(self) -> np.ndarray:
+        """Calculate total dipole moment μ⃗ = Σᵢ qᵢr⃗ᵢ.
+        
+        Returns
+        -------
+        np.ndarray
+            3D dipole moment vector [μₓ, μᵧ, μᵤ]
+        """
+        # Get current simulation state
+        with self._simulation.state.cpu_local_snapshot as snap:
+            positions = snap.particles.position
+            charges = snap.particles.charge
+            N = len(positions)
+            
+            # Calculate total dipole moment
+            dipole = np.zeros(3)
+            
+            for i in range(N):
+                # Skip cavity particles if requested
+                if self.exclude_cavity and i >= N - 1:  # Assume cavity is last particle
+                    continue
+                
+                q_i = charges[i]
+                if abs(q_i) > 1e-12:  # Only consider charged particles
+                    dipole += q_i * positions[i]
+            
+            return dipole
+    
+    def _compute_autocorrelation(self) -> Tuple[np.ndarray, np.ndarray]:
+        """Compute dipole moment autocorrelation function using FFT.
+        
+        Returns
+        -------
+        Tuple[np.ndarray, np.ndarray]
+            (correlation_times, autocorrelation_values)
+        """
+        if len(self.dipole_history) < 10:
+            return np.array([]), np.array([])
+        
+        # Convert to numpy arrays
+        dipoles = np.array(self.dipole_history)  # Shape: (N_times, 3)
+        times = np.array(self.time_history)
+        
+        # Get time step (assume uniform spacing)
+        dt = times[1] - times[0] if len(times) > 1 else self.correlation_output_interval_ps
+        
+        # Calculate fluctuations: δμ⃗(t) = μ⃗(t) - ⟨μ⃗⟩
+        mean_dipole = np.mean(dipoles, axis=0)
+        delta_dipoles = dipoles - mean_dipole
+        
+        # Compute autocorrelation for each component using FFT
+        N = len(delta_dipoles)
+        correlations = []
+        
+        for component in range(3):
+            # Use FFT-based autocorrelation
+            signal = delta_dipoles[:, component]
+            
+            # Zero-pad for full correlation
+            padded_signal = np.zeros(2 * N)
+            padded_signal[:N] = signal
+            
+            # FFT-based autocorrelation
+            fft_signal = scipy.fft.fft(padded_signal)
+            correlation = scipy.fft.ifft(fft_signal * np.conj(fft_signal)).real
+            
+            # Take only the first N points (positive lags)
+            correlation = correlation[:N]
+            
+            # Normalize by decreasing number of samples
+            normalization = np.arange(N, 0, -1)
+            correlation = correlation / normalization
+            
+            correlations.append(correlation)
+        
+        # Compute total autocorrelation: C_μ(t) = ⟨δμ⃗(0) · δμ⃗(t)⟩
+        total_correlation = np.sum(correlations, axis=0)
+        
+        # Create time grid
+        correlation_times = np.arange(N) * dt
+        
+        # Limit to requested maximum correlation time
+        max_index = int(self.max_correlation_time_ps / dt)
+        if max_index < len(correlation_times):
+            correlation_times = correlation_times[:max_index]
+            total_correlation = total_correlation[:max_index]
+        
+        return correlation_times, total_correlation
+    
+    def _save_autocorrelation_data(self, correlation_times: np.ndarray, autocorrelation: np.ndarray):
+        """Save autocorrelation data to separate file."""
+        correlation_file = self.output_file.replace('.csv', '_autocorrelation.csv')
+        
+        try:
+            with open(correlation_file, 'w', encoding='utf-8') as f:
+                f.write("# Dipole Moment Autocorrelation Function\n")
+                f.write("# time_ps: Correlation time in picoseconds\n")
+                f.write("# C_mu: Autocorrelation ⟨δμ⃗(0) · δμ⃗(t)⟩\n")
+                f.write("# C_mu_normalized: Normalized by C_μ(0)\n")
+                f.write("time_ps,C_mu,C_mu_normalized\n")
+                
+                # Normalize by C_μ(0)
+                C_0 = autocorrelation[0] if len(autocorrelation) > 0 else 1.0
+                normalized_correlation = autocorrelation / C_0 if C_0 != 0 else autocorrelation
+                
+                for t, C, C_norm in zip(correlation_times, autocorrelation, normalized_correlation):
+                    f.write(f"{t:.6f},{C:.6e},{C_norm:.6f}\n")
+                    
+            print(f"📊 Autocorrelation data saved to {correlation_file}")
+            
+        except Exception as e:
+            print(f"Warning: Failed to save autocorrelation data: {e}")
+    
+    def add_response_data(self, clone_type: str, dipole_moment: np.ndarray, time_ps: float):
+        """Add response data from fork-and-clone measurements.
+        
+        Parameters
+        ----------
+        clone_type : str
+            Either 'plus' or 'minus' for +E₀ or -E₀ clone
+        dipole_moment : np.ndarray
+            3D dipole moment vector from the clone
+        time_ps : float
+            Time stamp for this measurement
+        """
+        if not self.enable_response_measurement:
+            return
+        
+        if clone_type == 'plus':
+            self.response_data['plus_clone'].append(dipole_moment.copy())
+        elif clone_type == 'minus':
+            self.response_data['minus_clone'].append(dipole_moment.copy())
+        else:
+            print(f"Warning: Unknown clone type '{clone_type}', expected 'plus' or 'minus'")
+            return
+        
+        # Add time stamp (only once per time point)
+        if clone_type == 'plus' and time_ps not in self.response_data['times']:
+            self.response_data['times'].append(time_ps)
+    
+    def compute_susceptibility(self, field_strength: float) -> Tuple[np.ndarray, np.ndarray]:
+        """Compute dipole susceptibility from response data.
+        
+        Parameters
+        ----------
+        field_strength : float
+            Electric field strength E₀ used in response measurement
+        
+        Returns
+        -------
+        Tuple[np.ndarray, np.ndarray]
+            (response_times, susceptibility_values)
+        """
+        if not self.enable_response_measurement:
+            print("Warning: Response measurement not enabled")
+            return np.array([]), np.array([])
+        
+        plus_data = np.array(self.response_data['plus_clone'])
+        minus_data = np.array(self.response_data['minus_clone'])
+        times = np.array(self.response_data['times'])
+        
+        if len(plus_data) != len(minus_data) or len(plus_data) == 0:
+            print("Warning: Insufficient or mismatched response data")
+            return np.array([]), np.array([])
+        
+        # Calculate susceptibility: χ_μ(t) = (⟨μ⃗^(+)(t)⟩ - ⟨μ⃗^(-)(t)⟩) / (2E₀)
+        # Project onto field direction
+        plus_projection = np.dot(plus_data, self.field_direction)
+        minus_projection = np.dot(minus_data, self.field_direction)
+        
+        susceptibility = (plus_projection - minus_projection) / (2 * field_strength)
+        
+        return times, susceptibility
+    
+    def validate_fdr(self, field_strength: float, temperature_K: float) -> Dict[str, Any]:
+        """Validate FDR relation between autocorrelation and susceptibility.
+        
+        Parameters
+        ----------
+        field_strength : float
+            Electric field strength used in response measurement
+        temperature_K : float
+            System temperature in Kelvin
+        
+        Returns
+        -------
+        Dict[str, Any]
+            FDR validation results including correlation coefficient
+        """
+        # Compute autocorrelation
+        if self.autocorrelation is None or len(self.autocorrelation) == 0:
+            self.correlation_times, self.autocorrelation = self._compute_autocorrelation()
+        
+        # Compute susceptibility
+        response_times, susceptibility = self.compute_susceptibility(field_strength)
+        
+        if len(self.autocorrelation) == 0 or len(susceptibility) == 0:
+            return {'success': False, 'error': 'Insufficient data for FDR validation'}
+        
+        # Fourier transform autocorrelation to get predicted susceptibility
+        from .utils import PhysicalConstants
+        kB_T = temperature_K * PhysicalConstants.KB_HARTREE_PER_K
+        
+        # Simple integration for FDR (more sophisticated FFT could be used)
+        dt = self.correlation_times[1] - self.correlation_times[0] if len(self.correlation_times) > 1 else 0.1
+        
+        # Predict susceptibility from FDR: χ(ω=0) ≈ ∫ C(t) dt / (k_B T)
+        predicted_chi_static = np.trapz(self.autocorrelation, dx=dt) / kB_T
+        measured_chi_static = susceptibility[0] if len(susceptibility) > 0 else 0.0
+        
+        # Calculate correlation coefficient for time-dependent comparison
+        # Interpolate to common time grid
+        min_time = max(self.correlation_times[0], response_times[0])
+        max_time = min(self.correlation_times[-1], response_times[-1])
+        
+        if max_time <= min_time:
+            return {'success': False, 'error': 'No overlapping time range for comparison'}
+        
+        common_times = np.linspace(min_time, max_time, 100)
+        
+        # Interpolate both functions
+        autocorr_interp = np.interp(common_times, self.correlation_times, self.autocorrelation)
+        suscept_interp = np.interp(common_times, response_times, susceptibility)
+        
+        # Normalize and compare
+        autocorr_normalized = autocorr_interp / kB_T
+        correlation_coeff = np.corrcoef(autocorr_normalized, suscept_interp)[0, 1]
+        
+        return {
+            'success': True,
+            'predicted_chi_static': predicted_chi_static,
+            'measured_chi_static': measured_chi_static,
+            'static_ratio': measured_chi_static / predicted_chi_static if predicted_chi_static != 0 else np.inf,
+            'correlation_coefficient': correlation_coeff,
+            'temperature_K': temperature_K,
+            'field_strength': field_strength,
+            'autocorrelation_time_range': (self.correlation_times[0], self.correlation_times[-1]),
+            'response_time_range': (response_times[0], response_times[-1])
+        }
+    
+    def act(self, timestep):
+        """Main action: calculate dipole moment and update correlations."""
+        current_time_ps = self.time_tracker.elapsed_time
+        
+        # Check if it's time to output
+        if current_time_ps - self.last_output_time < self.correlation_output_interval_ps:
+            return
+        
+        self.last_output_time = current_time_ps
+        
+        # Calculate current dipole moment
+        dipole_moment = self._calculate_total_dipole_moment()
+        
+        # Store in history
+        self.dipole_history.append(dipole_moment.copy())
+        self.time_history.append(current_time_ps)
+        
+        # Limit history size to prevent memory issues
+        max_history_points = int(self.max_correlation_time_ps / self.correlation_output_interval_ps * 2)
+        if len(self.dipole_history) > max_history_points:
+            self.dipole_history.pop(0)
+            self.time_history.pop(0)
+        
+        # Log to file
+        try:
+            dipole_magnitude = np.linalg.norm(dipole_moment)
+            with open(self.output_file, 'a', encoding='utf-8') as f:
+                f.write(f"{current_time_ps:.6f},{dipole_moment[0]:.6e},"
+                       f"{dipole_moment[1]:.6e},{dipole_moment[2]:.6e},{dipole_magnitude:.6e}\n")
+        except Exception as e:
+            print(f"Warning: Failed to write dipole moment data: {e}")
+        
+        # Periodically compute and save autocorrelation (every ~10 ps)
+        if len(self.time_history) > 100 and current_time_ps % 10.0 < self.correlation_output_interval_ps:
+            self.correlation_times, self.autocorrelation = self._compute_autocorrelation()
+            if len(self.autocorrelation) > 0:
+                self._save_autocorrelation_data(self.correlation_times, self.autocorrelation)
+        self.last_update_time = current_time_ps

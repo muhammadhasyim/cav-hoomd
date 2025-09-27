@@ -27,7 +27,6 @@ namespace kernel
 #ifdef ENABLE_HIP
 hipError_t gpu_compute_cavity_forces(Scalar4* d_force,
                                       const Scalar4* d_pos,
-                                      const Scalar4* d_vel,
                                       const Scalar* d_charge,
                                       const int3* d_image,
                                       const BoxDim* box,

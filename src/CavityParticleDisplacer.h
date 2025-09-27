@@ -37,7 +37,8 @@ class PYBIND11_EXPORT CavityParticleDisplacer : public Updater
         Scalar m_omegac;                      // Cavity frequency
         Scalar m_phmass;                      // Photon mass
         Scalar m_K;                           // Harmonic force constant K = m * omega^2
-        bool m_has_run;                       // Flag to ensure the displacement happens only once
+        bool m_has_run;                       // Flag to ensure step variants displace only once
+        Scalar m_last_coupling;               // Track last coupling value for transition detection
 
     private:
         // Helper functions to find the cavity particle and perform calculations

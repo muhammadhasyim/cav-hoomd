@@ -68,6 +68,7 @@ target_compile_definitions(_bussi_reservoir PRIVATE
 # Build cavitymd module (cavity force) - Re-enabled with CPU support
 set(_cavitymd_sources
     src/CavityForceCompute.cc
+    src/DipoleResponseForceCompute.cc
     src/cavitymd/module.cc
     src/CavityParticleDisplacer.cc
     )
@@ -77,6 +78,8 @@ if (ENABLE_GPU AND ENABLE_HIP)
 list(APPEND _cavitymd_sources 
     src/CavityForceComputeGPU.cc
     src/CavityForceComputeGPU.cu
+    src/DipoleResponseForceComputeGPU.cc
+    src/DipoleResponseForceComputeGPU.cu
     )
 endif()
 
