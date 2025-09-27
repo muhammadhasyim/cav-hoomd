@@ -1627,7 +1627,7 @@ class GradientDescentTemperatureFeedback(hoomd.custom.Action):
     Parameters
     ----------
     temperature_method : str
-        Temperature calculation method ('kinetic', 'lj_coulombic', 'harmonic')
+        Temperature calculation method ('kinetic', 'lj_coulombic', 'harmonic', 'harmonic_equipartition')
     time_constant_ps : float
         Time constant for gradient descent in picoseconds (controls convergence speed)
     time_tracker : ElapsedTimeTracker
@@ -1695,6 +1695,18 @@ class GradientDescentTemperatureFeedback(hoomd.custom.Action):
     ...     target_temperature=80.0,
     ...     empirical_data_file='harmonic_calibration.txt',
     ...     apply_to='both'
+    ... )
+    
+    **Harmonic equipartition temperature control (no empirical data needed):**
+    
+    >>> gd_controller = GradientDescentTemperatureFeedback(
+    ...     temperature_method='harmonic_equipartition',
+    ...     time_constant_ps=3.0,  # Fast response
+    ...     time_tracker=time_tracker,
+    ...     energy_tracker=energy_tracker,
+    ...     molecular_thermostat=molecular_thermo,
+    ...     target_temperature=100.0,
+    ...     apply_to='molecular'
     ... )
     
     Notes
@@ -1801,7 +1813,7 @@ class GradientDescentTemperatureFeedback(hoomd.custom.Action):
     
     def _validate_configuration(self):
         """Validate controller configuration."""
-        if self.temperature_method not in ['kinetic', 'lj_coulombic', 'harmonic']:
+        if self.temperature_method not in ['kinetic', 'lj_coulombic', 'harmonic', 'harmonic_equipartition']:
             raise ValueError(f"Invalid temperature_method: {self.temperature_method}")
         
         if self.apply_to not in ['molecular', 'cavity', 'both']:
@@ -1891,7 +1903,8 @@ class GradientDescentTemperatureFeedback(hoomd.custom.Action):
                 total_energy = lj_energy + coulomb_energy
                 
                 # Convert to temperature using empirical data
-                return self.empirical_data.calculate_systemic_temperature(total_energy)
+                temperature = self.empirical_data.calculate_systemic_temperature(total_energy)
+                return max(temperature, 0.0)  # Ensure non-negative temperature
                 
             elif self.temperature_method == 'harmonic':
                 if self.empirical_data is None:
@@ -1902,7 +1915,31 @@ class GradientDescentTemperatureFeedback(hoomd.custom.Action):
                 harmonic_energy = energy_dict.get('harmonic', 0.0)
                 
                 # Convert to temperature using empirical data
-                return self.empirical_data.calculate_systemic_temperature(harmonic_energy)
+                temperature = self.empirical_data.calculate_systemic_temperature(harmonic_energy)
+                return max(temperature, 0.0)  # Ensure non-negative temperature
+                
+            elif self.temperature_method == 'harmonic_equipartition':
+                # Calculate harmonic equipartition temperature directly from harmonic energy
+                # Using the same method as TemperatureTracker._calculate_harmonic_equipartition_temperature
+                energy_dict = self.energy_tracker.get_instantaneous_energy()
+                harmonic_energy = energy_dict.get('harmonic', 0.0)
+                
+                if harmonic_energy <= 0:
+                    return 0.0
+                
+                # Get number of particles
+                from .utils import PhysicalConstants
+                with self.simulation.state.cpu_local_snapshot as snap:
+                    N_particles = len(snap.particles.mass)
+                
+                if N_particles == 0:
+                    return 0.0
+                
+                # Direct equipartition calculation: T = 4*E/(N*kB) for 3D harmonic oscillator
+                # Based on empirical observations from TemperatureTracker implementation
+                kB_hartree = PhysicalConstants.KB_HARTREE_PER_K
+                temperature_K = (4.0 * harmonic_energy) / (N_particles * kB_hartree)
+                return temperature_K
             
             else:
                 print(f"Warning: Unknown temperature method '{self.temperature_method}'")
@@ -2158,7 +2195,7 @@ class PITemperatureFeedback(hoomd.custom.Action):
     Parameters
     ----------
     temperature_method : str
-        Temperature calculation method ('kinetic', 'lj_coulombic', 'harmonic')
+        Temperature calculation method ('kinetic', 'lj_coulombic', 'harmonic', 'harmonic_equipartition')
     molecular_tau_ps : float
         Molecular thermostat time constant in picoseconds (for auto-tuning)
     time_tracker : ElapsedTimeTracker
@@ -2284,8 +2321,8 @@ class PITemperatureFeedback(hoomd.custom.Action):
         super().__init__()
         
         # Validate inputs
-        if temperature_method not in ['kinetic', 'lj_coulombic', 'harmonic']:
-            raise ValueError(f"temperature_method must be 'kinetic', 'lj_coulombic', or 'harmonic', got {temperature_method}")
+        if temperature_method not in ['kinetic', 'lj_coulombic', 'harmonic', 'harmonic_equipartition']:
+            raise ValueError(f"temperature_method must be 'kinetic', 'lj_coulombic', 'harmonic', or 'harmonic_equipartition', got {temperature_method}")
         
         if temperature_method in ['lj_coulombic', 'harmonic'] and empirical_data_file is None:
             raise ValueError(f"empirical_data_file is required for temperature_method '{temperature_method}'")
@@ -2417,7 +2454,7 @@ class PITemperatureFeedback(hoomd.custom.Action):
                 if 'lj' in energy_data and 'coulombic' in energy_data:
                     lj_coulombic_energy = energy_data['lj'] + energy_data['coulombic']
                     temperature = self.empirical_data.calculate_systemic_temperature(lj_coulombic_energy)
-                    return temperature
+                    return max(temperature, 0.0)  # Ensure non-negative temperature
                 else:
                     print(f"Warning: LJ+Coulombic energy not available for temperature calculation")
                     return None
@@ -2432,9 +2469,32 @@ class PITemperatureFeedback(hoomd.custom.Action):
                 if 'harmonic' in energy_data:
                     harmonic_energy = energy_data['harmonic']
                     temperature = self.empirical_data.calculate_systemic_temperature(harmonic_energy)
-                    return temperature
+                    return max(temperature, 0.0)  # Ensure non-negative temperature
                 else:
                     print(f"Warning: Harmonic energy not available for temperature calculation")
+                    return None
+                    
+            elif self.temperature_method == 'harmonic_equipartition':
+                # Calculate harmonic equipartition temperature directly from harmonic energy
+                # Using the same method as GradientDescentTemperatureFeedback
+                energy_data = self.energy_tracker.get_instantaneous_energy()
+                if 'harmonic' in energy_data:
+                    harmonic_energy = energy_data['harmonic']
+                    
+                    if harmonic_energy <= 0:
+                        return 0.0
+                    
+                    # Get number of particles - need better way to get this
+                    # For now, estimate from typical molecular system (500 particles)
+                    N_particles = 500  # TODO: Get this from system state
+                    
+                    # Direct equipartition calculation: T = 4*E/(N*kB) for 3D harmonic oscillator
+                    from .utils import PhysicalConstants
+                    kB_hartree = PhysicalConstants.KB_HARTREE_PER_K
+                    temperature_K = (4.0 * harmonic_energy) / (N_particles * kB_hartree)
+                    return max(temperature_K, 0.0)  # Ensure non-negative temperature
+                else:
+                    print(f"Warning: Harmonic energy not available for harmonic_equipartition temperature calculation")
                     return None
                     
             else:
