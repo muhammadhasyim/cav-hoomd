@@ -509,7 +509,8 @@ Examples:
   --enable-pi-feedback       : Enable PI temperature feedback
   --pi-method kinetic        : Use kinetic temperature (from velocities)
   --pi-method lj_coulombic   : Use LJ+Coulombic fictive temperature
-  --pi-method harmonic       : Use harmonic fictive temperature
+  --pi-method harmonic       : Use harmonic fictive temperature (fitted)
+  --pi-method harmonic_equipartition : Use harmonic equipartition temperature (physics-based)
 
 📊 COMPREHENSIVE TEMPERATURE TRACKER:
   --enable-temp-tracker      : Track all temperatures (kinetic, fictive, bath)
@@ -588,7 +589,7 @@ Examples:
                        help='PI controller turn-on time in ps (default: 0.0)')
     parser.add_argument('--pi-turn-off-time', type=float, default=None,
                        help='PI controller turn-off time in ps (default: None, no turn-off)')
-    parser.add_argument('--pi-method', choices=['kinetic', 'lj_coulombic', 'harmonic'], default='kinetic',
+    parser.add_argument('--pi-method', choices=['kinetic', 'lj_coulombic', 'harmonic', 'harmonic_equipartition'], default='kinetic',
                        help='Temperature calculation method for PI controller (default: kinetic)')
     parser.add_argument('--pi-update-interval', type=float, default=5.0,
                        help='PI controller update interval in ps (default: 5.0)')
@@ -615,7 +616,7 @@ Examples:
     parser.add_argument('--gd-turn-off-time', type=float, default=None,
                        help='GD controller turn-off time in ps (default: None, never turn off)')
     parser.add_argument('--gd-method', type=str, default='kinetic',
-                       choices=['kinetic', 'lj_coulombic', 'harmonic'],
+                       choices=['kinetic', 'lj_coulombic', 'harmonic', 'harmonic_equipartition'],
                        help='GD controller temperature method (default: kinetic)')
     parser.add_argument('--gd-update-interval', type=float, default=0.1,
                        help='GD controller update interval in ps (default: 0.1)')
