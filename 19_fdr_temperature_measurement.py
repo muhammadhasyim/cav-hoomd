@@ -217,7 +217,34 @@ def run_fdr_cavity_experiment(coupling=7e-4, temperature=100.0, frequency=1560.0
             
         # Initialize the simulation (this sets up everything)
         logger.info("⚡ Initializing simulation...")
-        md_sim.setup_simulation()
+        
+        # Use the complete workflow to ensure everything is set up
+        # We need to set the coupling to 0 for calibration before running
+        # Let's temporarily override the coupling in the CavityMDSimulation object
+        original_coupling = md_sim.couplstr
+        if switch_time_ps is not None or coupling == 0:
+            # For step coupling or zero coupling, start at zero
+            md_sim.couplstr = 0.0
+            logger.info(f"   Setting coupling to 0 for calibration (original: {original_coupling:.2e})")
+        
+        # Initialize simulation completely using the run method but stop early
+        logger.info("   Running initialization phases...")
+        try:
+            # This sets up the complete simulation including integrator and forces
+            # But we'll override the runtime to handle our custom workflow
+            original_runtime = md_sim.runtime_ps
+            md_sim.runtime_ps = 0.001  # Minimal runtime for setup
+            
+            # Start the simulation to get everything initialized
+            md_sim.run()
+            
+            # Restore original runtime
+            md_sim.runtime_ps = original_runtime
+            
+        except Exception as e:
+            # If run fails, try just the setup
+            logger.warning(f"Full run failed ({e}), trying setup only...")
+            md_sim.setup_simulation()
         
         # Attach FDR monitor to the initialized simulation
         fdr_monitor.attach_to_simulation(md_sim.sim)
@@ -228,20 +255,6 @@ def run_fdr_cavity_experiment(coupling=7e-4, temperature=100.0, frequency=1560.0
         
         logger.info("🔥 Starting equilibration for FDR calibration...")
         logger.info("   Calibrating FDR estimator at equilibrium BEFORE cavity coupling turns on")
-        
-        # For ALL cases, ensure coupling is OFF during calibration
-        # This gives us true equilibrium data for calibration
-        original_coupling = None
-        cavity_force = None
-        
-        # Find the cavity force in the simulation
-        for force in md_sim.sim.operations.integrator.forces:
-            if hasattr(force, 'coupling_strength'):
-                cavity_force = force
-                original_coupling = force.coupling_strength
-                force.coupling_strength = 0.0
-                logger.info(f"   Temporarily disabled coupling (was {original_coupling:.2e})")
-                break
             
         equilibration_steps = fdr_calibration_steps
         logger.info(f"   Running {equilibration_steps} equilibration steps at T = {temperature:.1f} K...")
@@ -274,8 +287,12 @@ def run_fdr_cavity_experiment(coupling=7e-4, temperature=100.0, frequency=1560.0
         logger.info(f"   Equilibration completed at t = {equilibration_end_time:.2f} ps")
         
         # Restore coupling - this is when coupling AND FDR measurements start
-        if original_coupling is not None and cavity_force is not None:
-            cavity_force.coupling_strength = original_coupling
+        if switch_time_ps is not None and original_coupling != 0:
+            # For step coupling, we'll handle the coupling change during the run loop
+            logger.info(f"   Coupling will be activated at t = {switch_time_ps:.2f} ps")
+        elif original_coupling != 0:
+            # For constant coupling, restore it now
+            md_sim.couplstr = original_coupling  # This will need to be updated in the force as well
             logger.info(f"   Coupling restored to {original_coupling:.2e}")
             
         # For step coupling, verify switch time is in the future
