@@ -29,7 +29,8 @@ from .analysis import (
     EnergyTracker, PerformanceTracker, AutocorrelationTracker
 )
 from .updaters import CavityParticleDisplacer
-from .variants import StepVariant, PeriodicVariant, ExponentialDecayVariant, SquareWaveVariant
+from .variants import StepVariant, PeriodicVariant, ExponentialDecayVariant, SquareWaveVariant, DecayingSquareWaveVariant, AdaptiveSquareWaveVariant
+from .composite_variant import CompositeVariant
 
 
 class CavityMDSimulation:
@@ -386,6 +387,9 @@ class CavityMDSimulation:
                  decay_time_constant_ps: Optional[float] = None,
                  initial_fraction: float = 1e-5,
                  time_constant_ps: float = 50.0,
+                 # Dynamic coupling detection parameters
+                 enable_dynamic_coupling_detection: bool = True,
+                 coupling_change_threshold: float = 1e-5,
                  transition_time_ps: float = 0.5,
                  use_smooth_switching: bool = True,
                  zero_momentum_enabled: bool = False,
@@ -410,7 +414,7 @@ class CavityMDSimulation:
                  periodic_start_time_ps: float = 0.0,
                  periodic_stop_time_ps: Optional[float] = None,
                  # Enhanced coupling variant parameters
-                 coupling_variant_type: str = 'constant',  # 'constant', 'step', 'periodic', 'exponential', 'square'
+                 coupling_variant_type: str = 'constant',  # 'constant', 'step', 'periodic', 'exponential', 'square', 'exponentialwave'
                  # Exponential decay parameters
                  exponential_amplitude: Optional[float] = None,
                  exponential_decay_time_ps: float = 10.0,
@@ -422,6 +426,45 @@ class CavityMDSimulation:
                  square_phase_offset: float = 0.0,
                  square_start_time_ps: float = 0.0,
                  square_stop_time_ps: Optional[float] = None,
+                 # Decaying square wave parameters
+                 decaying_square_period_ps: float = 2.0,
+                 decaying_square_duty_cycle: float = 0.5,
+                 decaying_square_phase_offset: float = 0.0,
+                 decaying_square_start_time_ps: float = 0.0,
+                 decaying_square_stop_time_ps: Optional[float] = None,
+                 decaying_square_decay_rate: float = 0.1,
+                 decaying_square_minimum_amplitude: float = 1e-6,
+                 # Adaptive square wave parameters
+                 adaptive_square_period_ps: float = 5.0,
+                 adaptive_square_duty_cycle: float = 0.5,
+                 adaptive_square_phase_offset: float = 0.0,
+                 adaptive_square_start_time_ps: float = 0.0,
+                 adaptive_square_stop_time_ps: Optional[float] = None,
+                 adaptive_square_min_amplitude: float = 1e-8,
+                 adaptive_square_max_amplitude: float = 1e-1,
+                 # Exponential wave parameters
+                 exp_period_ps: float = 2.0,
+                 exp_tau_ps: float = 0.5,
+                 exp_start_time_ps: float = 0.0,
+                 exp_stop_time_ps: Optional[float] = None,
+                 exp_adaptive: bool = False,
+                 # Composite coupling parameters
+                 composite_sinusoid_amplitude: float = 1e-4,
+                 composite_sinusoid_period: float = 1.0,
+                 composite_sinusoid_phase: float = 0.0,
+                 composite_sinusoid_start_time: float = 0.0,
+                 composite_sinusoid_stop_time: Optional[float] = None,
+                 composite_square_amplitude: float = 2e-4,
+                 composite_square_period: float = 50.0,
+                 composite_square_duty_cycle: float = 0.02,
+                 composite_square_start_time: float = 10.0,
+                 composite_square_stop_time: float = 1000.0,
+                 composite_square_adaptive: bool = False,
+                 composite_max_amplitude: Optional[float] = None,
+                 # Auto-stop coupling parameters
+                 enable_auto_stop: bool = False,
+                 auto_stop_tol: float = 1.0,
+                 auto_stop_window: float = 10.0,
                  # Enhanced laser drive parameters  
                  laser_enabled: bool = False,
                  laser_frequency_cm1: float = 0.0,
@@ -453,6 +496,89 @@ class CavityMDSimulation:
                  gd_apply_to: str = 'both',
                  gd_T_min: float = 0.0,
                  gd_T_max: Optional[float] = None,
+                 gd_disable_effective_temp: bool = False,
+                 # Multi-signal error function parameters
+                 gd_enable_multi_signal: bool = False,
+                 gd_weight_system_target: float = 1.0,
+                 gd_weight_bath_target: float = 0.0,
+                 gd_weight_system_bath: float = 0.0,
+                 # Dual independent feedback controller parameters
+                 enable_dual_feedback: bool = False,
+                 dual_cavity_method: str = 'harmonic_equipartition',
+                 dual_molecular_method: str = 'lj_coulombic_kinetic',
+                 dual_cavity_target_temperature: float = 100.0,
+                 dual_molecular_target_temperature: float = 100.0,
+                 dual_cavity_time_constant_ps: float = 5.0,
+                 dual_molecular_time_constant_ps: float = 10.0,
+                 dual_turn_on_time_ps: float = 0.0,
+                 dual_turn_off_time_ps: Optional[float] = None,
+                 dual_update_interval_ps: float = 0.1,
+                 dual_cavity_T_min: float = 0.0,
+                 dual_cavity_T_max: Optional[float] = None,
+                 dual_molecular_T_min: float = 0.0,
+                 dual_molecular_T_max: Optional[float] = None,
+                 dual_cavity_dynamic_target: bool = False,
+                 dual_molecular_dynamic_target: bool = False,
+                 dual_cavity_integral_time_constant_ps: Optional[float] = None,
+                 dual_molecular_integral_time_constant_ps: Optional[float] = None,
+                 # Sinusoidal bath temperature controller parameters
+                 enable_sinusoidal_bath: bool = False,
+                 sinusoidal_bath_period_ps: float = 1.0,
+                 sinusoidal_bath_amplitude_scale: float = 0.1,
+                 sinusoidal_bath_phase_offset: float = 0.0,
+                 sinusoidal_bath_target_temperature: float = 100.0,
+                 sinusoidal_bath_dynamic_target: bool = False,
+                 sinusoidal_bath_turn_on_time_ps: float = 0.0,
+                 sinusoidal_bath_turn_off_time_ps: Optional[float] = None,
+                 sinusoidal_bath_update_interval_ps: float = 0.1,
+                 sinusoidal_bath_apply_to: str = 'both',
+                 sinusoidal_bath_T_min: float = 0.1,
+                 sinusoidal_bath_T_max: Optional[float] = None,
+                 sinusoidal_bath_empirical_data_file: Optional[str] = None,
+                 sinusoidal_bath_amplitude_update_interval_ps: float = 1.0,
+                 sinusoidal_bath_amplitude_temperature_method: str = 'harmonic_equipartition',
+                 sinusoidal_bath_adaptive_range_mode: bool = False,
+                 # Adaptive bath temperature controller parameters
+                 enable_adaptive_bath: bool = False,
+                 adaptive_bath_amplitude_scale: float = 1.0,
+                 adaptive_bath_time_constant_ps: float = 1.0,
+                 adaptive_bath_target_temperature: float = 100.0,
+                 adaptive_bath_dynamic_target: bool = True,
+                 adaptive_bath_turn_on_time_ps: float = 0.0,
+                 adaptive_bath_turn_off_time_ps: Optional[float] = None,
+                 adaptive_bath_update_interval_ps: float = 0.1,
+                 adaptive_bath_apply_to: str = 'both',
+                 adaptive_bath_T_min: float = 0.1,
+                 adaptive_bath_T_max: Optional[float] = None,
+                 adaptive_bath_empirical_data_file: Optional[str] = None,
+                 adaptive_bath_signal_temperature_method: str = 'harmonic_equipartition',
+                 # Quench controller parameters
+                 enable_quench_controller: bool = False,
+                 quench_initial_temperature: float = 100.0,
+                 quench_target_temperature: float = 50.0,
+                 quench_time_ps: float = 50.0,
+                 quench_apply_to: str = 'both',
+                 # Offset temperature controller parameters
+                 enable_offset_controller: bool = False,
+                 offset_temperature_method: str = 'kinetic',
+                 offset_temperature_offset_K: float = -50.0,
+                 offset_turn_on_time_ps: float = 0.0,
+                 offset_turn_off_time_ps: Optional[float] = None,
+                 offset_update_interval_ps: float = 0.1,
+                 offset_apply_to: str = 'both',
+                 offset_T_min: float = 0.0,
+                 offset_T_max: Optional[float] = None,
+                 # Differential equation controller parameters
+                 enable_diffeq_controller: bool = False,
+                 diffeq_temperature_method: str = 'kinetic',
+                 diffeq_time_constant_ps: float = 5.0,
+                 diffeq_turn_on_time_ps: float = 0.0,
+                 diffeq_turn_off_time_ps: Optional[float] = None,
+                 diffeq_update_interval_ps: float = 0.1,
+                 diffeq_apply_to: str = 'both',
+                 diffeq_T_min: float = 0.0,
+                 diffeq_T_max: Optional[float] = None,
+                 diffeq_rate_limit_K_per_ps: Optional[float] = None,
                  # Temperature tracker parameters
                  enable_temp_tracker: bool = False,
                  temp_tracker_output_period_ps: float = 0.1,
@@ -505,6 +631,10 @@ class CavityMDSimulation:
         self.initial_fraction = initial_fraction
         self.time_constant_ps = time_constant_ps
         
+        # Dynamic coupling detection parameters
+        self.enable_dynamic_coupling_detection = enable_dynamic_coupling_detection
+        self.coupling_change_threshold = coupling_change_threshold
+        
         # Momentum zeroing parameters
         self.zero_momentum_enabled = zero_momentum_enabled
         self.zero_momentum_period_ps = zero_momentum_period_ps
@@ -542,6 +672,50 @@ class CavityMDSimulation:
         self.square_start_time_ps = square_start_time_ps
         self.square_stop_time_ps = square_stop_time_ps
         
+        # Decaying square wave parameters
+        self.decaying_square_period_ps = decaying_square_period_ps
+        self.decaying_square_duty_cycle = decaying_square_duty_cycle
+        self.decaying_square_phase_offset = decaying_square_phase_offset
+        self.decaying_square_start_time_ps = decaying_square_start_time_ps
+        self.decaying_square_stop_time_ps = decaying_square_stop_time_ps
+        self.decaying_square_decay_rate = decaying_square_decay_rate
+        self.decaying_square_minimum_amplitude = decaying_square_minimum_amplitude
+        
+        # Adaptive square wave parameters
+        self.adaptive_square_period_ps = adaptive_square_period_ps
+        self.adaptive_square_duty_cycle = adaptive_square_duty_cycle
+        self.adaptive_square_phase_offset = adaptive_square_phase_offset
+        self.adaptive_square_start_time_ps = adaptive_square_start_time_ps
+        self.adaptive_square_stop_time_ps = adaptive_square_stop_time_ps
+        self.adaptive_square_min_amplitude = adaptive_square_min_amplitude
+        self.adaptive_square_max_amplitude = adaptive_square_max_amplitude
+        
+        # Exponential wave parameters
+        self.exp_period_ps = exp_period_ps
+        self.exp_tau_ps = exp_tau_ps
+        self.exp_start_time_ps = exp_start_time_ps
+        self.exp_stop_time_ps = exp_stop_time_ps
+        self.exp_adaptive = exp_adaptive
+        
+        # Composite coupling parameters
+        self.composite_sinusoid_amplitude = composite_sinusoid_amplitude
+        self.composite_sinusoid_period = composite_sinusoid_period
+        self.composite_sinusoid_phase = composite_sinusoid_phase
+        self.composite_sinusoid_start_time = composite_sinusoid_start_time
+        self.composite_sinusoid_stop_time = composite_sinusoid_stop_time
+        self.composite_square_amplitude = composite_square_amplitude
+        self.composite_square_period = composite_square_period
+        self.composite_square_duty_cycle = composite_square_duty_cycle
+        self.composite_square_start_time = composite_square_start_time
+        self.composite_square_stop_time = composite_square_stop_time
+        self.composite_square_adaptive = composite_square_adaptive
+        self.composite_max_amplitude = composite_max_amplitude
+        
+        # Auto-stop coupling parameters
+        self.enable_auto_stop = enable_auto_stop
+        self.auto_stop_tol = auto_stop_tol
+        self.auto_stop_window = auto_stop_window
+        
         # Enhanced laser drive parameters
         self.laser_enabled = laser_enabled
         self.laser_frequency_cm1 = laser_frequency_cm1
@@ -575,6 +749,96 @@ class CavityMDSimulation:
         self.gd_apply_to = gd_apply_to
         self.gd_T_min = gd_T_min
         self.gd_T_max = gd_T_max
+        self.gd_disable_effective_temp = gd_disable_effective_temp
+        
+        # Multi-signal error function parameters
+        self.gd_enable_multi_signal = gd_enable_multi_signal
+        self.gd_weight_system_target = gd_weight_system_target
+        self.gd_weight_bath_target = gd_weight_bath_target
+        self.gd_weight_system_bath = gd_weight_system_bath
+        
+        # Dual independent feedback controller parameters
+        self.enable_dual_feedback = enable_dual_feedback
+        self.dual_cavity_method = dual_cavity_method
+        self.dual_molecular_method = dual_molecular_method
+        self.dual_cavity_target_temperature = dual_cavity_target_temperature
+        self.dual_molecular_target_temperature = dual_molecular_target_temperature
+        self.dual_cavity_time_constant_ps = dual_cavity_time_constant_ps
+        self.dual_molecular_time_constant_ps = dual_molecular_time_constant_ps
+        self.dual_turn_on_time_ps = dual_turn_on_time_ps
+        self.dual_turn_off_time_ps = dual_turn_off_time_ps
+        self.dual_update_interval_ps = dual_update_interval_ps
+        self.dual_cavity_T_min = dual_cavity_T_min
+        self.dual_cavity_T_max = dual_cavity_T_max
+        self.dual_molecular_T_min = dual_molecular_T_min
+        self.dual_molecular_T_max = dual_molecular_T_max
+        self.dual_cavity_dynamic_target = dual_cavity_dynamic_target
+        self.dual_molecular_dynamic_target = dual_molecular_dynamic_target
+        self.dual_cavity_integral_time_constant_ps = dual_cavity_integral_time_constant_ps
+        self.dual_molecular_integral_time_constant_ps = dual_molecular_integral_time_constant_ps
+        
+        # Sinusoidal bath temperature controller parameters
+        self.enable_sinusoidal_bath = enable_sinusoidal_bath
+        self.sinusoidal_bath_period_ps = sinusoidal_bath_period_ps
+        self.sinusoidal_bath_amplitude_scale = sinusoidal_bath_amplitude_scale
+        self.sinusoidal_bath_phase_offset = sinusoidal_bath_phase_offset
+        self.sinusoidal_bath_target_temperature = sinusoidal_bath_target_temperature
+        self.sinusoidal_bath_dynamic_target = sinusoidal_bath_dynamic_target
+        self.sinusoidal_bath_turn_on_time_ps = sinusoidal_bath_turn_on_time_ps
+        self.sinusoidal_bath_turn_off_time_ps = sinusoidal_bath_turn_off_time_ps
+        self.sinusoidal_bath_update_interval_ps = sinusoidal_bath_update_interval_ps
+        self.sinusoidal_bath_apply_to = sinusoidal_bath_apply_to
+        self.sinusoidal_bath_T_min = sinusoidal_bath_T_min
+        self.sinusoidal_bath_T_max = sinusoidal_bath_T_max
+        self.sinusoidal_bath_empirical_data_file = sinusoidal_bath_empirical_data_file
+        self.sinusoidal_bath_amplitude_update_interval_ps = sinusoidal_bath_amplitude_update_interval_ps
+        self.sinusoidal_bath_amplitude_temperature_method = sinusoidal_bath_amplitude_temperature_method
+        self.sinusoidal_bath_adaptive_range_mode = sinusoidal_bath_adaptive_range_mode
+        
+        # Adaptive bath temperature controller parameters  
+        self.enable_adaptive_bath = enable_adaptive_bath
+        self.adaptive_bath_amplitude_scale = adaptive_bath_amplitude_scale
+        self.adaptive_bath_time_constant_ps = adaptive_bath_time_constant_ps
+        self.adaptive_bath_target_temperature = adaptive_bath_target_temperature
+        self.adaptive_bath_dynamic_target = adaptive_bath_dynamic_target
+        self.adaptive_bath_turn_on_time_ps = adaptive_bath_turn_on_time_ps
+        self.adaptive_bath_turn_off_time_ps = adaptive_bath_turn_off_time_ps
+        self.adaptive_bath_update_interval_ps = adaptive_bath_update_interval_ps
+        self.adaptive_bath_T_min = adaptive_bath_T_min
+        self.adaptive_bath_T_max = adaptive_bath_T_max
+        self.adaptive_bath_apply_to = adaptive_bath_apply_to
+        self.adaptive_bath_empirical_data_file = adaptive_bath_empirical_data_file
+        self.adaptive_bath_signal_temperature_method = adaptive_bath_signal_temperature_method
+        
+        # Quench controller parameters
+        self.enable_quench_controller = enable_quench_controller
+        self.quench_initial_temperature = quench_initial_temperature
+        self.quench_target_temperature = quench_target_temperature
+        self.quench_time_ps = quench_time_ps
+        self.quench_apply_to = quench_apply_to
+        
+        # Offset temperature controller parameters
+        self.enable_offset_controller = enable_offset_controller
+        self.offset_temperature_method = offset_temperature_method
+        self.offset_temperature_offset_K = offset_temperature_offset_K
+        self.offset_turn_on_time_ps = offset_turn_on_time_ps
+        self.offset_turn_off_time_ps = offset_turn_off_time_ps
+        self.offset_update_interval_ps = offset_update_interval_ps
+        self.offset_apply_to = offset_apply_to
+        self.offset_T_min = offset_T_min
+        self.offset_T_max = offset_T_max
+        
+        # Differential equation controller parameters
+        self.enable_diffeq_controller = enable_diffeq_controller
+        self.diffeq_temperature_method = diffeq_temperature_method
+        self.diffeq_time_constant_ps = diffeq_time_constant_ps
+        self.diffeq_turn_on_time_ps = diffeq_turn_on_time_ps
+        self.diffeq_turn_off_time_ps = diffeq_turn_off_time_ps
+        self.diffeq_update_interval_ps = diffeq_update_interval_ps
+        self.diffeq_apply_to = diffeq_apply_to
+        self.diffeq_T_min = diffeq_T_min
+        self.diffeq_T_max = diffeq_T_max
+        self.diffeq_rate_limit_K_per_ps = diffeq_rate_limit_K_per_ps
         
         # Temperature tracker parameters
         self.enable_temp_tracker = enable_temp_tracker
@@ -664,6 +928,45 @@ class CavityMDSimulation:
         # Initialize simulation components (will be set during setup)
         self.sim = None
         self.logger = None
+        
+        # Delayed controller management
+        self._delayed_controllers = []  # List of controllers to add during simulation
+        self._delayed_controller_monitor = None
+        
+    def _add_delayed_controller(self, controller_setup_func, activation_time_ps, controller_name):
+        """Register a controller to be added during simulation at a specific time."""
+        self._delayed_controllers.append({
+            'setup_func': controller_setup_func,
+            'activation_time_ps': activation_time_ps,
+            'controller_name': controller_name,
+            'activated': False
+        })
+        self.log_info(f"Delayed controller registered: {controller_name} (activates at {activation_time_ps:.1f} ps)")
+    
+    def _create_delayed_controller_monitor(self):
+        """Create a monitor that activates delayed controllers during simulation."""
+        if not self._delayed_controllers:
+            return None
+            
+        class DelayedControllerMonitor(hoomd.custom.Action):
+            def __init__(self, simulation_obj):
+                self.simulation = simulation_obj
+                self.time_tracker = simulation_obj.time_tracker
+                
+            def act(self, timestep):
+                current_time_ps = self.time_tracker.elapsed_time
+                
+                for controller_data in self.simulation._delayed_controllers:
+                    if not controller_data['activated'] and current_time_ps >= controller_data['activation_time_ps']:
+                        try:
+                            # Activate the controller
+                            controller_data['setup_func']()
+                            controller_data['activated'] = True
+                            self.simulation.log_info(f"✅ Delayed controller activated: {controller_data['controller_name']} at t = {current_time_ps:.2f} ps")
+                        except Exception as e:
+                            self.simulation.log_error(f"Failed to activate delayed controller {controller_data['controller_name']}: {e}")
+        
+        return DelayedControllerMonitor(self)
 
     def get_array_module(self, *arrays):
         """
@@ -883,7 +1186,7 @@ class CavityMDSimulation:
             self.logger.error(message)
         else:
             print(f"ERROR: {message}", flush=True)
-    
+
     def _create_coupling_variant(self):
         """Create coupling variant based on coupling_variant_type."""
         if not hasattr(self, 'time_tracker') or self.time_tracker is None:
@@ -957,6 +1260,234 @@ class CavityMDSimulation:
             self.log_info(f"  Period: {self.square_period_ps} ps")
             self.log_info(f"  Duty cycle: {self.square_duty_cycle:.1%}")
         
+        elif variant_type == 'decaying_square':
+            # Decaying square wave coupling
+            coupling_variant = DecayingSquareWaveVariant(
+                initial_amplitude=self.couplstr,
+                period_ps=self.decaying_square_period_ps,
+                time_tracker=self.time_tracker,
+                decay_rate_per_period=self.decaying_square_decay_rate,
+                duty_cycle=self.decaying_square_duty_cycle,
+                phase_offset=self.decaying_square_phase_offset,
+                start_time_ps=self.decaying_square_start_time_ps,
+                stop_time_ps=self.decaying_square_stop_time_ps,
+                minimum_amplitude=self.decaying_square_minimum_amplitude
+            )
+            self.log_info(f"Using decaying square wave coupling:")
+            self.log_info(f"  Initial amplitude: {self.couplstr} a.u.")
+            self.log_info(f"  Period: {self.decaying_square_period_ps} ps")
+            self.log_info(f"  Duty cycle: {self.decaying_square_duty_cycle:.1%}")
+            self.log_info(f"  Decay rate: {self.decaying_square_decay_rate:.1%} per period")
+            self.log_info(f"  Minimum amplitude: {self.decaying_square_minimum_amplitude:.2e} a.u.")
+        
+        elif variant_type == 'adaptive_square':
+            # Adaptive square wave coupling - needs target temperature and temperature tracker
+            
+            # Determine target temperature from controllers
+            target_temperature = None
+            
+            # Debug: Check what controllers are enabled
+            print(f"DEBUG: Checking temperature controllers for adaptive square wave:")
+            print(f"  enable_quench_controller: {getattr(self, 'enable_quench_controller', 'NOT_SET')}")
+            print(f"  enable_gd_feedback: {getattr(self, 'enable_gd_feedback', 'NOT_SET')}")
+            print(f"  enable_dual_feedback: {getattr(self, 'enable_dual_feedback', 'NOT_SET')}")
+            print(f"  enable_diffeq_controller: {getattr(self, 'enable_diffeq_controller', 'NOT_SET')}")
+            
+            if self.enable_quench_controller:
+                target_temperature = self.quench_target_temperature
+                temp_source = "quench controller"
+            elif self.enable_gd_feedback:
+                target_temperature = self.gd_target_temperature
+                temp_source = "gradient descent controller"
+            elif (hasattr(self, 'enable_dual_feedback') and self.enable_dual_feedback):
+                # Use cavity target temperature from dual controller
+                target_temperature = getattr(self, 'dual_cavity_target_temperature', 100.0)
+                temp_source = "dual independent controller (cavity target)"
+                print(f"DEBUG: Using dual controller, target_temperature = {target_temperature}")
+            elif (hasattr(self, 'enable_diffeq_controller') and self.enable_diffeq_controller):
+                # Use initial temperature from DiffEq controller (T_initial in the formula)
+                target_temperature = self.temperature  # This is the --temperature parameter (T_initial)
+                temp_source = "differential equation controller (initial temperature)"
+                print(f"DEBUG: Using DiffEq controller, target_temperature = {target_temperature}")
+            else:
+                raise ValueError("Adaptive square wave coupling requires either --enable-quench-controller, "
+                               "--enable-gd-feedback, --enable-dual-feedback, or --enable-diffeq-controller to provide target temperature")
+            
+            # Ensure temperature tracker is enabled
+            if not self.enable_temp_tracker:
+                raise ValueError("Adaptive square wave coupling requires --enable-temp-tracker "
+                               "to measure harmonic equipartition temperature")
+            
+            # Create adaptive square wave variant (temperature tracker will be set later)
+            coupling_variant = AdaptiveSquareWaveVariant(
+                target_coupling=self.couplstr,
+                target_temperature=target_temperature,
+                period_ps=self.adaptive_square_period_ps,
+                time_tracker=self.time_tracker,
+                temperature_tracker=None,  # Will be set after temperature tracker is created
+                duty_cycle=self.adaptive_square_duty_cycle,
+                phase_offset=self.adaptive_square_phase_offset,
+                start_time_ps=self.adaptive_square_start_time_ps,
+                stop_time_ps=self.adaptive_square_stop_time_ps,
+                min_amplitude=self.adaptive_square_min_amplitude,
+                max_amplitude=self.adaptive_square_max_amplitude,
+                simulation=self  # Pass simulation reference for auto-stop signal
+            )
+            
+            # Store reference for later temperature tracker assignment
+            self._adaptive_coupling_variant = coupling_variant
+            
+            self.log_info(f"Using adaptive square wave coupling:")
+            self.log_info(f"  Target coupling (g_target): {self.couplstr} a.u.")
+            self.log_info(f"  Target temperature (T_target): {target_temperature:.1f} K (from {temp_source})")
+            self.log_info(f"  Period: {self.adaptive_square_period_ps} ps")
+            self.log_info(f"  Duty cycle: {self.adaptive_square_duty_cycle:.1%}")
+            self.log_info(f"  Amplitude limits: [{self.adaptive_square_min_amplitude:.2e}, {self.adaptive_square_max_amplitude:.2e}] a.u.")
+            self.log_info(f"  Algorithm: g_next = g_target × √(T_target / T_harmonic)")
+        
+        elif variant_type == 'composite':
+            # Create composite coupling from sinusoidal + adaptive square wave
+            
+            # First, create sinusoidal component
+            sinusoid_variant = PeriodicVariant(
+                amplitude=self.composite_sinusoid_amplitude,
+                period_ps=self.composite_sinusoid_period,
+                time_tracker=self.time_tracker,
+                phase_offset=self.composite_sinusoid_phase,
+                start_time_ps=self.composite_sinusoid_start_time,
+                stop_time_ps=self.composite_sinusoid_stop_time
+            )
+            
+            # Create square wave component (adaptive or fixed)
+            if self.composite_square_adaptive:
+                # Determine target temperature for adaptive square component
+                if hasattr(self, 'enable_quench_controller') and self.enable_quench_controller:
+                    target_temperature = getattr(self, 'quench_target_temperature', 100.0)
+                    temp_source = "quench controller"
+                elif hasattr(self, 'enable_gd_feedback') and self.enable_gd_feedback:
+                    target_temperature = getattr(self, 'gd_target_temperature', 100.0)
+                    temp_source = "gradient descent controller"
+                elif hasattr(self, 'enable_dual_feedback') and self.enable_dual_feedback:
+                    target_temperature = getattr(self, 'dual_cavity_target_temperature', 100.0)
+                    temp_source = "dual independent controller (cavity target)"
+            else:
+                raise ValueError("Adaptive square wave in composite coupling requires a controller (quench, gd, or dual feedback) to provide target temperature")
+            
+            # Check if temperature tracker is available yet
+            temp_tracker = getattr(self, 'temperature_tracker', None)
+            if temp_tracker is None:
+                # Temperature tracker not set up yet, fall back to fixed square wave
+                self.log_warning("Temperature tracker not available yet for adaptive square wave, using fixed amplitude instead")
+                square_wave_variant = SquareWaveVariant(
+                    amplitude=self.composite_square_amplitude,
+                    period_ps=self.composite_square_period,
+                    time_tracker=self.time_tracker,
+                    duty_cycle=self.composite_square_duty_cycle,
+                    phase_offset=0.0,
+                    start_time_ps=self.composite_square_start_time,
+                    stop_time_ps=self.composite_square_stop_time
+                )
+            else:
+                square_wave_variant = AdaptiveSquareWaveVariant(
+                    target_amplitude=self.composite_square_amplitude,
+                    period_ps=self.composite_square_period,
+                    duty_cycle=self.composite_square_duty_cycle,
+                    time_tracker=self.time_tracker,
+                    temperature_tracker=temp_tracker,
+                    target_temperature=target_temperature,
+                    start_time_ps=self.composite_square_start_time,
+                    stop_time_ps=self.composite_square_stop_time,
+                    target_coupling=0.0  # This should be set to the desired constant value post-auto-stop
+                )
+            
+            # Create composite variant
+            coupling_variant = CompositeVariant(
+                variants=[sinusoid_variant, square_wave_variant],
+                max_amplitude=self.composite_max_amplitude
+            )
+            
+            # Store reference for later temperature tracker assignment
+            self._composite_coupling_variant = coupling_variant
+            
+            self.log_info(f"Using composite coupling:")
+            self.log_info(f"  Sinusoidal component:")
+            self.log_info(f"    Amplitude: {self.composite_sinusoid_amplitude:.2e} a.u.")
+            self.log_info(f"    Period: {self.composite_sinusoid_period} ps")
+            self.log_info(f"    Phase: {self.composite_sinusoid_phase:.2f} rad")
+            self.log_info(f"    Start time: {self.composite_sinusoid_start_time} ps")
+            self.log_info(f"    Stop time: {self.composite_sinusoid_stop_time} ps")
+            
+            if self.composite_square_adaptive:
+                if getattr(self, 'temperature_tracker', None) is not None:
+                    self.log_info(f"  Adaptive square wave component:")
+                    self.log_info(f"    Target amplitude: {self.composite_square_amplitude:.2e} a.u.")
+                    self.log_info(f"    Target temperature: {target_temperature:.1f} K (from {temp_source})")
+                    self.log_info(f"    Period: {self.composite_square_period} ps")
+                    self.log_info(f"    Duty cycle: {self.composite_square_duty_cycle:.1%}")
+                    self.log_info(f"    Start time: {self.composite_square_start_time} ps")
+                    self.log_info(f"    Stop time: {self.composite_square_stop_time} ps")
+                else:
+                    self.log_info(f"  Fixed square wave component (adaptive requested but temperature tracker not available):")
+                    self.log_info(f"    Amplitude: {self.composite_square_amplitude:.2e} a.u.")
+                    self.log_info(f"    Period: {self.composite_square_period} ps")
+                    self.log_info(f"    Duty cycle: {self.composite_square_duty_cycle:.1%}")
+                    self.log_info(f"    Start time: {self.composite_square_start_time} ps")
+                    self.log_info(f"    Stop time: {self.composite_square_stop_time} ps")
+            else:
+                self.log_info(f"  Fixed square wave component:")
+                self.log_info(f"    Amplitude: {self.composite_square_amplitude:.2e} a.u.")
+                self.log_info(f"    Period: {self.composite_square_period} ps")
+                self.log_info(f"    Duty cycle: {self.composite_square_duty_cycle:.1%}")
+                self.log_info(f"    Start time: {self.composite_square_start_time} ps")
+                self.log_info(f"    Stop time: {self.composite_square_stop_time} ps")
+            if self.composite_max_amplitude is not None:
+                self.log_info(f"  Maximum total amplitude: {self.composite_max_amplitude:.2e} a.u.")
+            else:
+                self.log_info(f"  Maximum total amplitude: No limit")
+        
+        elif variant_type == 'exponentialwave':
+            # Exponential wave coupling
+            from .variants import ExponentialWaveVariant
+            
+            # Check if adaptive mode is requested
+            if self.exp_adaptive:
+                # Adaptive exponential wave requires temperature tracker
+                temp_tracker = getattr(self, 'temperature_tracker', None)
+                if temp_tracker is None:
+                    self.log_warning("Temperature tracker not available for adaptive exponential wave, using fixed amplitude instead")
+                    adaptive_mode = False
+                else:
+                    adaptive_mode = True
+            else:
+                adaptive_mode = False
+            
+            coupling_variant = ExponentialWaveVariant(
+                amplitude=self.couplstr,
+                period_ps=self.exp_period_ps,
+                tau_ps=self.exp_tau_ps,
+                time_tracker=self.time_tracker,
+                start_time_ps=self.exp_start_time_ps,
+                stop_time_ps=self.exp_stop_time_ps,
+                adaptive=adaptive_mode,
+                temperature_tracker=getattr(self, 'temperature_tracker', None),
+                simulation=self  # Pass simulation reference for auto-stop signal
+            )
+            
+            self.log_info(f"Using exponential wave coupling:")
+            self.log_info(f"  Target amplitude: {self.couplstr} a.u.")
+            self.log_info(f"  Period: {self.exp_period_ps} ps")
+            self.log_info(f"  Decay time constant: {self.exp_tau_ps} ps")
+            self.log_info(f"  Start time: {self.exp_start_time_ps} ps")
+            if self.exp_stop_time_ps is not None:
+                self.log_info(f"  Stop time: {self.exp_stop_time_ps} ps")
+            else:
+                self.log_info(f"  No stop time (runs indefinitely)")
+            if adaptive_mode:
+                self.log_info(f"  Adaptive mode: ENABLED (T_bath/T_harmonic scaling)")
+                self.log_info(f"  Algorithm: coupling_new = coupling_target × √(T_bath / T_harmonic)")
+            else:
+                self.log_info(f"  Adaptive mode: DISABLED (fixed amplitude)")
+        
         else:
             raise ValueError(f"Unknown coupling_variant_type: {variant_type}")
         
@@ -1011,7 +1542,7 @@ class CavityMDSimulation:
                 couplstr=coupling_variant, 
                 omegac=omegac,
             )
-
+            
             # Store variants and cavity force for later use in finite-q setup and console output
             self.coupling_variant = coupling_variant
             self.omegac = omegac
@@ -1480,6 +2011,10 @@ class CavityMDSimulation:
             cavity_thermostat_tau = getattr(self, 'cavity_thermostat_tau', 5.0)
             switch_time_ps = getattr(self, 'switch_time_ps', None)
             
+            # Enable dynamic coupling detection by default, but still support legacy switch_time
+            dynamic_coupling_detection = getattr(self, 'enable_dynamic_coupling_detection', True)
+            coupling_change_threshold = getattr(self, 'coupling_change_threshold', 1e-5)
+            
             self.adaptive_action = AdaptiveTimestepUpdater(
                 state=self.sim.state,
                 integrator=self.sim.operations.integrator,
@@ -1496,7 +2031,10 @@ class CavityMDSimulation:
                 max_timestep_change_factor=1.5,  # Limit maximum change to 10%
                 shock_dampening_factor=self.initial_fraction,  # Use the actual initial_fraction parameter
                 shock_dampening_enabled=(switch_time_ps is not None),  # Enable whenever there's a switch time
-                shock_dampening_time_constant_ps=self.time_constant_ps  # Use the same time constant for shock dampening
+                shock_dampening_time_constant_ps=self.time_constant_ps,  # Use the same time constant for shock dampening
+                # New dynamic coupling detection parameters
+                dynamic_coupling_detection=dynamic_coupling_detection,
+                coupling_change_threshold=coupling_change_threshold
             )
             
             # Add adaptive updater - use a less frequent trigger to reduce computational overhead
@@ -1689,10 +2227,13 @@ class CavityMDSimulation:
                 
                 # Use time-based output period for accurate timing
                 self.energy_tracker = EnergyTracker(
-                    simulation=self.sim,
+                    simulation=self,  # ← Pass CavityMDSimulation object which has incavity attribute
                     time_tracker=self.time_tracker,
                     output_period_ps=energy_output_period_ps,
-                    output_prefix=output_prefix
+                    output_prefix=output_prefix,
+                    force_objects=force_objects,        # CRITICAL: Pass force objects
+                    thermostat_objects=thermostat_objects,  # CRITICAL: Pass thermostat objects
+                    verbose="quiet"  # Suppress debug output by default
                 )
                 
                 # Add energy tracker to simulation - trigger period doesn't matter since it uses internal timing
@@ -1702,7 +2243,7 @@ class CavityMDSimulation:
                 )
                 self.sim.operations.updaters.append(energy_updater)
                 
-                self.log_info(f"✅ Energy tracker setup completed with time-based output:")
+                self.log_info(f" Energy tracker setup completed with time-based output:")
                 self.log_info(f"  Output period: {energy_output_period_ps:.3f} ps (accurate timing)")
                 self.log_info(f"  Tracker handles timing internally using ElapsedTimeTracker")
                 if max_energy_output_time_ps:
@@ -1792,7 +2333,7 @@ class CavityMDSimulation:
                 # Add F(k,t) data to logger
                 logger[('F(k,t)', 'current_autocorr')] = (self.density_corr_tracker, 'current_autocorr', 'scalar')
                 
-                self.log_info("✅ F(k,t) tracker successfully enabled with time-based output:")
+                self.log_info(" F(k,t) tracker successfully enabled with time-based output:")
                 self.log_info(f"  Output period: {fkt_output_period_ps:.3f} ps (accurate timing)")
                 self.log_info(f"  Reference interval: {fkt_reference_interval_ps:.3f} ps")
                 self.log_info(f"  Tracker handles timing internally using ElapsedTimeTracker")
@@ -1840,7 +2381,7 @@ class CavityMDSimulation:
                 # Add dipole autocorrelation data to logger
                 logger[('Dipole', 'current_autocorr')] = (self.dipole_autocorr_tracker, 'current_autocorr', 'scalar')
                 
-                self.log_info("✅ Dipole autocorrelation tracker successfully enabled with time-based output:")
+                self.log_info(" Dipole autocorrelation tracker successfully enabled with time-based output:")
                 self.log_info(f"  Output period: {self.dipole_output_period_ps:.3f} ps (accurate timing)")
                 self.log_info(f"  Reference interval: {self.dipole_reference_interval_ps:.3f} ps")
                 self.log_info(f"  Tracker handles timing internally using ElapsedTimeTracker")
@@ -1882,7 +2423,7 @@ class CavityMDSimulation:
                 # Add to simulation operations
                 self.sim.operations.updaters.append(zero_momentum)
                 
-                self.log_info("✅ Momentum zeroing successfully enabled:")
+                self.log_info(" Momentum zeroing successfully enabled:")
                 self.log_info(f"  Trigger period: every {zero_momentum_steps} steps")
                 self.log_info(f"  Target period: {self.zero_momentum_period_ps:.3f} ps")
                 self.log_info("  Prevents center-of-mass drift during simulation")
@@ -1900,7 +2441,7 @@ class CavityMDSimulation:
         if hasattr(self, 'adaptive_action') and self.adaptive_action is not None:
             console_items.append("adaptive_error_tolerance")
         
-        self.log_info("✅ TRACKING AND LOGGING SETUP COMPLETED:")
+        self.log_info(" TRACKING AND LOGGING SETUP COMPLETED:")
         self.log_info("  All output systems now use precise time-based periods")
         
         # Log detailed summary of what's enabled
@@ -2010,7 +2551,7 @@ class CavityMDSimulation:
             )
             self.sim.operations.updaters.append(feedback_updater)
             
-            self.log_info("✅ Empirical temperature feedback system enabled")
+            self.log_info(" Empirical temperature feedback system enabled")
             
             # Print basic empirical data info
             self.log_info(f"  Energy component: {self.empirical_data.energy_component}")
@@ -2048,14 +2589,110 @@ class CavityMDSimulation:
             enabled_features.append(f"PI feedback controller ({self.pi_temperature_method})")
         
         # Set up gradient descent feedback controller if enabled
-        if getattr(self, 'enable_gd_feedback', False):
+        # NOTE: GD and quench controllers are mutually exclusive for temperature control
+        if getattr(self, 'enable_gd_feedback', False) and not getattr(self, 'enable_quench_controller', False):
             self._setup_gd_feedback()
             enabled_features.append(f"gradient descent feedback controller ({self.gd_temperature_method}, τ={self.gd_time_constant_ps:.1f}ps)")
+        elif getattr(self, 'enable_gd_feedback', False) and getattr(self, 'enable_quench_controller', False):
+            self.log_info("  WARNING: Both GD feedback and quench controller enabled - disabling GD to avoid conflicts")
+            self.gd_feedback = None
+        
+        # Set up dual independent feedback controller if enabled
+        # NOTE: Dual controller can be immediate or delayed
+        if getattr(self, 'enable_dual_feedback', False):
+            # Check if this should be a delayed controller (turn-on time > current time)
+            dual_turn_on_time = getattr(self, 'dual_turn_on_time_ps', 0.0)
+            current_time = self.time_tracker.elapsed_time if self.time_tracker else 0.0
+            
+            if dual_turn_on_time > current_time + 1.0:  # Allow 1ps buffer for immediate activation
+                # Register as delayed controller
+                self._add_delayed_controller(
+                    controller_setup_func=self._setup_dual_feedback,
+                    activation_time_ps=dual_turn_on_time,
+                    controller_name="DualIndependentTemperatureFeedback"
+                )
+                enabled_features.append(f"dual independent feedback controller (DELAYED to {dual_turn_on_time:.1f}ps)")
+            else:
+                # Check for conflicts with other immediate controllers
+                if (not getattr(self, 'enable_gd_feedback', False) and 
+                    not getattr(self, 'enable_quench_controller', False) and
+                    not getattr(self, 'enable_diffeq_controller', False)):
+                    # Setup immediately
+                    self._setup_dual_feedback()
+                    enabled_features.append(f"dual independent feedback controller (cavity:{self.dual_cavity_method}, molecular:{self.dual_molecular_method})")
+                else:
+                    self.log_info("  WARNING: Dual feedback enabled with other immediate controllers - setting up as delayed controller")
+                    # Force it to be delayed to avoid conflicts
+                    self._add_delayed_controller(
+                        controller_setup_func=self._setup_dual_feedback,
+                        activation_time_ps=max(dual_turn_on_time, current_time + 5.0),  # At least 5ps delay
+                        controller_name="DualIndependentTemperatureFeedback"
+                    )
+                    enabled_features.append(f"dual independent feedback controller (DELAYED due to conflicts)")
+        else:
+            self.dual_feedback = None
+        
+        # Set up differential equation controller if enabled
+        # NOTE: DiffEq controller can coexist with delayed controllers but not immediate ones
+        if getattr(self, 'enable_diffeq_controller', False):
+            # Check for immediate conflicts (controllers that start right away)
+            immediate_conflicts = []
+            if getattr(self, 'enable_gd_feedback', False):
+                immediate_conflicts.append("gradient descent")
+            if getattr(self, 'enable_quench_controller', False):
+                immediate_conflicts.append("quench")
+            
+            # Check if dual controller is immediate (not delayed)
+            dual_turn_on_time = getattr(self, 'dual_turn_on_time_ps', 0.0)
+            current_time = self.time_tracker.elapsed_time if self.time_tracker else 0.0
+            if (getattr(self, 'enable_dual_feedback', False) and 
+                dual_turn_on_time <= current_time + 1.0):  # Immediate activation
+                immediate_conflicts.append(f"dual independent (immediate, turn_on={dual_turn_on_time:.1f}ps)")
+            
+            if not immediate_conflicts:
+                self._setup_diffeq_controller()
+                enabled_features.append(f"differential equation controller ({self.diffeq_temperature_method}, τ={self.diffeq_time_constant_ps:.1f}ps)")
+            else:
+                self.log_info(f"  WARNING: DiffEq controller conflicts with immediate controllers: {', '.join(immediate_conflicts)} - disabling diffeq")
+                self.diffeq_controller = None
+        
+        # Note: Quench controller setup moved to after thermostat creation
+        # to ensure proper thermostat object references
+        if getattr(self, 'enable_quench_controller', False):
+            enabled_features.append(f"quench controller ({self.quench_initial_temperature:.1f}K→{self.quench_target_temperature:.1f}K at {self.quench_time_ps:.1f}ps)")
         
         # Set up comprehensive temperature tracker if enabled
         if getattr(self, 'enable_temp_tracker', False):
             self._setup_temperature_tracker()
             enabled_features.append(f"comprehensive temperature tracker ({self.temp_tracker_output_period_ps:.1f} ps)")
+            
+            # Set up auto-stop controller if enabled (requires temperature tracker)
+            if getattr(self, 'enable_auto_stop', False):
+                self._setup_auto_stop_controller()
+                # Add auto-stop controller to operations if successfully created
+                if hasattr(self, 'auto_stop_controller') and self.auto_stop_controller is not None:
+                    auto_stop_updater = hoomd.update.CustomUpdater(
+                        action=self.auto_stop_controller,
+                        trigger=hoomd.trigger.Periodic(10)  # Check every 10 steps
+                    )
+                    self.sim.operations.updaters.append(auto_stop_updater)
+                    enabled_features.append(f"auto-stop coupling (tol={self.auto_stop_tol:.1f}K, window={self.auto_stop_window:.1f}ps)")
+                    self.log_info("Auto-stop controller added to simulation operations")
+        
+        # Check for auto-stop without temperature tracker
+        elif getattr(self, 'enable_auto_stop', False):
+            self.log_warning("Auto-stop controller requires --enable-temp-tracker to be enabled")
+            self.log_warning("Auto-stop feature will be disabled for this simulation")
+        
+        # Set up sinusoidal bath temperature controller if enabled
+        if getattr(self, 'enable_sinusoidal_bath', False):
+            self._setup_sinusoidal_bath_controller()
+            enabled_features.append(f"sinusoidal bath controller (period={self.sinusoidal_bath_period_ps:.1f}ps, scale={self.sinusoidal_bath_amplitude_scale:.2f})")
+        
+        # Set up adaptive bath temperature controller if enabled
+        if getattr(self, 'enable_adaptive_bath', False):
+            self._setup_adaptive_bath_controller()
+            enabled_features.append(f"adaptive bath controller (scale={self.adaptive_bath_amplitude_scale:.2f}, method={self.adaptive_bath_signal_temperature_method})")
         
         # Set up dipole moment FDR tracking if enabled
         if getattr(self, 'enable_dipole_fdr', False):
@@ -2066,64 +2703,6 @@ class CavityMDSimulation:
         if getattr(self, 'enable_dipole_response', False):
             self._setup_dipole_response()
             enabled_features.append(f"dipole response force (E₀={self.dipole_response_field_strength:.2e}, sign={self.dipole_response_sign:+.0f})")
-    
-    def _setup_pi_feedback(self):
-        """Set up PI feedback temperature controller."""
-        try:
-            from .analysis import PITemperatureFeedback
-            
-            # Auto-calculate Kc and Ti if not provided (IMC tuning)
-            Kc = self.pi_Kc
-            Ti = self.pi_Ti
-            
-            if Kc is None or Ti is None:
-                # IMC auto-tuning: Kc = 1/K, Ti = tau (conservative)
-                K_gain = 1.0  # Thermal response gain (assume ≈1)
-                theta_delay = self.pi_molecular_tau_ps  # Conservative delay estimate
-                
-                if Kc is None:
-                    Kc = 1.0 / K_gain  # PI tuning
-                if Ti is None:
-                    Ti = theta_delay   # Conservative integral time
-                
-                self.log_info(f"PI auto-tuning: Kc={Kc:.3f}, Ti={Ti:.1f} ps")
-            
-            # Create PI feedback controller
-            self.pi_feedback = PITemperatureFeedback(
-                temperature_method=self.pi_temperature_method,
-                molecular_tau_ps=self.pi_molecular_tau_ps,
-                time_tracker=self.time_tracker,
-                energy_tracker=getattr(self, 'energy_tracker', None),
-                molecular_thermostat=getattr(self, 'molecular_thermostat_obj', None),
-                cavity_thermostat=getattr(self, 'cavity_thermostat_obj', None),
-                target_temperature=self.pi_target_temperature,
-                lambda_factor=Kc,  # Use Kc as lambda_factor for auto-tuning
-                turn_on_time_ps=self.pi_turn_on_time_ps,
-                turn_off_time_ps=self.pi_turn_off_time_ps,
-                update_interval_ps=self.pi_update_interval_ps,
-                beta=self.pi_beta,
-                T_min=self.pi_T_min,
-                T_max=self.pi_T_max,
-                empirical_data_file=getattr(self, 'temp_tracker_empirical_data_file', None)
-            )
-            
-            # Add to simulation 
-            pi_trigger_steps = max(1, int(self.pi_update_interval_ps * 1000))
-            pi_updater = hoomd.update.CustomUpdater(
-                action=self.pi_feedback,
-                trigger=hoomd.trigger.Periodic(pi_trigger_steps)
-            )
-            self.sim.operations.updaters.append(pi_updater)
-            
-            self.log_info("✅ PI feedback controller enabled")
-            self.log_info(f"  Target temperature: {self.pi_target_temperature:.1f} K")
-            self.log_info(f"  Method: {self.pi_temperature_method}")
-            self.log_info(f"  Kc: {Kc:.3f}, Ti: {Ti:.1f} ps")
-            self.log_info(f"  Update interval: {self.pi_update_interval_ps:.1f} ps")
-            
-        except Exception as e:
-            self.log_error(f"Failed to setup PI feedback controller: {e}")
-            self.pi_feedback = None
     
     def _setup_gd_feedback(self):
         """Set up gradient descent feedback temperature controller."""
@@ -2166,7 +2745,7 @@ class CavityMDSimulation:
             )
             self.sim.operations.updaters.append(gd_updater)
             
-            self.log_info("✅ Gradient descent feedback controller enabled")
+            self.log_info(" Gradient descent feedback controller enabled")
             self.log_info(f"  Target temperature: {self.gd_target_temperature:.1f} K")
             self.log_info(f"  Method: {self.gd_temperature_method}")
             self.log_info(f"  Time constant: {self.gd_time_constant_ps:.1f} ps")
@@ -2176,6 +2755,383 @@ class CavityMDSimulation:
         except Exception as e:
             self.log_error(f"Failed to setup gradient descent feedback controller: {e}")
             self.gd_feedback = None
+    
+    def _setup_dual_feedback(self):
+        """Set up dual independent temperature feedback controller."""
+        if not self.enable_dual_feedback:
+            self.dual_feedback = None
+            return
+        
+        try:
+            from .analysis import DualIndependentTemperatureFeedback
+            
+            # Create output file path
+            output_file = f"dual_feedback_replica_{self.replica}.csv"
+            
+            # Create dual independent controller
+            self.dual_feedback = DualIndependentTemperatureFeedback(
+                cavity_method=self.dual_cavity_method,
+                molecular_method=self.dual_molecular_method,
+                cavity_time_constant_ps=self.dual_cavity_time_constant_ps,
+                molecular_time_constant_ps=self.dual_molecular_time_constant_ps,
+                time_tracker=self.time_tracker,
+                energy_tracker=getattr(self, 'energy_tracker', None),
+                simulation=self.sim,
+                molecular_thermostat=getattr(self, 'molecular_thermostat_obj', None),
+                cavity_thermostat=getattr(self, 'cavity_thermostat_obj', None),
+                cavity_target_temperature=self.dual_cavity_target_temperature,
+                molecular_target_temperature=self.dual_molecular_target_temperature,
+                turn_on_time_ps=self.dual_turn_on_time_ps,
+                turn_off_time_ps=self.dual_turn_off_time_ps,
+                update_interval_ps=self.dual_update_interval_ps,
+                cavity_T_min=self.dual_cavity_T_min,
+                cavity_T_max=self.dual_cavity_T_max,
+                molecular_T_min=self.dual_molecular_T_min,
+                molecular_T_max=self.dual_molecular_T_max,
+                cavity_dynamic_target=self.dual_cavity_dynamic_target,
+                molecular_dynamic_target=self.dual_molecular_dynamic_target,
+                cavity_integral_time_constant_ps=getattr(self, 'dual_cavity_integral_time_constant_ps', None),
+                molecular_integral_time_constant_ps=getattr(self, 'dual_molecular_integral_time_constant_ps', None),
+                cavity_heating_gain_factor=getattr(self, 'dual_cavity_heating_gain_factor', 1.0),
+                cavity_cooling_gain_factor=getattr(self, 'dual_cavity_cooling_gain_factor', 1.0),
+                molecular_heating_gain_factor=getattr(self, 'dual_molecular_heating_gain_factor', 1.0),
+                molecular_cooling_gain_factor=getattr(self, 'dual_molecular_cooling_gain_factor', 1.0),
+                cavity_integral_heating_time_constant_ps=getattr(self, 'dual_cavity_integral_heating_time_constant_ps', None),
+                cavity_integral_cooling_time_constant_ps=getattr(self, 'dual_cavity_integral_cooling_time_constant_ps', None),
+                molecular_integral_heating_time_constant_ps=getattr(self, 'dual_molecular_integral_heating_time_constant_ps', None),
+                molecular_integral_cooling_time_constant_ps=getattr(self, 'dual_molecular_integral_cooling_time_constant_ps', None),
+                output_file=output_file,
+                empirical_data_file=getattr(self, 'temp_tracker_empirical_data_file', None),
+                console_output_period_ps=self.console_output_period_ps
+            )
+            
+            # Add to simulation 
+            dual_trigger_steps = max(1, int(self.dual_update_interval_ps * 1000))
+            dual_updater = hoomd.update.CustomUpdater(
+                action=self.dual_feedback,
+                trigger=hoomd.trigger.Periodic(dual_trigger_steps)
+            )
+            self.sim.operations.updaters.append(dual_updater)
+            
+            self.log_info(" Dual independent feedback controller enabled")
+            self.log_info(f"  Cavity: {self.dual_cavity_method} → {self.dual_cavity_target_temperature:.1f}K (τ={self.dual_cavity_time_constant_ps:.1f}ps)")
+            self.log_info(f"  Molecular: {self.dual_molecular_method} → {self.dual_molecular_target_temperature:.1f}K (τ={self.dual_molecular_time_constant_ps:.1f}ps)")
+            self.log_info(f"  Update interval: {self.dual_update_interval_ps:.1f} ps")
+            
+        except Exception as e:
+            self.log_error(f"Failed to setup dual independent feedback controller: {e}")
+            self.dual_feedback = None
+    
+    def _setup_sinusoidal_bath_controller(self):
+        """Set up sinusoidal bath temperature controller."""
+        if not self.enable_sinusoidal_bath:
+            self.sinusoidal_bath_controller = None
+            return
+        
+        try:
+            from .analysis import SinusoidalBathTemperatureController
+            
+            # Create output file path
+            output_file = f"sinusoidal_bath_controller_replica_{self.replica}.csv"
+            
+            # Create sinusoidal bath controller
+            self.sinusoidal_bath_controller = SinusoidalBathTemperatureController(
+                period_ps=self.sinusoidal_bath_period_ps,
+                amplitude_scale=self.sinusoidal_bath_amplitude_scale,
+                phase_offset=self.sinusoidal_bath_phase_offset,
+                time_tracker=self.time_tracker,
+                energy_tracker=getattr(self, 'energy_tracker', None),
+                simulation=self.sim,
+                molecular_thermostat=getattr(self, 'molecular_thermostat_obj', None),
+                cavity_thermostat=getattr(self, 'cavity_thermostat_obj', None),
+                apply_to=self.sinusoidal_bath_apply_to,
+                target_temperature=self.sinusoidal_bath_target_temperature,
+                dynamic_target=self.sinusoidal_bath_dynamic_target,
+                turn_on_time_ps=self.sinusoidal_bath_turn_on_time_ps,
+                turn_off_time_ps=self.sinusoidal_bath_turn_off_time_ps,
+                update_interval_ps=self.sinusoidal_bath_update_interval_ps,
+                T_min=self.sinusoidal_bath_T_min,
+                T_max=self.sinusoidal_bath_T_max,
+                output_file=output_file,
+                empirical_data_file=self.sinusoidal_bath_empirical_data_file,
+                console_output_period_ps=self.console_output_period_ps,
+                amplitude_update_interval_ps=self.sinusoidal_bath_amplitude_update_interval_ps,
+                amplitude_temperature_method=self.sinusoidal_bath_amplitude_temperature_method,
+                adaptive_range_mode=self.sinusoidal_bath_adaptive_range_mode
+            )
+            
+            print(f"Sinusoidal bath temperature controller enabled:")
+            print(f"  Period: {self.sinusoidal_bath_period_ps:.2f} ps")
+            print(f"  Amplitude scale: {self.sinusoidal_bath_amplitude_scale:.3f}")
+            print(f"  Mode: {'Adaptive Range' if self.sinusoidal_bath_adaptive_range_mode else 'Fixed Mean'}")
+            print(f"  Amplitude method: {self.sinusoidal_bath_amplitude_temperature_method}")
+            print(f"  Phase offset: {self.sinusoidal_bath_phase_offset:.2f} rad")
+            print(f"  Apply to: {self.sinusoidal_bath_apply_to}")
+            print(f"  Turn on time: {self.sinusoidal_bath_turn_on_time_ps:.1f} ps")
+            print(f"  Dynamic target: {self.sinusoidal_bath_dynamic_target}")
+            if not self.sinusoidal_bath_dynamic_target:
+                print(f"  Static target: {self.sinusoidal_bath_target_temperature:.1f} K")
+            print(f"  Temperature range: {self.sinusoidal_bath_T_min:.1f} - {self.sinusoidal_bath_T_max or 'inf'} K")
+            print(f"  Output file: {output_file}")
+            
+            # Add to simulation with appropriate trigger frequency
+            # Use update interval to determine trigger frequency
+            from .utils import PhysicalConstants
+            dt_ps = PhysicalConstants.atomic_units_to_ps(self.sim.operations.integrator.dt)
+            steps_per_ps = 1.0 / dt_ps
+            trigger_steps = max(1, int(self.sinusoidal_bath_update_interval_ps * steps_per_ps))
+            
+            sinusoidal_updater = hoomd.update.CustomUpdater(
+                action=self.sinusoidal_bath_controller,
+                trigger=hoomd.trigger.Periodic(trigger_steps)
+            )
+            self.sim.operations.updaters.append(sinusoidal_updater)
+            
+            self.log_info(" Sinusoidal bath temperature controller enabled")
+            self.log_info(f"  Update interval: {self.sinusoidal_bath_update_interval_ps:.3f} ps")
+            self.log_info(f"  Trigger steps: {trigger_steps}")
+            
+        except Exception as e:
+            print(f"Warning: Failed to set up sinusoidal bath controller: {e}")
+            import traceback
+            traceback.print_exc()
+            self.sinusoidal_bath_controller = None
+
+    def _setup_adaptive_bath_controller(self):
+        """Set up adaptive bath temperature controller."""
+        if not self.enable_adaptive_bath:
+            self.adaptive_bath_controller = None
+            return
+        
+        try:
+            from .analysis import AdaptiveBathTemperatureController
+            
+            # Create output file path
+            output_file = f"adaptive_bath_controller_replica_{self.replica}.csv"
+            
+            # Create adaptive bath controller
+            self.adaptive_bath_controller = AdaptiveBathTemperatureController(
+                amplitude_scale=self.adaptive_bath_amplitude_scale,
+                time_constant_ps=self.adaptive_bath_time_constant_ps,
+                time_tracker=self.time_tracker,
+                energy_tracker=getattr(self, 'energy_tracker', None),
+                simulation=self.sim,
+                molecular_thermostat=getattr(self, 'molecular_thermostat_obj', None),
+                cavity_thermostat=getattr(self, 'cavity_thermostat_obj', None),
+                apply_to=self.adaptive_bath_apply_to,
+                target_temperature=self.adaptive_bath_target_temperature,
+                dynamic_target=self.adaptive_bath_dynamic_target,
+                turn_on_time_ps=self.adaptive_bath_turn_on_time_ps,
+                turn_off_time_ps=self.adaptive_bath_turn_off_time_ps,
+                update_interval_ps=self.adaptive_bath_update_interval_ps,
+                T_min=self.adaptive_bath_T_min,
+                T_max=self.adaptive_bath_T_max,
+                output_file=output_file,
+                empirical_data_file=self.adaptive_bath_empirical_data_file,
+                console_output_period_ps=self.console_output_period_ps,
+                signal_temperature_method=self.adaptive_bath_signal_temperature_method
+            )
+            
+            print(f"Adaptive bath temperature controller enabled (GD Framework):")
+            print(f"  Amplitude scale: {self.adaptive_bath_amplitude_scale:.3f}")
+            print(f"  Time constant: {self.adaptive_bath_time_constant_ps:.3f} ps")
+            print(f"  Signal method: {self.adaptive_bath_signal_temperature_method}")
+            print(f"  Apply to: {self.adaptive_bath_apply_to}")
+            print(f"  Turn on time: {self.adaptive_bath_turn_on_time_ps:.1f} ps")
+            print(f"  Dynamic target: {self.adaptive_bath_dynamic_target}")
+            if not self.adaptive_bath_dynamic_target:
+                print(f"  Static target: {self.adaptive_bath_target_temperature:.1f} K")
+            print(f"  Temperature range: {self.adaptive_bath_T_min:.1f} - {self.adaptive_bath_T_max or 'inf'} K")
+            print(f"  Output file: {output_file}")
+            
+            # Add to simulation with appropriate trigger frequency
+            from .utils import PhysicalConstants
+            dt_ps = PhysicalConstants.atomic_units_to_ps(self.sim.operations.integrator.dt)
+            trigger_steps = max(1, int(self.adaptive_bath_update_interval_ps / dt_ps))
+            
+            adaptive_bath_updater = hoomd.update.CustomUpdater(
+                action=self.adaptive_bath_controller,
+                trigger=hoomd.trigger.Periodic(trigger_steps)
+            )
+            self.sim.operations.updaters.append(adaptive_bath_updater)
+            
+            self.log_info(f"  Update interval: {self.adaptive_bath_update_interval_ps:.3f} ps")
+            self.log_info(f"  Trigger steps: {trigger_steps}")
+            
+        except Exception as e:
+            print(f"Warning: Failed to set up adaptive bath controller: {e}")
+            import traceback
+            traceback.print_exc()
+            self.adaptive_bath_controller = None
+    
+    def _setup_quench_controller(self):
+        """Set up quench controller for instantaneous temperature changes."""
+        if not self.enable_quench_controller:
+            self.quench_controller = None
+            return
+        
+        try:
+            from .analysis import QuenchController
+            
+            # Create output file path
+            output_file = f"quench_control_replica_{self.replica}.csv"
+            
+            # Create quench controller
+            self.quench_controller = QuenchController(
+                initial_temperature=self.quench_initial_temperature,
+                target_temperature=self.quench_target_temperature,
+                quench_time_ps=self.quench_time_ps,
+                time_tracker=self.time_tracker,
+                molecular_thermostat=getattr(self, 'molecular_thermostat_obj', None),
+                cavity_thermostat=getattr(self, 'cavity_thermostat_obj', None),
+                apply_to=self.quench_apply_to,
+                output_file=output_file,
+                console_output_period_ps=self.console_output_period_ps
+            )
+            
+            # Add to simulation with high frequency trigger (every timestep)
+            quench_trigger_steps = 1  # Check every timestep for precise timing
+            quench_updater = hoomd.update.CustomUpdater(
+                action=self.quench_controller,
+                trigger=hoomd.trigger.Periodic(quench_trigger_steps)
+            )
+            self.sim.operations.updaters.append(quench_updater)
+            
+            self.log_info(" Quench controller enabled")
+            self.log_info(f"  Initial temperature: {self.quench_initial_temperature:.1f} K")
+            self.log_info(f"  Target temperature: {self.quench_target_temperature:.1f} K")
+            self.log_info(f"  Quench time: {self.quench_time_ps:.1f} ps")
+            self.log_info(f"  Applied to: {self.quench_apply_to}")
+            self.log_info(f"  ΔT = {self.quench_target_temperature - self.quench_initial_temperature:+.1f} K")
+            
+        except Exception as e:
+            import traceback
+            self.log_error(f"Failed to setup quench controller: {e}")
+            self.log_error(f"Full traceback: {traceback.format_exc()}")
+            self.quench_controller = None
+    
+    def _setup_offset_controller(self):
+        """Set up offset temperature controller for fixed temperature offsets."""
+        if not self.enable_offset_controller:
+            self.offset_controller = None
+            return
+        
+        try:
+            from .analysis import OffsetTemperatureController
+            
+            # Create output file path
+            output_file = f"offset_control_replica_{self.replica}.csv"
+            
+            # Create offset controller
+            self.offset_controller = OffsetTemperatureController(
+                temperature_method=self.offset_temperature_method,
+                temperature_offset_K=self.offset_temperature_offset_K,
+                time_tracker=self.time_tracker,
+                energy_tracker=getattr(self, 'energy_tracker', None),
+                simulation=self.sim,
+                molecular_thermostat=getattr(self, 'molecular_thermostat_obj', None),
+                cavity_thermostat=getattr(self, 'cavity_thermostat_obj', None),
+                apply_to=self.offset_apply_to,
+                turn_on_time_ps=self.offset_turn_on_time_ps,
+                turn_off_time_ps=self.offset_turn_off_time_ps,
+                update_interval_ps=self.offset_update_interval_ps,
+                T_min=self.offset_T_min,
+                T_max=self.offset_T_max,
+                output_file=output_file,
+                empirical_data_file=getattr(self, 'temp_tracker_empirical_data_file', None),
+                console_output_period_ps=self.console_output_period_ps
+            )
+            
+            # Add to simulation with appropriate trigger frequency
+            # Calculate steps per ps from current timestep
+            dt_ps = PhysicalConstants.atomic_units_to_ps(self.sim.operations.integrator.dt)
+            steps_per_ps = 1.0 / dt_ps
+            
+            # Use update interval to determine trigger frequency
+            trigger_steps = max(1, int(self.offset_update_interval_ps * steps_per_ps))
+            offset_updater = hoomd.update.CustomUpdater(
+                action=self.offset_controller,
+                trigger=hoomd.trigger.Periodic(trigger_steps)
+            )
+            self.sim.operations.updaters.append(offset_updater)
+            
+            self.log_info(" Offset temperature controller enabled")
+            self.log_info(f"  Method: {self.offset_temperature_method}")
+            self.log_info(f"  Temperature offset: {self.offset_temperature_offset_K:+.1f} K")
+            self.log_info(f"  Turn on time: {self.offset_turn_on_time_ps:.1f} ps")
+            self.log_info(f"  Update interval: {self.offset_update_interval_ps:.3f} ps")
+            self.log_info(f"  Apply to: {self.offset_apply_to}")
+            
+        except Exception as e:
+            import traceback
+            self.log_error(f"Failed to setup offset controller: {e}")
+            self.log_error(f"Full traceback: {traceback.format_exc()}")
+            self.offset_controller = None
+    
+    def _setup_diffeq_controller(self):
+        """Set up differential equation temperature controller."""
+        if not self.enable_diffeq_controller:
+            self.diffeq_controller = None
+            return
+        
+        try:
+            from .analysis import DiffEqController
+            
+            # Create output file path
+            output_file = f"diffeq_control_replica_{self.replica}.csv"
+            
+            # Create differential equation controller
+            self.diffeq_controller = DiffEqController(
+                temperature_method=self.diffeq_temperature_method,
+                time_constant_ps=self.diffeq_time_constant_ps,
+                time_tracker=self.time_tracker,
+                energy_tracker=getattr(self, 'energy_tracker', None),
+                simulation=self.sim,
+                molecular_thermostat=getattr(self, 'molecular_thermostat_obj', None),
+                cavity_thermostat=getattr(self, 'cavity_thermostat_obj', None),
+                apply_to=self.diffeq_apply_to,
+                turn_on_time_ps=self.diffeq_turn_on_time_ps,
+                turn_off_time_ps=self.diffeq_turn_off_time_ps,
+                update_interval_ps=self.diffeq_update_interval_ps,
+                T_min=self.diffeq_T_min,
+                T_max=self.diffeq_T_max,
+                rate_limit_K_per_ps=self.diffeq_rate_limit_K_per_ps,
+                output_file=output_file,
+                empirical_data_file=getattr(self, 'temp_tracker_empirical_data_file', None),
+            )
+            
+            # Add to simulation with appropriate trigger frequency
+            # Use update interval to determine trigger frequency
+            dt_ps = PhysicalConstants.atomic_units_to_ps(self.sim.operations.integrator.dt)
+            steps_per_ps = 1.0 / dt_ps
+            trigger_steps = max(1, int(self.diffeq_update_interval_ps * steps_per_ps))
+            
+            diffeq_updater = hoomd.update.CustomUpdater(
+                action=self.diffeq_controller,
+                trigger=hoomd.trigger.Periodic(trigger_steps)
+            )
+            self.sim.operations.updaters.append(diffeq_updater)
+            
+            self.log_info(f" Differential equation controller enabled")
+            self.log_info(f"  Method: {self.diffeq_temperature_method}")
+            self.log_info(f"  Time constant: {self.diffeq_time_constant_ps:.2f} ps")
+            self.log_info(f"  Turn on time: {self.diffeq_turn_on_time_ps:.1f} ps")
+            self.log_info(f"  Update interval: {self.diffeq_update_interval_ps:.3f} ps")
+            self.log_info(f"  Apply to: {self.diffeq_apply_to}")
+            if self.diffeq_T_min is not None:
+                self.log_info(f"  Minimum temperature: {self.diffeq_T_min:.1f} K")
+            if self.diffeq_T_max is not None:
+                self.log_info(f"  Maximum temperature: {self.diffeq_T_max:.1f} K")
+            if self.diffeq_turn_off_time_ps is not None:
+                self.log_info(f"  Turn off time: {self.diffeq_turn_off_time_ps:.1f} ps")
+            if self.diffeq_rate_limit_K_per_ps is not None:
+                self.log_info(f"  Rate limit: {self.diffeq_rate_limit_K_per_ps:.2f} K/ps")
+            
+        except Exception as e:
+            import traceback
+            self.log_error(f"Failed to setup differential equation controller: {e}")
+            self.log_error(f"Full traceback: {traceback.format_exc()}")
+            self.diffeq_controller = None
     
     def _setup_temperature_tracker(self):
         """Set up comprehensive temperature tracker."""
@@ -2187,14 +3143,15 @@ class CavityMDSimulation:
             
             # Create temperature tracker
             self.temperature_tracker = TemperatureTracker(
-                simulation=self.sim,
+                simulation=self,  # Pass CavityMDSimulation object, not HOOMD sim
                 time_tracker=self.time_tracker,
                 output_period_ps=self.temp_tracker_output_period_ps,
                 output_file=output_file,
                 energy_tracker=getattr(self, 'energy_tracker', None),
                 molecular_thermostat=getattr(self, 'molecular_thermostat_obj', None),
                 cavity_thermostat=getattr(self, 'cavity_thermostat_obj', None),
-                empirical_data_file=self.temp_tracker_empirical_data_file
+                empirical_data_file=self.temp_tracker_empirical_data_file,
+                debug=False  # Suppress debug output by default
             )
             
             # Add to simulation
@@ -2205,7 +3162,7 @@ class CavityMDSimulation:
             )
             self.sim.operations.updaters.append(temp_updater)
             
-            self.log_info("✅ Comprehensive temperature tracker enabled")
+            self.log_info(" Comprehensive temperature tracker enabled")
             self.log_info(f"  Output file: {output_file}")
             self.log_info(f"  Output period: {self.temp_tracker_output_period_ps:.1f} ps")
             self.log_info(f"  Tracking: kinetic, harmonic fictive, LJ+Coul fictive, cavity bath, molecular bath")
@@ -2214,9 +3171,150 @@ class CavityMDSimulation:
             else:
                 self.log_info(f"  Empirical data: None (LJ+Coul fictive temp will be 0)")
             
+            # Connect temperature tracker to adaptive coupling variant if needed
+            if hasattr(self, '_adaptive_coupling_variant') and self._adaptive_coupling_variant is not None:
+                self._adaptive_coupling_variant.temperature_tracker = self.temperature_tracker
+                self.log_info(f"Connected temperature tracker to adaptive square wave coupling")
+            
+            # Update composite variant if it needs temperature tracker for adaptive components
+            self._update_composite_adaptive_components()
+            
+            # Connect temperature tracker to GD controller if needed
+            if hasattr(self, 'gd_feedback') and self.gd_feedback is not None:
+                self.gd_feedback.temperature_tracker = self.temperature_tracker
+                self.log_info(f"Connected temperature tracker to gradient descent controller")
+            
         except Exception as e:
             self.log_error(f"Failed to setup temperature tracker: {e}")
             self.temperature_tracker = None
+    
+    def _update_composite_adaptive_components(self):
+        """Update composite variant to use adaptive square wave if requested and temperature tracker is available."""
+        if not hasattr(self, 'coupling_variant_type') or self.coupling_variant_type != 'composite':
+            return
+            
+        if not self.composite_square_adaptive:
+            return
+            
+        if not hasattr(self, 'temperature_tracker') or self.temperature_tracker is None:
+            return
+            
+        # Find the composite variant stored reference
+        if not hasattr(self, '_composite_coupling_variant') or self._composite_coupling_variant is None:
+            return
+            
+        composite_variant = self._composite_coupling_variant
+        if not hasattr(composite_variant, 'variants'):
+            return
+            
+        # Get target temperature for adaptive square component
+        if hasattr(self, 'enable_quench_controller') and self.enable_quench_controller:
+            target_temperature = getattr(self, 'quench_target_temperature', 100.0)
+            temp_source = "quench controller"
+        elif hasattr(self, 'enable_gd_feedback') and self.enable_gd_feedback:
+            target_temperature = getattr(self, 'gd_target_temperature', 100.0)
+            temp_source = "gradient descent controller"
+        elif hasattr(self, 'enable_dual_feedback') and self.enable_dual_feedback:
+            target_temperature = getattr(self, 'dual_cavity_target_temperature', 100.0)
+            temp_source = "dual independent controller (cavity target)"
+        else:
+            self.log_warning("Cannot update to adaptive square wave: no controller available for target temperature")
+            return
+            
+        # Replace the fixed square wave component with adaptive
+        for i, variant in enumerate(composite_variant.variants):
+            if hasattr(variant, 'amplitude') and hasattr(variant, 'duty_cycle'):  # This is the square wave
+                from .variants import AdaptiveSquareWaveVariant
+                
+                # Create adaptive square wave variant
+                adaptive_variant = AdaptiveSquareWaveVariant(
+                    target_coupling=self.composite_square_amplitude,
+                    target_temperature=target_temperature,
+                    period_ps=self.composite_square_period,
+                    time_tracker=self.time_tracker,
+                    temperature_tracker=self.temperature_tracker,
+                    duty_cycle=self.composite_square_duty_cycle,
+                    phase_offset=0.0,
+                    start_time_ps=self.composite_square_start_time,
+                    stop_time_ps=self.composite_square_stop_time
+                )
+                
+                # Replace the fixed square wave with adaptive
+                composite_variant.variants[i] = adaptive_variant
+                
+                self.log_info("✅ Updated composite coupling to use adaptive square wave:")
+                self.log_info(f"   Target amplitude: {self.composite_square_amplitude:.2e} a.u.")
+                self.log_info(f"   Target temperature: {target_temperature:.1f} K (from {temp_source})")
+                self.log_info(f"   Temperature tracker connected successfully")
+                break
+        
+    def _setup_auto_stop_controller(self):
+        """Set up auto-stop controller for coupling convergence detection."""
+        try:
+            from .analysis import AutoStopController
+            
+            # Ensure temperature tracker is available
+            if not hasattr(self, 'temperature_tracker') or self.temperature_tracker is None:
+                self.log_error("Auto-stop controller requires temperature tracker to be set up first")
+                self.auto_stop_controller = None
+                return
+            
+            # Determine coupling start time based on coupling variant
+            coupling_start_time = 0.0
+            if self.coupling_variant_type == 'step' and self.switch_time_ps is not None:
+                coupling_start_time = self.switch_time_ps
+            elif self.coupling_variant_type == 'square':
+                coupling_start_time = self.square_start_time_ps
+            elif self.coupling_variant_type == 'decaying_square':
+                coupling_start_time = self.decaying_square_start_time_ps
+            elif self.coupling_variant_type == 'adaptive_square':
+                coupling_start_time = self.adaptive_square_start_time_ps
+            elif self.coupling_variant_type == 'periodic':
+                coupling_start_time = self.periodic_start_time_ps
+            elif self.coupling_variant_type == 'exponential':
+                coupling_start_time = self.exponential_turn_on_time_ps
+            elif self.coupling_variant_type == 'exponentialwave':
+                coupling_start_time = self.exp_start_time_ps
+            
+            # Determine target temperature for auto-stop (from active controller)
+            target_temp = None
+            if hasattr(self, 'gd_target_temperature') and self.gd_target_temperature is not None:
+                target_temp = self.gd_target_temperature
+            elif hasattr(self, 'enable_dual_feedback') and self.enable_dual_feedback and hasattr(self, 'dual_cavity_target_temperature'):
+                # For dual controller, use cavity target (as it drives the adaptive square wave)
+                target_temp = self.dual_cavity_target_temperature
+            elif hasattr(self, 'quench_target_temperature') and self.quench_target_temperature is not None:
+                target_temp = self.quench_target_temperature
+            else:
+                target_temp = self.temperature  # Fall back to system temperature
+            
+            # Create auto-stop controller
+            self.auto_stop_controller = AutoStopController(
+                temperature_tracker=self.temperature_tracker,
+                time_tracker=self.time_tracker,
+                tolerance=self.auto_stop_tol,
+                window_ps=self.auto_stop_window,
+                coupling_start_time_ps=coupling_start_time,
+                target_temperature=target_temp
+            )
+            
+            # Set simulation reference for auto-stop signaling
+            self.auto_stop_controller.set_simulation(self)
+            
+            # Initialize auto-stop signal
+            self.auto_stop_coupling_signal = False
+            
+            self.log_info(f"Auto-stop controller setup complete:")
+            self.log_info(f"  Tolerance: {self.auto_stop_tol:.1f} K")
+            self.log_info(f"  Averaging window: {self.auto_stop_window:.1f} ps")
+            self.log_info(f"  Coupling start time: {coupling_start_time:.1f} ps")
+            self.log_info(f"  Monitoring: |T_fictive_avg - T_kinetic_avg| < {self.auto_stop_tol:.1f} K")
+            
+        except Exception as e:
+            self.log_error(f"Failed to setup auto-stop controller: {e}")
+            import traceback
+            self.log_error(f"Full traceback: {traceback.format_exc()}")
+            self.auto_stop_controller = None
     
     def _setup_dipole_fdr(self):
         """Set up dipole moment FDR tracker."""
@@ -2245,7 +3343,7 @@ class CavityMDSimulation:
             )
             self.sim.operations.updaters.append(fdr_updater)
             
-            self.log_info("✅ Dipole moment FDR tracker enabled")
+            self.log_info(" Dipole moment FDR tracker enabled")
             self.log_info(f"  Output file: {output_file}")
             self.log_info(f"  Output period: {self.dipole_fdr_output_period_ps:.1f} ps")
             self.log_info(f"  Max correlation time: {self.dipole_fdr_max_correlation_time_ps:.1f} ps")
@@ -2276,7 +3374,7 @@ class CavityMDSimulation:
             # Add to simulation forces
             self.sim.operations.integrator.forces.append(self.dipole_response_force)
             
-            self.log_info("✅ Dipole response force enabled")
+            self.log_info(" Dipole response force enabled")
             self.log_info(f"  Field strength: {self.dipole_response_field_strength:.2e}")
             self.log_info(f"  Field direction: {self.dipole_fdr_field_direction}")
             self.log_info(f"  Sign: {self.dipole_response_sign:+.0f}")
@@ -2457,7 +3555,7 @@ class CavityMDSimulation:
         )
         self.sim.operations.updaters.append(console_updater)
         
-        self.log_info("✅ Console output setup completed:")
+        self.log_info(" Console output setup completed:")
         self.log_info(f"  Output period: {self.console_output_period_ps:.3f} ps (accurate time-based)")
         if self.incavity:
             self.log_info(f"  Coupling constant column: {self.couplstr:.6e} a.u. (displayed in real-time)")
@@ -2466,11 +3564,11 @@ class CavityMDSimulation:
         
         # Log final setup summary
         if self.error_tolerance > 0:
-            self.log_info("✅ FIXED: Console output now uses precise time-based logic")
+            self.log_info(" FIXED: Console output now uses precise time-based logic")
             self.log_info("  Both console and energy tracker use accurate timing")
             self.log_info("  GSD output timing may vary slightly but is less critical")
         else:
-            self.log_info("✅ Time-based console output setup for fixed timestep mode")
+            self.log_info(" Time-based console output setup for fixed timestep mode")
             self.log_info("  Provides consistent behavior across all timestep modes")
 
     def setup_simulation(self):
@@ -2709,6 +3807,10 @@ class CavityMDSimulation:
             self.cavity_thermostat_obj = cavity_method
             self.thermostat_refs = thermostat_refs
             
+            # Set up quench controller now that thermostat objects exist
+            if getattr(self, 'enable_quench_controller', False):
+                self._setup_quench_controller()
+            
             # Phase 3: Setup integrator and thermalization
             self.log_info("=== Phase 3: Setting up integrator and thermalization ===")
             methods = [molecular_method]
@@ -2720,6 +3822,10 @@ class CavityMDSimulation:
             # Phase 4: Setup trackers and loggers
             self.log_info("=== Phase 4: Setting up trackers and loggers ===")
             self.setup_trackers_and_loggers()
+            
+            # Set up offset controller now that energy tracker exists
+            if getattr(self, 'enable_offset_controller', False):
+                self._setup_offset_controller()
             
             # Phase 5: Setup output writers
             self.log_info("=== Phase 5: Setting up output writers ===")
@@ -2769,6 +3875,16 @@ class CavityMDSimulation:
             self.log_info(f"Timestep will adapt dynamically (error_tolerance = {self.error_tolerance})")
         else:
             self.log_info(f"Fixed timestep mode - steps per ps: {1.0/actual_dt_ps:.1f}")
+        
+        # Set up delayed controller monitor if needed
+        if self._delayed_controllers:
+            self._delayed_controller_monitor = self._create_delayed_controller_monitor()
+            monitor_updater = hoomd.update.CustomUpdater(
+                action=self._delayed_controller_monitor,
+                trigger=hoomd.trigger.Periodic(100)  # Check every 100 timesteps
+            )
+            self.sim.operations.updaters.append(monitor_updater)
+            self.log_info(f"Delayed controller monitor enabled (checking every 100 steps)")
         
         # Run the simulation
         self.sim.run(total_steps, write_at_start=True)
@@ -2910,9 +4026,9 @@ class CavityMDSimulation:
                 self.log_info(f"Maximum particle velocity magnitude: {max_velocity_magnitude:.6e} a.u.")
                 
                 if max_velocity_magnitude > 1e-12:
-                    self.log_info("✅ Forced thermalization successful - Bussi thermostat should work now")
+                    self.log_info(" Forced thermalization successful - Bussi thermostat should work now")
                 else:
-                    self.log_error("❌ Forced thermalization failed - velocities are still zero!")
+                    self.log_error(" Forced thermalization failed - velocities are still zero!")
                     raise RuntimeError("Unable to initialize non-zero velocities for Bussi thermostat")
 
 
@@ -2924,7 +4040,9 @@ class AdaptiveTimestepUpdater(hoomd.custom.Action):
                  initial_fraction=0.01, adaptiveerror=True, cavity_damping_factor=1.0, 
                  molecular_thermostat_tau=5.0, cavity_thermostat_tau=5.0, time_tracker=None,
                  switch_time_ps=None, timestep_change_threshold=0.1, max_timestep_change_factor=1.5,
-                 shock_dampening_factor=1e-3, shock_dampening_enabled=True, shock_dampening_time_constant_ps=50.0):
+                 shock_dampening_factor=1e-3, shock_dampening_enabled=True, shock_dampening_time_constant_ps=50.0,
+                 # New dynamic coupling change detection parameters
+                 dynamic_coupling_detection=True, coupling_change_threshold=1e-5):
         super().__init__()
         
 
@@ -2953,9 +4071,12 @@ class AdaptiveTimestepUpdater(hoomd.custom.Action):
         else:
             self.shock_error_tolerance = self.initial_error_tolerance
         
-        # Initialize current_error_tolerance based on switch time behavior
-        if switch_time_ps is not None:
-            # Start with target tolerance before switch
+        # Initialize current_error_tolerance based on shock dampening mode
+        if dynamic_coupling_detection:
+            # Dynamic mode: start with target tolerance, only drop on actual shocks
+            self.current_error_tolerance = self.target_error_tolerance
+        elif switch_time_ps is not None:
+            # Legacy switch time mode: start with target tolerance before switch
             self.current_error_tolerance = self.target_error_tolerance
         else:
             # Original behavior: start with low tolerance for immediate ramping
@@ -2972,8 +4093,21 @@ class AdaptiveTimestepUpdater(hoomd.custom.Action):
         self.switch_detected = False  # Flag to track if we've detected the switch
         self.switch_detection_tolerance = 0.001  # ps - tolerance for detecting switch crossing
         
+        # NEW: Dynamic coupling change detection
+        self.dynamic_coupling_detection = dynamic_coupling_detection
+        self.coupling_change_threshold = coupling_change_threshold  # a.u. - threshold for large coupling changes
+        self.last_coupling_value = None  # Track previous coupling strength
+        self.coupling_shock_detected_time = None  # When we last detected a coupling shock
+        self.coupling_recovery_active = False  # Whether we're currently in recovery mode
+        self.first_coupling_check = True  # Flag to initialize without triggering shock
+        
         # Log the shock dampening behavior
-        if shock_dampening_enabled and switch_time_ps is not None:
+        if dynamic_coupling_detection:
+            print(f"Dynamic coupling change detection enabled", flush=True)
+            print(f"Coupling change threshold: ±{coupling_change_threshold:.2e} a.u.", flush=True)
+            print(f"Shock dampening: error_tolerance drops to {self.shock_error_tolerance:.2e} (factor: {shock_dampening_factor:.2e})", flush=True)
+            print(f"Recovery: exponential ramp to {self.target_error_tolerance:.2e} with τ = {time_constant_ps} ps", flush=True)
+        elif shock_dampening_enabled and switch_time_ps is not None:
             print(f"Shock dampening enabled with time constant {time_constant_ps} ps", flush=True)
             print(f"Before switch: error_tolerance = {self.target_error_tolerance:.2e} (normal tolerance)", flush=True)
             print(f"At switch: error_tolerance drops to {self.shock_error_tolerance:.2e} (shock dampening factor: {shock_dampening_factor:.2e})", flush=True)
@@ -2997,6 +4131,31 @@ class AdaptiveTimestepUpdater(hoomd.custom.Action):
         print(f"  Max change factor: {self.max_timestep_change_factor:.1f}", flush=True)
         print(f"  Min update interval: {self.min_update_interval} steps", flush=True)
         print(f"  Switch detection tolerance: {self.switch_detection_tolerance} ps", flush=True)
+    
+    def _get_current_coupling_strength(self):
+        """Get the current coupling strength from cavity force."""
+        try:
+            # Look for cavity force in the integrator's forces
+            for force in self.integrator.forces:
+                if hasattr(force, 'couplstr_variant'):
+                    # This is the cavity force - get the variant
+                    coupling_variant = force.couplstr_variant
+                    if hasattr(coupling_variant, '__call__'):
+                        # It's a variant - call it with current timestep
+                        # Access timestep through the integrator's simulation
+                        if hasattr(self.integrator, 'simulation'):
+                            current_timestep = self.integrator.simulation.timestep
+                        else:
+                            # Fallback - use a reasonable default
+                            current_timestep = 0
+                        return coupling_variant(current_timestep)
+                    else:
+                        # It's a constant value
+                        return float(coupling_variant.value) if hasattr(coupling_variant, 'value') else float(coupling_variant)
+            return None
+        except Exception as e:
+            # If we can't get coupling strength, return None
+            return None
 
         # DEBUG: Show key variables for shock dampening
         #print(f"DEBUG: shock_dampening_factor = {shock_dampening_factor:.2e}", flush=True)
@@ -3028,12 +4187,38 @@ class AdaptiveTimestepUpdater(hoomd.custom.Action):
         else:
             current_elapsed_time_ps = self.accumulated_time_ps
         
-        # NEW: Detect if we've just crossed the switch time
+        # NEW: Detect sudden coupling changes OR switch time crossing
         force_immediate_update = False
-        #print(f"DEBUG: self.switch_time_ps = {self.switch_time_ps:.6f} ps", flush=True)
-        #print(f"DEBUG: current_elapsed_time_ps = {current_elapsed_time_ps:.6f} ps", flush=True)
-        #print(f"DEBUG: self.current_error_tolerance = {self.current_error_tolerance:.6f}", flush=True)
-        #print(f"DEBUG: self.shock_dampening_factor = {self.shock_dampening_factor:.6f}", flush=True)
+        coupling_shock_detected = False
+        
+        # Dynamic coupling change detection
+        if self.dynamic_coupling_detection:
+            # Get current coupling value from cavity force
+            current_coupling = self._get_current_coupling_strength()
+            
+            if self.first_coupling_check:
+                # First time - just store the value without triggering shock
+                self.last_coupling_value = current_coupling
+                self.first_coupling_check = False
+            elif self.last_coupling_value is not None and current_coupling is not None:
+                coupling_change = abs(current_coupling - self.last_coupling_value)
+                
+                
+                if coupling_change >= self.coupling_change_threshold:
+                    # Large coupling change detected!
+                    coupling_shock_detected = True
+                    force_immediate_update = True
+                    self.coupling_shock_detected_time = current_elapsed_time_ps
+                    self.coupling_recovery_active = True
+                    
+                    print(f"COUPLING SHOCK DETECTED at timestep {timestep}: t = {current_elapsed_time_ps:.6f} ps", flush=True)
+                    print(f"  Coupling change: {self.last_coupling_value:.6e} → {current_coupling:.6e} a.u. (Δ = {coupling_change:.6e})", flush=True)
+                    print(f"  Triggering shock dampening (threshold: ±{self.coupling_change_threshold:.2e} a.u.)", flush=True)
+                
+                # Update last coupling value for next iteration
+                self.last_coupling_value = current_coupling
+        
+        # Legacy switch time detection (still supported)
         if (self.switch_time_ps is not None and not self.switch_detected and
             self.last_elapsed_time_ps < self.switch_time_ps <= current_elapsed_time_ps):
             
@@ -3048,31 +4233,46 @@ class AdaptiveTimestepUpdater(hoomd.custom.Action):
         
         # Update error tolerance based on shock dampening and exponential ramping
         if self.adaptiveerror:
-            if self.switch_time_ps is not None:
+            # NEW: Dynamic coupling shock recovery
+            if self.dynamic_coupling_detection:
+                if coupling_shock_detected:
+                    # Just detected a coupling shock - immediately apply shock tolerance
+                    self.current_error_tolerance = self.shock_error_tolerance
+                elif self.coupling_recovery_active:
+                    # In recovery mode - exponential recovery from shock tolerance
+                    recovery_time = current_elapsed_time_ps - self.coupling_shock_detected_time
+                    if recovery_time >= 0:
+                        exp_factor = np.exp(-recovery_time / self.time_constant_ps)
+                        self.current_error_tolerance = self.target_error_tolerance - \
+                                                      (self.target_error_tolerance - self.shock_error_tolerance) * exp_factor
+                        
+                        # Stop recovery when we're close to target tolerance
+                        if exp_factor < 0.01:  # 99% recovered
+                            self.coupling_recovery_active = False
+                    else:
+                        self.current_error_tolerance = self.shock_error_tolerance
+                else:
+                    # No shock detected and not in recovery - use target tolerance
+                    self.current_error_tolerance = self.target_error_tolerance
+            
+            # Legacy switch time logic (still supported)
+            elif self.switch_time_ps is not None:
                 if current_elapsed_time_ps < self.switch_time_ps:
                     # Before switch: use target error tolerance
                     self.current_error_tolerance = self.target_error_tolerance
                 else:
-                    if current_elapsed_time_ps < self.switch_time_ps:
-                        self.current_error_tolerance = self.shock_error_tolerance
-                        #_time_ps = {current_elapsed_time_ps} ps", flush=True)
-                        #print(f"DEBUG: self.current_error_tolerance = {self.current_error_tolerance}", flush=True)
-                    else:
                     # After switch: implement shock dampening and exponential recovery
-                        ramping_time = current_elapsed_time_ps - self.switch_time_ps
-                        
-                        #if self.shock_dampening_enabled:
-                            # NEW: Shock dampening mode - exponential recovery from shock tolerance
-                            # SPECIAL CASE: If switch was just detected, start with exact shock tolerance
-                        if self.shock_dampening_enabled:
-                            if force_immediate_update:
-                                # At the exact moment of switch detection, use shock tolerance
-                                self.current_error_tolerance = self.shock_error_tolerance
-                            else:
-                                # Normal exponential recovery after switch
-                                exp_factor = np.exp(-ramping_time / self.time_constant_ps)
-                                self.current_error_tolerance = self.target_error_tolerance - \
-                                                                (self.target_error_tolerance - self.shock_error_tolerance) * exp_factor
+                    ramping_time = current_elapsed_time_ps - self.switch_time_ps
+                    
+                    if self.shock_dampening_enabled:
+                        if force_immediate_update:
+                            # At the exact moment of switch detection, use shock tolerance
+                            self.current_error_tolerance = self.shock_error_tolerance
+                        else:
+                            # Normal exponential recovery after switch
+                            exp_factor = np.exp(-ramping_time / self.time_constant_ps)
+                            self.current_error_tolerance = self.target_error_tolerance - \
+                                                            (self.target_error_tolerance - self.shock_error_tolerance) * exp_factor
                         #else:
                         #    # No ramping when initial_fraction = 0.0 - just use target tolerance
                         #    self.current_error_tolerance = self.target_error_tolerance
@@ -3178,5 +4378,14 @@ class AdaptiveTimestepUpdater(hoomd.custom.Action):
     def elapsed_time_ps(self):
         """Return the elapsed time in picoseconds."""
         return self.accumulated_time_ps
+
+
+
+
+
+
+
+
+
 
 

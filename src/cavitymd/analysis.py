@@ -365,7 +365,7 @@ class FieldAutocorrelationTracker(hoomd.custom.Action):
         # No early return here - we store all computed values
         
         # Get current density field  
-        with self.simulation.state.cpu_local_snapshot as snap:
+        with self._get_hoomd_simulation().state.cpu_local_snapshot as snap:
             positions = np.array(snap.particles.position)
             
         current_rhok_real, current_rhok_imag = self._compute_density_field(positions)
@@ -468,7 +468,7 @@ class FieldAutocorrelationTracker(hoomd.custom.Action):
         if self.log_time_spacing:
             for ref_idx in range(len(self.references)):
                 self._write_logarithmic_output(ref_idx)
-    
+
     def act(self, timestep):
         """Main action called every timestep."""
         # Get current time
@@ -476,7 +476,7 @@ class FieldAutocorrelationTracker(hoomd.custom.Action):
         
         # Check if we should add a new reference frame
         if self._should_add_reference(current_time_ps):
-            with self.simulation.state.cpu_local_snapshot as snap:
+            with self._get_hoomd_simulation().state.cpu_local_snapshot as snap:
                 positions = np.array(snap.particles.position)
                 
             rhok_real, rhok_imag = self._compute_density_field(positions)
@@ -552,51 +552,555 @@ class AutocorrelationTracker(hoomd.custom.Action):
 
 
 class EnergyTracker(hoomd.custom.Action):
-    """Tracks various energy components during simulation."""
+    """
+    SOPHISTICATED Energy Tracker - tracks comprehensive energy components during simulation.
     
-    def __init__(self, simulation, time_tracker, output_period_ps, output_prefix):
+    Tracks:
+    - Individual potential energy components (harmonic, LJ, Coulomb, cavity)
+    - Separate molecular and cavity kinetic energies
+    - Reservoir energies from thermostats
+    - Temperature
+    - Universe total energy (conserved quantity)
+    """
+    
+    def __init__(self, simulation, time_tracker, output_period_ps, output_prefix,
+                 force_objects=None, thermostat_objects=None, verbose="quiet"):
         super().__init__()
         self.simulation = simulation
         self.time_tracker = time_tracker
         self.output_period_ps = output_period_ps
         self.output_prefix = output_prefix
-        self.last_output_time = None
+        self.last_output_time = 0.0
         
-        # Cache for force energy components (updated each timestep)
-        self._current_energies = {}
-        self._force_mapping = {}  # Maps force names to their objects
+        # CRITICAL: Store force and thermostat objects for direct energy access
+        self.force_objects = force_objects or {}
+        self.thermostat_objects = thermostat_objects or {}
+        
+        # Verbosity control
+        self.verbose = verbose.lower() if isinstance(verbose, str) else "normal"
+        
+        # Initialize current energy values for logging
+        self._initialize_energy_values()
 
-        # Initialize output file
-        self.output_file = f"{output_prefix}_energy.txt"
-        with open(self.output_file, 'w') as f:
-            f.write("# Energy tracking data\n")
-            f.write("# time_ps\tkinetic_energy\tpotential_energy\ttotal_energy\n")
+        # Initialize output file with comprehensive header
+        self.output_file = f"{output_prefix}_energy_comprehensive.txt"
+        self._initialize_output_file()
+        
+        # Physical constants (from old working version)
+        self._kB = 3.166811563e-6  # Boltzmann constant in Hartree/K
+        
+        if self.verbose != "quiet":
+            print(f"COMPREHENSIVE EnergyTracker initialized:", flush=True)
+            print(f"  Output file: {self.output_file}", flush=True)
+            print(f"  Force objects: {list(self.force_objects.keys())}", flush=True)
+            print(f"  Thermostat objects: {list(self.thermostat_objects.keys())}", flush=True)
+            print(f"  Output period: {self.output_period_ps:.3f} ps", flush=True)
+    
+    def _get_hoomd_simulation(self):
+        """Get the HOOMD simulation object, handling both CavityMDSimulation and direct HOOMD objects."""
+        if hasattr(self.simulation, 'sim'):
+            # CavityMDSimulation object - get HOOMD simulation
+            return self.simulation.sim
+        else:
+            # Direct HOOMD simulation object
+            return self.simulation
+
+    def _initialize_energy_values(self):
+        """Initialize energy values for logging."""
+        # Current energy components (matching old working version)
+        self.current_harmonic_energy = 0.0
+        self.current_lj_energy = 0.0
+        self.current_ewald_short_energy = 0.0
+        self.current_ewald_long_energy = 0.0
+        self.current_cavity_harmonic_energy = 0.0
+        self.current_cavity_coupling_energy = 0.0
+        self.current_cavity_dipole_self_energy = 0.0
+        self.current_cavity_total_potential_energy = 0.0
+
+        # Kinetic energies
+        self.current_molecular_kinetic_energy = 0.0
+        self.current_cavity_kinetic_energy = 0.0
+        self.current_total_kinetic_energy = 0.0
+
+        # Reservoir energies
+        self.current_molecular_reservoir_energy = 0.0
+        self.current_cavity_reservoir_energy = 0.0
+        self.current_total_reservoir_energy = 0.0
+
+        # Totals
+        self.current_total_potential_energy = 0.0
+        self.current_system_total_energy = 0.0
+        self.current_universe_total_energy = 0.0
+        self.current_temperature = 0.0
+
+    def _initialize_output_file(self):
+        """Initialize output file with comprehensive header (matching old working version)."""
+        try:
+            with open(self.output_file, "w") as f:
+                f.write("# COMPREHENSIVE Energy tracking (based on old working version)\n")
+                f.write(f"# Output period: {self.output_period_ps:.3f} ps\n")
+                f.write("# All energies in Hartree (atomic units)\n")
+                f.write("# Column definitions:\n")
+                f.write("#   time(ps): simulation time in picoseconds\n")
+                f.write("#   timestep: simulation timestep number\n")
+                f.write("#   harmonic_energy: harmonic bond potential energy\n")
+                f.write("#   lj_energy: Lennard-Jones potential energy\n")
+                f.write("#   ewald_short_energy: short-range Coulomb energy\n")
+                f.write("#   ewald_long_energy: long-range Coulomb energy\n")
+                f.write("#   cavity_harmonic_energy: cavity harmonic potential energy\n")
+                f.write("#   cavity_coupling_energy: cavity-molecule coupling energy\n")
+                f.write("#   cavity_dipole_self_energy: dipole self-energy\n")
+                f.write("#   cavity_total_potential_energy: total cavity potential energy\n")
+                f.write("#   molecular_kinetic_energy: molecular kinetic energy\n")
+                f.write("#   cavity_kinetic_energy: cavity kinetic energy\n")
+                f.write("#   total_kinetic_energy: total kinetic energy\n")
+                f.write("#   total_potential_energy: total potential energy\n")
+                f.write("#   system_total_energy: total system energy (KE + PE)\n")
+                f.write("#   molecular_reservoir_energy: molecular reservoir energy\n")
+                f.write("#   cavity_reservoir_energy: cavity reservoir energy\n")
+                f.write("#   total_reservoir_energy: total reservoir energy\n")
+                f.write("#   universe_total_energy: universe total energy (system + reservoir) [CONSERVED]\n")
+                f.write("#   temperature: kinetic temperature (K)\n")
+
+                # Create header line
+                header = "time(ps) timestep"
+                header += " harmonic_energy lj_energy ewald_short_energy ewald_long_energy"
+                header += " cavity_harmonic_energy cavity_coupling_energy cavity_dipole_self_energy cavity_total_potential_energy"
+                header += " molecular_kinetic_energy cavity_kinetic_energy total_kinetic_energy"
+                header += " total_potential_energy system_total_energy"
+                header += " molecular_reservoir_energy cavity_reservoir_energy total_reservoir_energy"
+                header += " universe_total_energy temperature\n"
+                f.write(header)
+                f.flush()
+            if self.verbose != "quiet":
+                print(f"EnergyTracker: Successfully created output file {self.output_file}", flush=True)
+        except Exception as e:
+            print(f"EnergyTracker ERROR: Failed to create output file {self.output_file}: {e}", flush=True)
 
     def act(self, timestep):
-        """Track energy at each timestep and cache force energies."""
+        """Track comprehensive energy components at each timestep (based on old working version)."""
         current_time_ps = self.time_tracker.elapsed_time
         
-        # Update cached energies every timestep for get_instantaneous_energy access
-        self._update_energy_cache()
+        # Skip timestep 0
+        if timestep == 0:
+            return
+
+        # Only output periodically
+        if not self._should_output(current_time_ps):
+            return
+
+        try:
+            if self.verbose == "verbose":
+                print(f"=== ENERGY TRACKER DEBUG - Timestep {timestep} ===", flush=True)
+                print(f"Current time: {current_time_ps:.6f} ps", flush=True)
+
+            # === 1. GET POTENTIAL ENERGY COMPONENTS (direct from force objects) ===
+            # Get individual potential energy contributions directly from force objects
+            try:
+                self.current_harmonic_energy = (
+                    self.force_objects["harmonic"].energy
+                    if "harmonic" in self.force_objects
+                    else 0.0
+                    )
+            except (AttributeError, KeyError) as e:
+                self.current_harmonic_energy = 0.0
+                if self.verbose in ["normal", "verbose"]:
+                    print(f"Harmonic energy ERROR: {e}", flush=True)
+
+            try:
+                self.current_lj_energy = (
+                    self.force_objects["lj"].energy
+                    if "lj" in self.force_objects
+                    else 0.0
+                )
+            except (AttributeError, KeyError) as e:
+                self.current_lj_energy = 0.0
+                if self.verbose in ["normal", "verbose"]:
+                    print(f"LJ energy ERROR: {e}", flush=True)
+
+            try:
+                self.current_ewald_short_energy = (
+                    self.force_objects["ewald_short"].energy
+                    if "ewald_short" in self.force_objects
+                    else 0.0
+                    )
+            except (AttributeError, KeyError) as e:
+                self.current_ewald_short_energy = 0.0
+
+            try:
+                self.current_ewald_long_energy = (
+                    self.force_objects["ewald_long"].energy
+                    if "ewald_long" in self.force_objects
+                    else 0.0
+                    )
+            except (AttributeError, KeyError) as e:
+                self.current_ewald_long_energy = 0.0
+
+            # Calculate molecular potential energy
+            molecular_potential_energy = (
+                self.current_harmonic_energy
+                + self.current_lj_energy
+                + self.current_ewald_short_energy
+                + self.current_ewald_long_energy
+                )
+
+            # Get cavity potential energy components if present
+            self.current_cavity_harmonic_energy = 0.0
+            self.current_cavity_coupling_energy = 0.0
+            self.current_cavity_dipole_self_energy = 0.0
+            self.current_cavity_total_potential_energy = 0.0
+
+            if (
+                "cavity" in self.force_objects
+                and self.force_objects["cavity"] is not None
+            ):
+                cavityforce = self.force_objects["cavity"]
+                try:
+                    # Use the logged property methods directly (from old working version)
+                    self.current_cavity_harmonic_energy = cavityforce.harmonic_energy
+                    self.current_cavity_coupling_energy = cavityforce.coupling_energy
+                    self.current_cavity_dipole_self_energy = cavityforce.dipole_self_energy
+
+                    # For total energy, try .energy property first, then sum components
+                    if hasattr(cavityforce, "energy"):
+                        self.current_cavity_total_potential_energy = cavityforce.energy
+                    else:
+                        self.current_cavity_total_potential_energy = (
+                            self.current_cavity_harmonic_energy
+                            + self.current_cavity_coupling_energy
+                            + self.current_cavity_dipole_self_energy
+                            )
+                except Exception as e:
+                    self.current_cavity_harmonic_energy = 0.0
+                    self.current_cavity_coupling_energy = 0.0
+                    self.current_cavity_dipole_self_energy = 0.0
+                    self.current_cavity_total_potential_energy = 0.0
+                    if self.verbose in ["normal", "verbose"]:
+                        print(f"ERROR accessing cavity energy components: {e}", flush=True)
+
+            # Calculate total potential energy
+            self.current_total_potential_energy = (
+                molecular_potential_energy + self.current_cavity_total_potential_energy
+            )
+
+            # === 2. GET KINETIC ENERGY COMPONENTS (using old working method) ===
+            molecular_ke, molecular_temp = self._compute_molecular_kinetic_energy()
+            cavity_ke = self._compute_cavity_kinetic_energy()
+
+            self.current_molecular_kinetic_energy = molecular_ke
+            self.current_cavity_kinetic_energy = cavity_ke
+            self.current_total_kinetic_energy = molecular_ke + cavity_ke
+            self.current_temperature = molecular_temp
+
+            # === 3. GET RESERVOIR ENERGIES ===
+            # Try to get reservoir energies from available thermostats
+            self.current_molecular_reservoir_energy = 0.0
+            self.current_cavity_reservoir_energy = 0.0
+            
+            # Check all available thermostat objects
+            if self.verbose == "verbose":
+                print(f"    Available thermostat objects: {list(self.thermostat_objects.keys())}", flush=True)
+            
+            for thermo_name, thermo_obj in self.thermostat_objects.items():
+                if "molecular" in thermo_name or "bussi" in thermo_name:
+                    reservoir_energy = self._get_reservoir_energy(thermo_name)
+                    self.current_molecular_reservoir_energy += reservoir_energy
+                    if self.verbose == "verbose":
+                        print(f"    {thermo_name} reservoir energy: {reservoir_energy}", flush=True)
+                elif "cavity" in thermo_name or "langevin" in thermo_name:
+                    reservoir_energy = self._get_reservoir_energy(thermo_name)
+                    self.current_cavity_reservoir_energy += reservoir_energy
+                    if self.verbose == "verbose":
+                        print(f"    {thermo_name} reservoir energy: {reservoir_energy}", flush=True)
+            
+            self.current_total_reservoir_energy = (
+                self.current_molecular_reservoir_energy + self.current_cavity_reservoir_energy
+            )
+            
+            if self.verbose == "verbose":
+                print(f"    Reservoir energies: molecular={self.current_molecular_reservoir_energy}, cavity={self.current_cavity_reservoir_energy}", flush=True)
+
+            # === 4. CALCULATE TOTAL ENERGIES ===
+            self.current_system_total_energy = (
+                self.current_total_potential_energy + self.current_total_kinetic_energy
+            )
+            self.current_universe_total_energy = (
+                self.current_system_total_energy + self.current_total_reservoir_energy
+            )
+
+            # === 5. WRITE OUTPUT DATA ===
+            self._write_energy_data(timestep, current_time_ps)
+
+            if self.verbose == "verbose":
+                print(f"=== END ENERGY TRACKER DEBUG - Timestep {timestep} ===\n", flush=True)
+
+        except Exception as e:
+            print(f"EnergyTracker CRITICAL ERROR at timestep {timestep}: {e}", flush=True)
+            import traceback
+            traceback.print_exc()
+
+    def _compute_molecular_kinetic_energy(self):
+        """
+        Compute molecular kinetic energy and temperature internally (from old working version).
         
-        if self._should_output(current_time_ps):
-            # Get thermodynamic quantities
-            with self.simulation.state.cpu_local_snapshot as snap:
-                velocities = np.array(snap.particles.velocity)
-                masses = np.array(snap.particles.mass)
+        Returns:
+            tuple: (kinetic_energy, temperature) in atomic units and Kelvin
+        """
+        with self._get_hoomd_simulation().state.cpu_local_snapshot as snap:
+            # Convert to numpy array for robust handling
+            typeid_array = np.array(snap.particles.typeid)
+            # Filter to molecular particles only (exclude cavity particle type)
+            # Assume cavity particle has type ID 2 or is the last particle type
+            max_typeid = np.max(typeid_array) if len(typeid_array) > 0 else 0
+            molecular_mask = typeid_array != max_typeid  # Exclude highest type ID (cavity)
+
+            if not np.any(molecular_mask):
+                return 0.0, 0.0
+
+            velocities_np = np.array(snap.particles.velocity)[molecular_mask]
+            masses_np = np.array(snap.particles.mass)[molecular_mask]
+
+            # Compute kinetic energy: KE = 0.5 * sum(m_i * v_i^2)
+            kinetic_energy = 0.5 * np.sum(masses_np[:, np.newaxis] * velocities_np**2)
+
+            # Compute temperature: T = (2/3) * KE / (N * k_B)
+            N_dof = 3 * len(masses_np)  # 3 degrees of freedom per particle
+            temperature = (2.0 * kinetic_energy / (N_dof * self._kB)) if N_dof > 0 else 0.0
+
+            return float(kinetic_energy), float(temperature)
+
+    def _compute_cavity_kinetic_energy(self):
+        """
+        Compute cavity kinetic energy internally (from old working version).
+        
+        Returns:
+            float: cavity kinetic energy in atomic units
+        """
+        # Check if this is a cavity simulation
+        # Handle both CavityMDSimulation and HOOMD simulation objects
+        if hasattr(self.simulation, 'incavity'):
+            # CavityMDSimulation object - has incavity attribute
+            incavity = self.simulation.incavity
+            hoomd_sim = self.simulation.sim  # Get HOOMD simulation from CavityMDSimulation
+        else:
+            # HOOMD simulation object - no incavity attribute, assume cavity simulation
+            incavity = True  # Default for backward compatibility
+            hoomd_sim = self.simulation
             
-            # Calculate kinetic energy
-            kinetic_energy = 0.5 * np.sum(masses[:, np.newaxis] * velocities**2)
+            if self.verbose == "verbose":
+                print(f"    DEBUG: EnergyTracker simulation object = {type(self.simulation)}", flush=True)
+                print(f"    DEBUG: incavity attribute = {incavity}", flush=True)
+        
+        if not incavity:
+            # No-cavity simulation - no cavity particle exists
+            if self.verbose == "verbose":
+                print(f"    DEBUG: No-cavity simulation detected, returning 0.0 for cavity KE", flush=True)
+            return 0.0
             
-            # Calculate total potential energy from cached force energies
-            potential_energy = sum(self._current_energies.values())
-            total_energy = kinetic_energy + potential_energy
+        with self._get_hoomd_simulation().state.cpu_local_snapshot as snap:
+            typeid_array = np.array(snap.particles.typeid)
             
-            # Output to file
-            with open(self.output_file, 'a') as f:
-                f.write(f"{current_time_ps:.6f}\t{kinetic_energy:.8f}\t{potential_energy:.8f}\t{total_energy:.8f}\n")
-            
+            # In cavity simulations, cavity particle has the highest type ID
+            if len(typeid_array) == 0:
+                return 0.0
+                
+            max_typeid = np.max(typeid_array)
+            cavity_mask = typeid_array == max_typeid
+
+            if not np.any(cavity_mask):
+                return 0.0
+
+            cavity_velocity_np = np.array(snap.particles.velocity)[cavity_mask]
+            cavity_mass_np = np.array(snap.particles.mass)[cavity_mask]
+
+            # Compute cavity kinetic energy: KE = 0.5 * sum(m * v^2)
+            kinetic_energy = 0.5 * np.sum(cavity_mass_np[:, np.newaxis] * cavity_velocity_np**2)
+
+            return float(kinetic_energy)
+
+    
+    def _should_output(self, current_time_ps: float) -> bool:
+        """Check if we should output at this time."""
+        if self.last_output_time is None:
+            self.last_output_time = 0.0
+        return (current_time_ps - self.last_output_time) >= self.output_period_ps
+    
+    def _write_energy_data(self, timestep, current_time_ps):
+        """Write energy data to output file (from old working version)."""
+        try:
+            # Build output line with all components
+            output_values = [
+                current_time_ps,
+                timestep,
+                # Potential energy components
+                self.current_harmonic_energy,
+                self.current_lj_energy,
+                self.current_ewald_short_energy,
+                self.current_ewald_long_energy,
+                self.current_cavity_harmonic_energy,
+                self.current_cavity_coupling_energy,
+                self.current_cavity_dipole_self_energy,
+                self.current_cavity_total_potential_energy,
+                # Kinetic energy components
+                self.current_molecular_kinetic_energy,
+                self.current_cavity_kinetic_energy,
+                self.current_total_kinetic_energy,
+                # Total energies
+                self.current_total_potential_energy,
+                self.current_system_total_energy,
+                # Reservoir energies
+                self.current_molecular_reservoir_energy,
+                self.current_cavity_reservoir_energy,
+                self.current_total_reservoir_energy,
+                # Universe total (conserved quantity)
+                self.current_universe_total_energy,
+                # Temperature
+                self.current_temperature,
+            ]
+
+            # Write to file
+            with open(self.output_file, "a") as f:
+                formatted_values = [
+                    f"{val:.6f}" if isinstance(val, float) else str(val)
+                    for val in output_values
+                ]
+                f.write(" ".join(formatted_values) + "\n")
+                f.flush()
+
+            # Update last output time
             self.last_output_time = current_time_ps
+
+            if self.verbose == "verbose":
+                print(f"Successfully wrote energy data to {self.output_file}", flush=True)
+
+        except Exception as e:
+            print(f"EnergyTracker ERROR writing data at timestep {timestep}: {e}", flush=True)
+            import traceback
+            traceback.print_exc()
+
+    def get_instantaneous_energy(self):
+        """
+        Get current energy values for compatibility with temperature tracker.
+        
+        Returns dictionary with energy components that other trackers expect.
+        """
+        # Update energies from force objects first
+        self._update_current_energies()
+        
+        return {
+            'harmonic': self.current_harmonic_energy,
+            'lj': self.current_lj_energy,
+            'coulombic': self.current_ewald_short_energy + self.current_ewald_long_energy,
+            'ewald_short': self.current_ewald_short_energy,
+            'ewald_long': self.current_ewald_long_energy,
+            'cavity_harmonic': self.current_cavity_harmonic_energy,
+            'cavity_coupling': self.current_cavity_coupling_energy,
+            'cavity_dipole': self.current_cavity_dipole_self_energy,
+            'cavity_total': self.current_cavity_total_potential_energy,
+            'molecular_kinetic': self.current_molecular_kinetic_energy,
+            'cavity_kinetic': self.current_cavity_kinetic_energy,
+            'total_kinetic': self.current_total_kinetic_energy,
+            'total_potential': self.current_total_potential_energy,
+            'system_total': self.current_system_total_energy,
+            'universe_total': self.current_universe_total_energy,
+            'temperature': self.current_temperature
+        }
+    
+    def _update_current_energies(self):
+        """Update current energy values from force objects."""
+        try:
+            # Reset all energies
+            self.current_harmonic_energy = 0.0
+            self.current_lj_energy = 0.0
+            self.current_ewald_short_energy = 0.0
+            self.current_ewald_long_energy = 0.0
+            self.current_cavity_harmonic_energy = 0.0
+            self.current_cavity_coupling_energy = 0.0
+            self.current_cavity_dipole_self_energy = 0.0
+            
+            # Update from force objects with debug info
+            if self.verbose == "verbose":
+                print(f"  Force objects available: {list(self.force_objects.keys())}", flush=True)
+            
+            for force_name, force_obj in self.force_objects.items():
+                try:
+                    if force_name == "harmonic":
+                        energy_val = getattr(force_obj, 'energy', 0.0)
+                        self.current_harmonic_energy = float(energy_val) if hasattr(energy_val, '__float__') else energy_val
+                        if self.verbose == "verbose":
+                            print(f"    Harmonic energy: {self.current_harmonic_energy}", flush=True)
+                    elif force_name == "lj":
+                        energy_val = getattr(force_obj, 'energy', 0.0)
+                        self.current_lj_energy = float(energy_val) if hasattr(energy_val, '__float__') else energy_val
+                        if self.verbose == "verbose":
+                            print(f"    LJ energy: {self.current_lj_energy}", flush=True)
+                    elif force_name == "ewald_short":
+                        energy_val = getattr(force_obj, 'energy', 0.0)
+                        self.current_ewald_short_energy = float(energy_val) if hasattr(energy_val, '__float__') else energy_val
+                        if self.verbose == "verbose":
+                            print(f"    Ewald short energy: {self.current_ewald_short_energy}", flush=True)
+                    elif force_name == "ewald_long":
+                        energy_val = getattr(force_obj, 'energy', 0.0)
+                        self.current_ewald_long_energy = float(energy_val) if hasattr(energy_val, '__float__') else energy_val
+                        if self.verbose == "verbose":
+                            print(f"    Ewald long energy: {self.current_ewald_long_energy}", flush=True)
+                    elif force_name == "cavity":
+                        # Cavity force has multiple energy components
+                        if hasattr(force_obj, 'harmonic_energy'):
+                            self.current_cavity_harmonic_energy = force_obj.harmonic_energy
+                        if hasattr(force_obj, 'coupling_energy'):
+                            self.current_cavity_coupling_energy = force_obj.coupling_energy
+                        if hasattr(force_obj, 'dipole_self_energy'):
+                            self.current_cavity_dipole_self_energy = force_obj.dipole_self_energy
+                        if self.verbose == "verbose":
+                            print(f"    Cavity energies: harmonic={self.current_cavity_harmonic_energy}, coupling={self.current_cavity_coupling_energy}, dipole={self.current_cavity_dipole_self_energy}", flush=True)
+                except Exception as e:
+                    if self.verbose == "verbose":
+                        print(f"    Error accessing {force_name} energy: {e}", flush=True)
+            
+            # Update kinetic energies
+            molecular_ke, _ = self._compute_molecular_kinetic_energy()
+            self.current_molecular_kinetic_energy = molecular_ke
+            
+            # Get cavity kinetic energy using the fixed method
+            self.current_cavity_kinetic_energy = self._compute_cavity_kinetic_energy()
+            if self.verbose == "verbose":
+                print(f"    Cavity kinetic energy: {self.current_cavity_kinetic_energy}", flush=True)
+            
+            self.current_total_kinetic_energy = self.current_molecular_kinetic_energy + self.current_cavity_kinetic_energy
+            
+            # Update derived values
+            self.current_cavity_total_potential_energy = (self.current_cavity_harmonic_energy + 
+                                                        self.current_cavity_coupling_energy + 
+                                                        self.current_cavity_dipole_self_energy)
+            
+            self.current_total_potential_energy = (self.current_harmonic_energy + self.current_lj_energy + 
+                                                 self.current_ewald_short_energy + self.current_ewald_long_energy +
+                                                 self.current_cavity_total_potential_energy)
+            
+            self.current_system_total_energy = self.current_total_kinetic_energy + self.current_total_potential_energy
+            
+            # Temperature from molecular kinetic energy
+            if self.current_molecular_kinetic_energy > 0:
+                # Get number of molecular particles (excluding cavity if it exists)
+                with self._get_hoomd_simulation().state.cpu_local_snapshot as snap:
+                    total_particles = len(snap.particles.mass)
+                    # Subtract 1 only if cavity particle exists
+                    if "cavity" in self.force_objects:
+                        n_particles = total_particles - 1  # Exclude cavity particle
+                    else:
+                        n_particles = total_particles  # All particles are molecular
+                    n_dof = 3 * n_particles if n_particles > 0 else 3
+                    self.current_temperature = (2.0 * self.current_molecular_kinetic_energy / (n_dof * self._kB))
+                    if self.verbose == "verbose":
+                        print(f"    Temperature: {self.current_temperature:.2f} K (from {n_particles} molecular particles)", flush=True)
+            else:
+                self.current_temperature = 0.0
+                        
+        except Exception as e:
+            print(f"Warning: Error updating current energies: {e}")
+            # Keep existing values if update fails
+    
     
     def _should_output(self, current_time_ps: float) -> bool:
         """Check if we should output data."""
@@ -604,94 +1108,129 @@ class EnergyTracker(hoomd.custom.Action):
             return True
         return (current_time_ps - self.last_output_time) >= self.output_period_ps
     
-    def _update_energy_cache(self):
-        """Update cached force energy components from simulation."""
-        self._current_energies.clear()
+    def _get_reservoir_energy(self, thermostat_name):
+        """Get reservoir energy from a thermostat if available."""
+        if thermostat_name is None or thermostat_name not in self.thermostat_objects:
+            if self.verbose == "verbose":
+                print(f"    DEBUG: Thermostat {thermostat_name} not found in thermostat_objects", flush=True)
+            return 0.0
+        
+        thermostat = self.thermostat_objects[thermostat_name]
+        if thermostat is None:
+            if self.verbose == "verbose":
+                print(f"    DEBUG: Thermostat {thermostat_name} is None", flush=True)
+            return 0.0
+        
+        if self.verbose == "verbose":
+            print(f"    DEBUG: Checking reservoir energy for {thermostat_name}", flush=True)
+            print(f"      Thermostat type: {type(thermostat)}", flush=True)
+            print(f"      Has total_reservoir_energy: {hasattr(thermostat, 'total_reservoir_energy')}", flush=True)
+            print(f"      Has reservoir_energy: {hasattr(thermostat, 'reservoir_energy')}", flush=True)
+            print(f"      Has energy: {hasattr(thermostat, 'energy')}", flush=True)
+            print(f"      Has thermostat: {hasattr(thermostat, 'thermostat')}", flush=True)
+            if hasattr(thermostat, 'thermostat'):
+                print(f"      Nested thermostat type: {type(thermostat.thermostat)}", flush=True)
+                print(f"      Nested has reservoir_energy: {hasattr(thermostat.thermostat, 'reservoir_energy')}", flush=True)
         
         try:
-            # Access forces from the integrator
-            if hasattr(self.simulation, 'operations') and hasattr(self.simulation.operations, 'integrator'):
-                forces = self.simulation.operations.integrator.forces
-                
-                for force in forces:
-                    force_type = type(force).__name__.lower()
-                    
-                    try:
-                        # Get energy from force if available
-                        if hasattr(force, 'energy'):
-                            energy_value = force.energy
-                            if isinstance(energy_value, (int, float)):
-                                self._current_energies[force_type] = energy_value
-                            elif hasattr(energy_value, '__float__'):
-                                self._current_energies[force_type] = float(energy_value)
-                                
-                        # Special handling for cavity force components
-                        if force_type == 'cavityforce':
-                            if hasattr(force, 'harmonic_energy'):
-                                self._current_energies['cavity_harmonic'] = force.harmonic_energy
-                            if hasattr(force, 'coupling_energy'):
-                                self._current_energies['cavity_coupling'] = force.coupling_energy
-                            if hasattr(force, 'dipole_self_energy'):
-                                self._current_energies['cavity_dipole'] = force.dipole_self_energy
-                                
-                    except Exception as e:
-                        # Silently skip forces that can't provide energy
-                        continue
-                        
+            # Try different ways to access reservoir energy
+            if hasattr(thermostat, 'total_reservoir_energy'):
+                # BussiReservoir thermostat
+                energy_val = thermostat.total_reservoir_energy
+                if self.verbose == "verbose":
+                    print(f"      Found total_reservoir_energy = {energy_val}", flush=True)
+                return float(energy_val) if hasattr(energy_val, '__float__') else energy_val
+            elif hasattr(thermostat, 'reservoir_energy'):
+                # Standard reservoir_energy attribute
+                energy_val = thermostat.reservoir_energy
+                if self.verbose == "verbose":
+                    print(f"      Found reservoir_energy = {energy_val}", flush=True)
+                return float(energy_val) if hasattr(energy_val, '__float__') else energy_val
+            elif hasattr(thermostat, 'energy'):
+                # Generic energy attribute
+                energy_val = thermostat.energy
+                if self.verbose == "verbose":
+                    print(f"      Found energy = {energy_val}", flush=True)
+                return float(energy_val) if hasattr(energy_val, '__float__') else energy_val
+            elif hasattr(thermostat, 'thermostat') and hasattr(thermostat.thermostat, 'total_reservoir_energy'):
+                # For nested thermostats (e.g., ConstantVolume with BussiReservoir)
+                energy_val = thermostat.thermostat.total_reservoir_energy
+                if self.verbose == "verbose":
+                    print(f"      Found nested total_reservoir_energy = {energy_val}", flush=True)
+                return float(energy_val) if hasattr(energy_val, '__float__') else energy_val
+            elif hasattr(thermostat, 'thermostat') and hasattr(thermostat.thermostat, 'reservoir_energy'):
+                # For nested thermostats (e.g., ConstantVolume with standard reservoir)
+                energy_val = thermostat.thermostat.reservoir_energy
+                if self.verbose == "verbose":
+                    print(f"      Found nested reservoir_energy = {energy_val}", flush=True)
+                return float(energy_val) if hasattr(energy_val, '__float__') else energy_val
+            else:
+                if self.verbose == "verbose":
+                    print(f"      No reservoir energy attribute found", flush=True)
         except Exception as e:
-            # If we can't access forces, keep previous energy values
-            pass
+            if self.verbose == "verbose":
+                print(f"    Error accessing reservoir energy from {thermostat_name}: {e}", flush=True)
+        
+        return 0.0
     
-    def get_instantaneous_energy(self) -> Dict[str, float]:
-        """
-        Get current instantaneous energy components for empirical feedback.
-        
-        Returns
-        -------
-        Dict[str, float]
-            Dictionary containing energy components:
-            - 'lj': Lennard-Jones energy in Hartree
-            - 'coulombic': Coulombic energy in Hartree (includes ewald_short and ewald_long)
-            - 'harmonic': Harmonic/bond energy in Hartree
-            - 'cavity': Total cavity energy in Hartree
-            - 'total_potential': Sum of all potential energy components in Hartree
+    def _write_comprehensive_header(self, energy_data):
+        """Write sophisticated header matching the expected format."""
+        with open(self.output_file, 'w') as f:
+            f.write("# SOPHISTICATED Energy tracking (comprehensive output)\n")
+            f.write(f"# Output period: {self.output_period_ps:.3f} ps\n")
+            f.write("# All energies in Hartree (atomic units)\n")
+            f.write("# Column definitions:\n")
+            f.write("#   time(ps): simulation time in picoseconds\n")
+            f.write("#   timestep: simulation timestep number\n")
+            f.write("#   harmonic_energy: harmonic bond potential energy\n")
+            f.write("#   lj_energy: Lennard-Jones potential energy\n")
+            f.write("#   ewald_short_energy: short-range Coulomb energy\n")
+            f.write("#   ewald_long_energy: long-range Coulomb energy\n")
+            f.write("#   cavity_harmonic_energy: cavity harmonic potential energy\n")
+            f.write("#   cavity_coupling_energy: cavity-molecule coupling energy\n")
+            f.write("#   cavity_dipole_self_energy: dipole self-energy\n")
+            f.write("#   cavity_total_potential_energy: total cavity potential energy\n")
+            f.write("#   molecular_kinetic_energy: molecular kinetic energy\n")
+            f.write("#   cavity_kinetic_energy: cavity kinetic energy\n")
+            f.write("#   total_kinetic_energy: total kinetic energy\n")
+            f.write("#   total_potential_energy: total potential energy\n")
+            f.write("#   system_total_energy: total system energy (KE + PE)\n")
+            f.write("#   molecular_reservoir_energy: molecular reservoir energy\n")
+            f.write("#   cavity_reservoir_energy: cavity reservoir energy\n")
+            f.write("#   total_reservoir_energy: total reservoir energy\n")
+            f.write("#   universe_total_energy: universe total energy (system + reservoir) [CONSERVED]\n")
+            f.write("#   temperature: kinetic temperature (K)\n")
             
-        Notes
-        -----
-        This method is called by EmpiricalTemperatureFeedback to access
-        real-time energy data for systemic temperature calculations.
-        """
-        energy_data = {}
-        
-        # Map HOOMD force names to standard energy components
-        lj_energy = 0.0
-        coulombic_energy = 0.0
-        harmonic_energy = 0.0
-        cavity_energy = 0.0
-        
-        # Process cached energies
-        for force_name, energy in self._current_energies.items():
-            if 'lj' in force_name or 'lennard' in force_name:
-                lj_energy += energy
-            elif 'ewald' in force_name or 'coulomb' in force_name or 'pppm' in force_name:
-                coulombic_energy += energy
-            elif 'harmonic' in force_name or 'bond' in force_name:
-                if 'cavity' not in force_name:  # Exclude cavity harmonic from molecular harmonic
-                    harmonic_energy += energy
-            elif 'cavity' in force_name:
-                cavity_energy += energy
-        
-        # Store individual components
-        energy_data['lj'] = lj_energy
-        energy_data['coulombic'] = coulombic_energy
-        energy_data['harmonic'] = harmonic_energy
-        energy_data['cavity'] = cavity_energy
-        
-        # Combined components for empirical feedback
-        energy_data['lj_coulombic'] = lj_energy + coulombic_energy
-        energy_data['total_potential'] = lj_energy + coulombic_energy + harmonic_energy + cavity_energy
-        
-        return energy_data
+            # Write column headers
+            f.write("time(ps) timestep harmonic_energy lj_energy ewald_short_energy ewald_long_energy " +
+                   "cavity_harmonic_energy cavity_coupling_energy cavity_dipole_self_energy " +
+                   "cavity_total_potential_energy molecular_kinetic_energy cavity_kinetic_energy " +
+                   "total_kinetic_energy total_potential_energy system_total_energy " +
+                   "molecular_reservoir_energy cavity_reservoir_energy total_reservoir_energy " +
+                   "universe_total_energy temperature\n")
+    
+    def _format_energy_line(self, current_time_ps, timestep, data):
+        """Format energy data into output line."""
+        return (f"{current_time_ps:.6f} {timestep} " +
+                f"{data['harmonic_energy']:.6f} " +
+                f"{data['lj_energy']:.6f} " +
+                f"{data['ewald_short_energy']:.6f} " +
+                f"{data['ewald_long_energy']:.6f} " +
+                f"{data['cavity_harmonic_energy']:.6f} " +
+                f"{data['cavity_coupling_energy']:.6f} " +
+                f"{data['cavity_dipole_self_energy']:.6f} " +
+                f"{data['cavity_total_potential_energy']:.6f} " +
+                f"{data['molecular_kinetic_energy']:.6f} " +
+                f"{data['cavity_kinetic_energy']:.6f} " +
+                f"{data['total_kinetic_energy']:.6f} " +
+                f"{data['total_potential_energy']:.6f} " +
+                f"{data['system_total_energy']:.6f} " +
+                f"{data['molecular_reservoir_energy']:.6f} " +
+                f"{data['cavity_reservoir_energy']:.6f} " +
+                f"{data['total_reservoir_energy']:.6f} " +
+                f"{data['universe_total_energy']:.6f} " +
+                f"{data['temperature']:.6f}\n")
+    
 
 
 class PerformanceTracker(hoomd.custom.Action):
@@ -765,20 +1304,24 @@ class PerformanceTracker(hoomd.custom.Action):
 
 class EmpiricalTemperatureData:
     """
-    Handles empirical potential energy vs temperature data with Rosenfeld function fitting.
+    Handles empirical potential energy vs temperature data with extended function fitting.
     
     This class loads empirical energy-temperature relationships from equilibrium
     simulations and provides interpolation to determine systemic temperatures
-    from instantaneous potential energies using the Rosenfeld-Tarazona scaling model.
+    from instantaneous potential energies using extended functions:
+    - Extended harmonic: E = aT/(1+bT) for harmonic energy
+    - Extended T^(3/5): E = E₀ + AT^(3/5)/(1+CT^(3/5)) for LJ+Coulombic energy
     
     Parameters
     ----------
     data_file_path : str
         Path to file containing temperature and potential energy data
     energy_component : str, optional
-        Which energy component to use ('lj_coulombic', 'total_PE', etc.). Default: 'lj_coulombic'
+        Which energy component to use ('lj_coulombic', 'harmonic', etc.). Default: 'lj_coulombic'
     use_direct_harmonic : bool, optional
         If True and energy_component='harmonic', use direct calculation T = 4*E/(N*kB). Default: False
+    create_plots : bool, optional
+        If True, create diagnostic plots showing fitted functions vs data. Default: False
         
     Attributes
     ----------
@@ -786,22 +1329,40 @@ class EmpiricalTemperatureData:
         Temperature values from empirical data (K)
     energies : np.ndarray  
         Energy values from empirical data (hartree)
-    fit_params : dict
-        Parameters from Rosenfeld fitting: {'E0': float, 'A': float, 'alpha': float}
-    is_fitted : bool
-        Whether Rosenfeld fitting has been performed
+    has_extended_harmonic_fit : bool
+        Whether extended harmonic fitting has been performed
+    has_extended_t35_fit : bool
+        Whether extended T^(3/5) fitting has been performed
+    extended_harmonic_fit : dict
+        Parameters from extended harmonic fitting: {'a': float, 'b': float, 'r2': float}
+    extended_t35_fit : dict
+        Parameters from extended T^(3/5) fitting: {'e0': float, 'a': float, 'c': float, 'r2': float}
     """
     
-    def __init__(self, data_file_path: str, energy_component: str = 'lj_coulombic', use_direct_harmonic: bool = False):
+    def __init__(self, data_file_path: str, energy_component: str = 'lj_coulombic', use_direct_harmonic: bool = False, create_plots: bool = False):
         self.data_file_path = Path(data_file_path)
         self.energy_component = energy_component
         self.use_direct_harmonic = use_direct_harmonic
-        self.fit_params = {}
-        self.is_fitted = False
+        self.create_plots = create_plots
+        
+        # Initialize extended fitting attributes (no more simple power law)
+        self.has_extended_harmonic_fit = False
+        self.has_extended_t35_fit = False
+        self.extended_harmonic_fit = {}
+        self.extended_t35_fit = {}
         
         self.load_empirical_data()
+        
+        # Use extended functions only (no more simple power law)
         if not self.use_direct_harmonic or self.energy_component != 'harmonic':
-                self.fit_rosenfeld_function()
+            if self.energy_component == 'harmonic':
+                self.fit_extended_harmonic_function()
+            else:
+                self.fit_extended_t35_function()
+            
+            # Create diagnostic plots if requested
+            if self.create_plots:
+                self.plot_fits()
     
     def load_empirical_data(self):
         """Load empirical energy-temperature data from file."""
@@ -844,62 +1405,370 @@ class EmpiricalTemperatureData:
         except Exception as e:
             raise RuntimeError(f"Failed to load empirical data: {e}")
     
-    def fit_rosenfeld_function(self):
-        """Fit generalized Rosenfeld-Tarazona scaling function to the data."""
+    # Removed fit_rosenfeld_function - using only extended functions for better accuracy
+    
+    def fit_extended_harmonic_function(self):
+        """Fit extended harmonic function: E = aT/(1+bT)"""
         try:
             from scipy.optimize import curve_fit
             
-            def generalized_rt_model(T, E0, A, alpha):
-                """Generalized RT scaling: E(T) = E₀ + A*T^α"""
-                return E0 + A * T**alpha
+            def extended_harmonic_model(T, a, b):
+                """Extended harmonic model: E(T) = aT/(1+bT)"""
+                return a * T / (1 + b * T)
             
             # Initial parameter guesses
-            E0_guess = self.energies.min()  # Energy at 0K
-            A_guess = (self.energies.max() - self.energies.min()) / (self.temperatures.max()**0.6)
-            alpha_guess = 0.6  # Starting point between 3/5 and 3/2
+            a_guess = self.energies.max() / self.temperatures.max()  # Linear coefficient
+            b_guess = 1e-3  # Small positive value
             
             # Perform fitting
-            self.fit_params, _ = curve_fit(
-                generalized_rt_model,
+            self.extended_harmonic_params, _ = curve_fit(
+                extended_harmonic_model,
                 self.temperatures,
                 self.energies,
-                p0=[E0_guess, A_guess, alpha_guess],
-                bounds=([self.energies.min() - 0.1, 0, 0.1], 
-                       [self.energies.max(), np.inf, 2.0])
+                p0=[a_guess, b_guess],
+                bounds=([0, 0], [np.inf, np.inf])  # Both parameters must be positive
             )
             
+            # Calculate R-squared
+            predicted = extended_harmonic_model(self.temperatures, *self.extended_harmonic_params)
+            residuals = self.energies - predicted
+            ss_res = np.sum(residuals**2)
+            ss_tot = np.sum((self.energies - np.mean(self.energies))**2)
+            r2 = 1 - (ss_res / ss_tot)
+            
             # Store fitted parameters
-            self.fit_params = {
-                'E0': self.fit_params[0],
-                'A': self.fit_params[1], 
-                'alpha': self.fit_params[2]
+            self.extended_harmonic_fit = {
+                'a': self.extended_harmonic_params[0],
+                'b': self.extended_harmonic_params[1],
+                'r2': r2
             }
             
-            self.is_fitted = True
+            self.has_extended_harmonic_fit = True
             
-            print(f"Rosenfeld fitting completed:")
-            print(f"  E₀ = {self.fit_params['E0']:.6f} Ha")
-            print(f"  A = {self.fit_params['A']:.6f} Ha·K^(-α)")  
-            print(f"  α = {self.fit_params['alpha']:.3f}")
+            print(f"Extended harmonic fitting completed:")
+            print(f"  a = {self.extended_harmonic_fit['a']:.6f} Ha·K^(-1)")
+            print(f"  b = {self.extended_harmonic_fit['b']:.6f} K^(-1)")
+            print(f"  R² = {self.extended_harmonic_fit['r2']:.12f}")
             
         except Exception as e:
-            print(f"Warning: Rosenfeld fitting failed: {e}")
-            # Fallback to linear interpolation
-            self.is_fitted = False
+            print(f"Warning: Extended harmonic fitting failed: {e}")
+            self.has_extended_harmonic_fit = False
+    
+    def fit_extended_t35_function(self):
+        """Fit extended T^(3/5) function: E = E0 + AT^(3/5)/(1+CT^(3/5))"""
+        try:
+            from scipy.optimize import curve_fit
+            
+            def extended_t35_model(T, e0, a, c):
+                """Extended T^(3/5) model: E(T) = E₀ + AT^(3/5)/(1+CT^(3/5))"""
+                t_power = T**(3/5)
+                return e0 + a * t_power / (1 + c * t_power)
+            
+            # Initial parameter guesses
+            e0_guess = self.energies.min()
+            a_guess = (self.energies.max() - self.energies.min()) / (self.temperatures.max()**(3/5))
+            c_guess = 1e-3
+            
+            # Perform fitting
+            self.extended_t35_params, _ = curve_fit(
+                extended_t35_model,
+                self.temperatures,
+                self.energies,
+                p0=[e0_guess, a_guess, c_guess],
+                bounds=([self.energies.min() - 10, -np.inf, 0], 
+                       [self.energies.max() + 10, np.inf, np.inf])
+            )
+            
+            # Calculate R-squared
+            predicted = extended_t35_model(self.temperatures, *self.extended_t35_params)
+            residuals = self.energies - predicted
+            ss_res = np.sum(residuals**2)
+            ss_tot = np.sum((self.energies - np.mean(self.energies))**2)
+            r2 = 1 - (ss_res / ss_tot)
+            
+            # Store fitted parameters
+            self.extended_t35_fit = {
+                'e0': self.extended_t35_params[0],
+                'a': self.extended_t35_params[1],
+                'c': self.extended_t35_params[2],
+                'r2': r2
+            }
+            
+            self.has_extended_t35_fit = True
+            
+            print(f"Extended T^(3/5) fitting completed:")
+            print(f"  E₀ = {self.extended_t35_fit['e0']:.6f} Ha")
+            print(f"  A = {self.extended_t35_fit['a']:.6f} Ha·K^(-3/5)")
+            print(f"  C = {self.extended_t35_fit['c']:.6f} K^(-3/5)")
+            print(f"  R² = {self.extended_t35_fit['r2']:.12f}")
+            
+        except Exception as e:
+            print(f"Warning: Extended T^(3/5) fitting failed: {e}")
+            self.has_extended_t35_fit = False
+    
+    def plot_fits(self, output_file: str = None, show_plot: bool = False):
+        """
+        Plot empirical data and fitted functions for visual validation.
+        
+        Parameters
+        ----------
+        output_file : str, optional
+            Output file path for saving plot. If None, uses component-based naming.
+        show_plot : bool, optional
+            Whether to display plot interactively. Default: False
+        """
+        try:
+            import matplotlib.pyplot as plt
+            import matplotlib.style
+            
+            # Set up scientific plotting style
+            plt.style.use('default')
+            plt.rcParams.update({
+                'font.size': 12,
+                'font.family': 'serif',
+                'mathtext.fontset': 'cm',
+                'axes.grid': True,
+                'grid.alpha': 0.3,
+                'figure.dpi': 150,
+                'savefig.dpi': 300,
+                'savefig.bbox': 'tight'
+            })
+            
+            # Create figure with 2x2 subplots
+            fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(16, 12))
+            
+            # Generate fine temperature array for smooth curves
+            T_fine = np.linspace(self.temperatures.min(), self.temperatures.max(), 1000)
+            
+            # Plot 1: Linear scale
+            ax1.scatter(self.temperatures, self.energies, color='blue', alpha=0.7, s=50, 
+                       label='Empirical Data', zorder=3)
+            
+            # Plot 2: Log-log scale (same data)
+            # Only plot positive values for log scale
+            pos_mask = (self.temperatures > 0) & (self.energies > 0)
+            if np.any(pos_mask):
+                ax2.loglog(self.temperatures[pos_mask], self.energies[pos_mask], 'bo', 
+                          alpha=0.7, markersize=6, label='Empirical Data')
+            
+            # Plot fitted functions on both linear and log-log scales
+            if self.has_extended_harmonic_fit and self.energy_component == 'harmonic':
+                a, b = self.extended_harmonic_fit['a'], self.extended_harmonic_fit['b']
+                r2 = self.extended_harmonic_fit['r2']
+                
+                # Extended harmonic function
+                E_fit = a * T_fine / (1 + b * T_fine)
+                ax1.plot(T_fine, E_fit, 'r-', linewidth=2, alpha=0.8,
+                        label=f'Extended Harmonic: $E = \\frac{{aT}}{{1+bT}}$\n'
+                              f'a = {a:.6f} Ha/K, b = {b:.6f} K$^{{-1}}$\nR² = {r2:.6f}')
+                
+                # Linear approximation for comparison
+                E_linear = a * T_fine
+                ax1.plot(T_fine, E_linear, 'g--', linewidth=1, alpha=0.6,
+                        label=f'Linear: $E = aT$ (a = {a:.6f})')
+                
+                # Log-log plots (only positive values)
+                pos_fit_mask = E_fit > 0
+                if np.any(pos_fit_mask):
+                    ax2.loglog(T_fine[pos_fit_mask], E_fit[pos_fit_mask], 'r-', 
+                              linewidth=2, alpha=0.8, label='Extended Harmonic')
+                    ax2.loglog(T_fine, E_linear, 'g--', linewidth=1, alpha=0.6, 
+                              label='Linear: $E \\propto T$')
+                        
+            elif self.has_extended_t35_fit and self.energy_component != 'harmonic':
+                e0, a, c = self.extended_t35_fit['e0'], self.extended_t35_fit['a'], self.extended_t35_fit['c']
+                r2 = self.extended_t35_fit['r2']
+                
+                # Extended T^(3/5) function
+                t_power = T_fine**(3/5)
+                E_fit = e0 + a * t_power / (1 + c * t_power)
+                ax1.plot(T_fine, E_fit, 'r-', linewidth=2, alpha=0.8,
+                        label=f'Extended T$^{{3/5}}$: $E = E_0 + \\frac{{AT^{{3/5}}}}{{1+CT^{{3/5}}}}$\n'
+                              f'E₀ = {e0:.6f} Ha, A = {a:.6f} Ha·K$^{{-3/5}}$\n'
+                              f'C = {c:.6f} K$^{{-3/5}}$, R² = {r2:.6f}')
+                
+                # Simple T^(3/5) for comparison if c is small
+                if c < 1e-3:
+                    E_simple = e0 + a * t_power
+                    ax1.plot(T_fine, E_simple, 'g--', linewidth=1, alpha=0.6,
+                            label=f'Simple T$^{{3/5}}$: $E = E_0 + AT^{{3/5}}$')
+                
+                # Log-log plots - need to handle negative energies
+                # Shift data to make it positive for log plotting
+                E_shift = E_fit - e0  # Remove baseline
+                E_simple_shift = a * t_power if c < 1e-3 else None
+                
+                pos_shift_mask = E_shift > 0
+                if np.any(pos_shift_mask):
+                    ax2.loglog(T_fine[pos_shift_mask], E_shift[pos_shift_mask], 'r-', 
+                              linewidth=2, alpha=0.8, 
+                              label=f'Extended T$^{{3/5}}$ (shifted: $E - E_0$)')
+                    
+                    if E_simple_shift is not None:
+                        ax2.loglog(T_fine, E_simple_shift, 'g--', linewidth=1, alpha=0.6,
+                                  label='Pure T$^{{3/5}}$: $E \\propto T^{{3/5}}$')
+            
+            # Format linear plot
+            ax1.set_xlabel('Temperature (K)')
+            ax1.set_ylabel('Energy (Ha)')
+            ax1.set_title(f'Linear Scale: {self.energy_component.replace("_", "+").title()}')
+            ax1.legend(fontsize=9)
+            ax1.grid(True, alpha=0.3)
+            
+            # Format log-log plot
+            ax2.set_xlabel('Temperature (K)')
+            ax2.set_ylabel('Energy (Ha)' if self.energy_component == 'harmonic' else 'Energy - E₀ (Ha)')
+            ax2.set_title(f'Log-Log Scale: Power Law Analysis')
+            ax2.legend(fontsize=9)
+            ax2.grid(True, alpha=0.3)
+            
+            # Plot 3: Residuals
+            if self.has_extended_harmonic_fit and self.energy_component == 'harmonic':
+                a, b = self.extended_harmonic_fit['a'], self.extended_harmonic_fit['b']
+                E_pred = a * self.temperatures / (1 + b * self.temperatures)
+            elif self.has_extended_t35_fit and self.energy_component != 'harmonic':
+                e0, a, c = self.extended_t35_fit['e0'], self.extended_t35_fit['a'], self.extended_t35_fit['c']
+                t_power = self.temperatures**(3/5)
+                E_pred = e0 + a * t_power / (1 + c * t_power)
+            else:
+                E_pred = np.interp(self.temperatures, self.temperatures, self.energies)  # No fit available
+            
+            residuals = self.energies - E_pred
+            ax3.scatter(self.temperatures, residuals, color='red', alpha=0.7, s=50)
+            ax3.axhline(y=0, color='black', linestyle='--', alpha=0.5)
+            ax3.set_xlabel('Temperature (K)')
+            ax3.set_ylabel('Residuals (Ha)')
+            ax3.set_title('Fit Residuals')
+            ax3.grid(True, alpha=0.3)
+            
+            # Add statistics text
+            rmse = np.sqrt(np.mean(residuals**2))
+            max_abs_residual = np.max(np.abs(residuals))
+            ax3.text(0.05, 0.95, f'RMSE: {rmse:.2e} Ha\nMax |residual|: {max_abs_residual:.2e} Ha',
+                    transform=ax3.transAxes, verticalalignment='top',
+                    bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+            
+            # Plot 4: Power law analysis
+            if self.energy_component == 'harmonic':
+                # For harmonic: analyze E vs T scaling
+                if np.any(pos_mask):
+                    # Fit power law: log(E) = log(A) + α*log(T)
+                    log_T = np.log10(self.temperatures[pos_mask])
+                    log_E = np.log10(self.energies[pos_mask])
+                    
+                    # Linear fit in log space
+                    coeffs = np.polyfit(log_T, log_E, 1)
+                    alpha_fit = coeffs[0]  # Power law exponent
+                    log_A_fit = coeffs[1]  # log(prefactor)
+                    A_fit = 10**log_A_fit
+                    
+                    # Calculate R²
+                    log_E_pred = coeffs[0] * log_T + coeffs[1]
+                    ss_res = np.sum((log_E - log_E_pred)**2)
+                    ss_tot = np.sum((log_E - np.mean(log_E))**2)
+                    r2_power = 1 - (ss_res / ss_tot)
+                    
+                    # Plot power law fit
+                    T_power_fit = A_fit * T_fine**alpha_fit
+                    ax4.loglog(T_fine, T_power_fit, 'purple', linewidth=2, alpha=0.8,
+                              label=f'Power Law: $E = AT^{{\\alpha}}$\n'
+                                    f'A = {A_fit:.2e} Ha, α = {alpha_fit:.3f}\n'
+                                    f'R² = {r2_power:.6f}')
+                    
+                    # Add theoretical lines
+                    E_theory_linear = (self.energies[pos_mask].mean() / self.temperatures[pos_mask].mean()) * T_fine
+                    ax4.loglog(T_fine, E_theory_linear, 'k--', alpha=0.5, 
+                              label='Linear: $E \\propto T^1$ (theory)')
+                    
+                    ax4.loglog(self.temperatures[pos_mask], self.energies[pos_mask], 'bo', 
+                              alpha=0.7, markersize=6, label='Data')
+                    
+                    ax4.set_title(f'Power Law Fit: α = {alpha_fit:.3f} (expect 1.0)')
+                    
+            else:
+                # For LJ+Coulombic: analyze (E - E₀) vs T^(3/5) scaling
+                if self.has_extended_t35_fit:
+                    e0, a, c = self.extended_t35_fit['e0'], self.extended_t35_fit['a'], self.extended_t35_fit['c']
+                    E_shifted = self.energies - e0
+                    pos_shifted_mask = E_shifted > 0
+                    
+                    if np.any(pos_shifted_mask):
+                        T_shifted = self.temperatures[pos_shifted_mask]
+                        E_shifted_pos = E_shifted[pos_shifted_mask]
+                        
+                        # Fit power law to shifted data
+                        log_T = np.log10(T_shifted)
+                        log_E_shift = np.log10(E_shifted_pos)
+                        
+                        coeffs = np.polyfit(log_T, log_E_shift, 1)
+                        alpha_fit = coeffs[0]
+                        log_A_fit = coeffs[1]
+                        A_fit = 10**log_A_fit
+                        
+                        # Calculate R²
+                        log_E_pred = coeffs[0] * log_T + coeffs[1]
+                        ss_res = np.sum((log_E_shift - log_E_pred)**2)
+                        ss_tot = np.sum((log_E_shift - np.mean(log_E_shift))**2)
+                        r2_power = 1 - (ss_res / ss_tot)
+                        
+                        # Plot power law fit
+                        T_power_fit = A_fit * T_fine**alpha_fit
+                        ax4.loglog(T_fine, T_power_fit, 'purple', linewidth=2, alpha=0.8,
+                                  label=f'Power Law: $(E-E_0) = AT^{{\\alpha}}$\n'
+                                        f'A = {A_fit:.2e} Ha, α = {alpha_fit:.3f}\n'
+                                        f'R² = {r2_power:.6f}')
+                        
+                        # Add theoretical T^(3/5) line
+                        E_theory_t35 = a * T_fine**(3/5)
+                        ax4.loglog(T_fine, E_theory_t35, 'k--', alpha=0.5,
+                                  label='Theory: $E \\propto T^{3/5}$ (α = 0.6)')
+                        
+                        ax4.loglog(T_shifted, E_shifted_pos, 'bo', alpha=0.7, markersize=6, 
+                                  label='Data (E - E₀)')
+                        
+                        ax4.set_title(f'Power Law Fit: α = {alpha_fit:.3f} (expect 0.6)')
+            
+            ax4.set_xlabel('Temperature (K)')
+            ax4.set_ylabel('Energy (Ha)')
+            ax4.legend(fontsize=9)
+            ax4.grid(True, alpha=0.3)
+            
+            plt.tight_layout()
+            
+            # Save plot
+            if output_file is None:
+                output_file = f'empirical_fit_{self.energy_component}.png'
+            
+            plt.savefig(output_file, dpi=300, bbox_inches='tight')
+            print(f"✓ Saved empirical fit plot to {output_file}")
+            
+            if show_plot:
+                plt.show()
+            else:
+                plt.close()
+                
+        except ImportError:
+            print("Warning: matplotlib not available, cannot create fit plots")
+        except Exception as e:
+            print(f"Warning: Failed to create fit plot: {e}")
     
     def calculate_systemic_temperature(self, instantaneous_energy_hartree: float, num_particles: int = None) -> float:
         """
         Calculate systemic temperature from instantaneous potential energy.
         
-        Parameters
-        ----------
+        Uses extended fitting functions when available for higher accuracy:
+        - Extended harmonic: E = aT/(1+bT) -> T = E/(a-bE) 
+        - Extended T^(3/5): E = E₀ + AT^(3/5)/(1+CT^(3/5)) -> solve numerically
+    
+    Parameters
+    ----------
         instantaneous_energy_hartree : float
             Measured potential energy in hartree
         num_particles : int, optional
             Number of particles (required for harmonic direct calculation)
             
         Returns
-        -------
+    -------
         float
             Systemic temperature in Kelvin
         """
@@ -914,24 +1783,62 @@ class EmpiricalTemperatureData:
             temperature = 4.0 * energy_kelvin / num_particles  # 4*E/(N*kB), kB=1 in these units
             return max(temperature, 0.0)  # Ensure positive temperature
         
-        elif self.is_fitted:
-                # Use fitted Rosenfeld function: E = E₀ + A*T^α
-                # Solve for T: T = ((E - E₀)/A)^(1/α)
-                E0, A, alpha = self.fit_params['E0'], self.fit_params['A'], self.fit_params['alpha']
+        # Prioritize extended fits for better accuracy
+        elif self.has_extended_harmonic_fit and self.energy_component == 'harmonic':
+            # Extended harmonic: E = aT/(1+bT) -> T = E/(a-bE)
+            a, b = self.extended_harmonic_fit['a'], self.extended_harmonic_fit['b']
+            E = instantaneous_energy_hartree
+            
+            if E <= 0 or (a - b * E) <= 0:
+                return 0.0
+            
+            try:
+                temperature = E / (a - b * E)
+                return max(temperature, 0.0)
+            except (ValueError, ZeroDivisionError):
+                return 0.0
+        
+        elif self.has_extended_t35_fit and self.energy_component != 'harmonic':
+            # Extended T^(3/5): E = E₀ + AT^(3/5)/(1+CT^(3/5))
+            # Solve numerically using scipy.optimize
+            try:
+                from scipy.optimize import fsolve
                 
-                if instantaneous_energy_hartree <= E0:
-                    return 0.0  # At or below 0K energy
+                e0, a, c = self.extended_t35_fit['e0'], self.extended_t35_fit['a'], self.extended_t35_fit['c']
+                E = instantaneous_energy_hartree
                 
-                try:
-                    temperature = ((instantaneous_energy_hartree - E0) / A) ** (1.0 / alpha)
-                    return max(temperature, 0.0)
-                except (ValueError, ZeroDivisionError):
+                if E <= e0:
                     return 0.0
                 
-        else:
-            # Fallback to linear interpolation
-            temperature = np.interp(instantaneous_energy_hartree, self.energies, self.temperatures)
-            return max(temperature, 0.0)
+                def equation(T):
+                    if T <= 0:
+                        return float('inf')
+                    t_power = T**(3/5)
+                    return e0 + a * t_power / (1 + c * t_power) - E
+                
+                # Initial guess based on simple T^(3/5) scaling
+                T_guess = max(((E - e0) / a) ** (5/3), 1.0) if a > 0 else 300.0
+                
+                solution = fsolve(equation, T_guess, full_output=True)
+                temperature = solution[0][0]
+                
+                # Check if solution converged
+                if solution[2] == 1 and temperature > 0:
+                    return temperature
+                else:
+                    # Extended fit failed to converge, fall back to linear interpolation
+                    pass
+                    
+            except Exception as e:
+                print(f"Warning: Extended T^(3/5) temperature calculation failed: {e}")
+                # Fall back to linear interpolation
+                pass
+        
+        # Fallback to linear interpolation if no extended fits are available
+        # This should rarely happen since we now always try to fit extended functions
+        print(f"Warning: No extended fits available for {self.energy_component}, using linear interpolation")
+        temperature = np.interp(instantaneous_energy_hartree, self.energies, self.temperatures)
+        return max(temperature, 0.0)
 
 
 class EmpiricalTemperatureFeedback(hoomd.custom.Action):
@@ -948,9 +1855,9 @@ class EmpiricalTemperatureFeedback(hoomd.custom.Action):
     3. Averages systemic temperature over configurable time windows
     4. Updates thermostat target temperatures at regular intervals
     5. Optionally turns off at specified time to allow free evolution
-    
-    Parameters
-    ----------
+        
+        Parameters
+        ----------
     empirical_data : EmpiricalTemperatureData
         Calibrated energy-temperature relationship
     energy_tracker : EnergyTracker
@@ -1021,9 +1928,10 @@ class EmpiricalTemperatureFeedback(hoomd.custom.Action):
             self.harmonic_empirical_data = EmpiricalTemperatureData(
                 data_file_path=empirical_data.data_file_path,
                 energy_component='harmonic',
-                use_direct_harmonic=False  # Use fitted function (Rosenfeld model)
+                use_direct_harmonic=False,  # Use fitted function (extended model)
+                create_plots=True  # Create diagnostic plots for fitting validation
             )
-            print(f"📊 Created harmonic empirical data for fictive temperature calculation")
+            print(f"Created harmonic empirical data for fictive temperature calculation")
         except Exception as e:
             print(f"Warning: Could not create harmonic empirical data: {e}")
             print(f"   Will use direct equipartition formula for harmonic fictive temperature")
@@ -1050,7 +1958,7 @@ class EmpiricalTemperatureFeedback(hoomd.custom.Action):
         # Initialize CSV output file
         self._initialize_output_file()
         
-        print("🌡️  Empirical temperature feedback controller initialized:")
+        print("Empirical temperature feedback controller initialized:")
         print(f"   Energy component: {self.empirical_data.energy_component}")
         print(f"   Apply to: {self.apply_to}")
         print(f"   Averaging window: {self.averaging_window_ps:.1f} ps")
@@ -1249,7 +2157,7 @@ class EmpiricalTemperatureFeedback(hoomd.custom.Action):
             
             # Only print if we actually updated something
             if updated_any:
-                print(f"🌡️  Updated thermostat temperatures to {target_temperature_K:.2f} K")
+                print(f"Updated thermostat temperatures to {target_temperature_K:.2f} K")
             
         except Exception as e:
             print(f"Warning: Failed to update thermostat temperatures: {e}")
@@ -1266,9 +2174,9 @@ class TemperatureTracker(hoomd.custom.Action):
     4. Cavity bath temperature (thermostat kT)
     5. Molecular bath temperature (thermostat kT)
     6. Harmonic equipartition temperature (from harmonic energy via equipartition theorem)
-    
-    Parameters
-    ----------
+        
+        Parameters
+        ----------
     simulation : hoomd.Simulation
         HOOMD simulation object
     time_tracker : ElapsedTimeTracker
@@ -1295,7 +2203,8 @@ class TemperatureTracker(hoomd.custom.Action):
                  energy_tracker=None,
                  molecular_thermostat=None,
                  cavity_thermostat=None,
-                 empirical_data_file=None):
+                 empirical_data_file=None,
+                 debug=False):
         
         self.simulation = simulation
         self.time_tracker = time_tracker
@@ -1304,6 +2213,7 @@ class TemperatureTracker(hoomd.custom.Action):
         self.energy_tracker = energy_tracker
         self.molecular_thermostat = molecular_thermostat
         self.cavity_thermostat = cavity_thermostat
+        self.debug = debug
         
         # Load empirical data for fictive temperature calculations if provided
         self.empirical_data_harmonic = None
@@ -1314,14 +2224,15 @@ class TemperatureTracker(hoomd.custom.Action):
                 self.empirical_data_harmonic = EmpiricalTemperatureData(
                     data_file_path=empirical_data_file,
                     energy_component='harmonic',
-                    use_direct_harmonic=False  # Use fitted function, not direct calculation
+                    use_direct_harmonic=False,  # Use fitted function, not direct calculation
+                    create_plots=True  # Create diagnostic plots
                 )
                 
-                # Load empirical data for LJ+Coulombic energy component (uses Rosenfeld scaling)
+                # Load empirical data for LJ+Coulombic energy component (uses extended T^(3/5) scaling)
                 self.empirical_data_lj_coul = EmpiricalTemperatureData(
                     data_file_path=empirical_data_file,
-                    energy_component='lj_coulombic'
-                    # Rosenfeld scaling is the default - no additional parameters needed
+                    energy_component='lj_coulombic',
+                    create_plots=True  # Create diagnostic plots
                 )
             except Exception as e:
                 print(f"Warning: Could not load empirical data file {empirical_data_file}: {e}")
@@ -1329,6 +2240,14 @@ class TemperatureTracker(hoomd.custom.Action):
         
         # Tracking state
         self.last_output_time = None
+        
+        # Initialize temperature attributes for external access (e.g., AutoStopController)
+        self.kinetic_temperature = None
+        self.harmonic_fictive_temperature = None
+        self.lj_coulombic_fictive_temperature = None
+        self.cavity_bath_temperature = None
+        self.molecular_bath_temperature = None
+        self.harmonic_equipartition_temperature = None
         
         # Initialize output file
         self._initialize_output_file()
@@ -1350,30 +2269,31 @@ class TemperatureTracker(hoomd.custom.Action):
         """Track all temperatures at each timestep."""
         current_time_ps = self.time_tracker.elapsed_time
         
+        # Always calculate temperatures for external access (regardless of output timing)
+        # 1. Calculate kinetic temperature
+        self.kinetic_temperature = self._calculate_kinetic_temperature()
+        
+        # 2. Calculate harmonic fictive temperature
+        self.harmonic_fictive_temperature = self._calculate_harmonic_fictive_temperature()
+        
+        # 3. Calculate LJ+Coulombic fictive temperature
+        self.lj_coulombic_fictive_temperature = self._calculate_lj_coul_fictive_temperature()
+        
+        # 4. Get cavity bath temperature
+        self.cavity_bath_temperature = self._get_cavity_bath_temperature()
+        
+        # 5. Get molecular bath temperature
+        self.molecular_bath_temperature = self._get_molecular_bath_temperature()
+        
+        # 6. Calculate harmonic equipartition temperature
+        self.harmonic_equipartition_temperature = self._calculate_harmonic_equipartition_temperature()
+        
+        # Write to CSV only when needed
         if self._should_output(current_time_ps):
-            # 1. Calculate kinetic temperature
-            kinetic_temp_K = self._calculate_kinetic_temperature()
-            
-            # 2. Calculate harmonic fictive temperature
-            harmonic_fictive_K = self._calculate_harmonic_fictive_temperature()
-            
-            # 3. Calculate LJ+Coulombic fictive temperature
-            lj_coul_fictive_K = self._calculate_lj_coul_fictive_temperature()
-            
-            # 4. Get cavity bath temperature
-            cavity_bath_K = self._get_cavity_bath_temperature()
-            
-            # 5. Get molecular bath temperature
-            molecular_bath_K = self._get_molecular_bath_temperature()
-            
-            # 6. Calculate harmonic equipartition temperature
-            harmonic_equipartition_K = self._calculate_harmonic_equipartition_temperature()
-            
-            # Write to CSV
             with open(self.output_file, 'a') as f:
-                f.write(f"{current_time_ps:.6f},{kinetic_temp_K:.6f},{harmonic_fictive_K:.6f},"
-                       f"{lj_coul_fictive_K:.6f},{cavity_bath_K:.6f},{molecular_bath_K:.6f},"
-                       f"{harmonic_equipartition_K:.6f}\n")
+                f.write(f"{current_time_ps:.6f},{self.kinetic_temperature:.6f},{self.harmonic_fictive_temperature:.6f},"
+                       f"{self.lj_coulombic_fictive_temperature:.6f},{self.cavity_bath_temperature:.6f},{self.molecular_bath_temperature:.6f},"
+                       f"{self.harmonic_equipartition_temperature:.6f}\n")
             
             self.last_output_time = current_time_ps
     
@@ -1383,17 +2303,28 @@ class TemperatureTracker(hoomd.custom.Action):
             return True
         return (current_time_ps - self.last_output_time) >= self.output_period_ps
     
+    def _get_hoomd_simulation(self):
+        """Get the HOOMD simulation object, handling both CavityMDSimulation and direct HOOMD objects."""
+        if hasattr(self.simulation, 'sim'):
+            # CavityMDSimulation object - get HOOMD simulation
+            return self.simulation.sim
+        else:
+            # Direct HOOMD simulation object
+            return self.simulation
+    
     def _calculate_kinetic_temperature(self) -> float:
         """Calculate kinetic temperature from particle velocities."""
         try:
             from .utils import PhysicalConstants
             
-            with self.simulation.state.cpu_local_snapshot as snap:
+            with self._get_hoomd_simulation().state.cpu_local_snapshot as snap:
                 velocities = np.array(snap.particles.velocity)
                 masses = np.array(snap.particles.mass)
                 N_particles = len(masses)
             
             if N_particles == 0:
+                if self.debug:
+                    print("DEBUG: _calculate_kinetic_temperature: N_particles = 0")
                 return 0.0
             
             # Calculate kinetic energy
@@ -1404,10 +2335,14 @@ class TemperatureTracker(hoomd.custom.Action):
             kB_hartree = PhysicalConstants.KB_HARTREE_PER_K
             temperature_K = (2.0 * kinetic_energy) / (3.0 * N_particles * kB_hartree)
             
+            if self.debug:
+                print(f"DEBUG: _calculate_kinetic_temperature: N={N_particles}, KE={kinetic_energy:.6e}, T={temperature_K:.2f}K")
             return temperature_K
             
         except Exception as e:
             print(f"Warning: Could not calculate kinetic temperature: {e}")
+            import traceback
+            traceback.print_exc()
             return 0.0
     
     def _calculate_harmonic_fictive_temperature(self) -> float:
@@ -1430,7 +2365,7 @@ class TemperatureTracker(hoomd.custom.Action):
             
             # Fallback to direct calculation if no empirical data
             from .utils import PhysicalConstants
-            with self.simulation.state.cpu_local_snapshot as snap:
+            with self._get_hoomd_simulation().state.cpu_local_snapshot as snap:
                 N_particles = len(snap.particles.mass)
             
             if N_particles == 0:
@@ -1461,6 +2396,8 @@ class TemperatureTracker(hoomd.custom.Action):
         """
         try:
             if self.energy_tracker is None:
+                if self.debug:
+                    print("DEBUG: _calculate_harmonic_equipartition_temperature: energy_tracker is None")
                 return 0.0
             
             # Get harmonic energy from energy tracker
@@ -1468,14 +2405,18 @@ class TemperatureTracker(hoomd.custom.Action):
             harmonic_energy = energy_dict.get('harmonic', 0.0)
             
             if harmonic_energy <= 0:
+                if self.debug:
+                    print(f"DEBUG: _calculate_harmonic_equipartition_temperature: harmonic_energy <= 0 ({harmonic_energy})")
                 return 0.0
             
             # Get number of particles
             from .utils import PhysicalConstants
-            with self.simulation.state.cpu_local_snapshot as snap:
+            with self._get_hoomd_simulation().state.cpu_local_snapshot as snap:
                 N_particles = len(snap.particles.mass)
             
             if N_particles == 0:
+                if self.debug:
+                    print("DEBUG: _calculate_harmonic_equipartition_temperature: N_particles = 0")
                 return 0.0
             
             # Direct equipartition calculation: T = 4*E/(N*kB) for 3D harmonic oscillator
@@ -1486,10 +2427,14 @@ class TemperatureTracker(hoomd.custom.Action):
             kB_hartree = PhysicalConstants.KB_HARTREE_PER_K
             temperature_K = (4.0 * harmonic_energy) / (N_particles * kB_hartree)
             
+            if self.debug:
+                print(f"DEBUG: _calculate_harmonic_equipartition_temperature: N={N_particles}, E_harm={harmonic_energy:.6e}, T={temperature_K:.2f}K")
             return temperature_K
             
         except Exception as e:
             print(f"Warning: Could not calculate harmonic equipartition temperature: {e}")
+            import traceback
+            traceback.print_exc()
             return 0.0
     
     def _calculate_lj_coul_fictive_temperature(self) -> float:
@@ -1546,6 +2491,17 @@ class TemperatureTracker(hoomd.custom.Action):
                 else:
                     temperature_K = float(T_value)
                 return temperature_K
+            elif hasattr(self.cavity_thermostat, 'thermostat'):
+                # For ConstantVolume methods, check the thermostat attribute
+                nested_thermo = self.cavity_thermostat.thermostat
+                if hasattr(nested_thermo, 'kT'):
+                    kT_value = nested_thermo.kT
+                    if hasattr(kT_value, 'value'):
+                        kT = kT_value.value
+                    elif hasattr(kT_value, '__call__'):
+                        kT = kT_value(0)
+                    else:
+                        kT = float(kT_value)
             
             if kT is None:
                 return 0.0
@@ -1708,9 +2664,9 @@ class GradientDescentTemperatureFeedback(hoomd.custom.Action):
     ...     target_temperature=100.0,
     ...     apply_to='molecular'
     ... )
-    
-    Notes
-    -----
+            
+        Notes
+        -----
     - Models system-bath coupling as T_eff = (T_measured + T_bath) / 2
     - Smaller time constants lead to faster but potentially less stable convergence
     - Learning rate α = dt / τ where dt is MD timestep and τ is time constant
@@ -1774,15 +2730,15 @@ class GradientDescentTemperatureFeedback(hoomd.custom.Action):
         
         # Set up empirical data if needed
         self.empirical_data = None
-        if empirical_data_file and self.temperature_method in ['lj_coulombic', 'harmonic']:
+        if empirical_data_file and self.temperature_method in ['lj_coulombic', 'harmonic', 'lj_coulombic_kinetic', 'lj_coulombic_bath']:
             try:
                 if self.temperature_method == 'harmonic':
                     self.empirical_data = EmpiricalTemperatureData(
-                        empirical_data_file, energy_component='harmonic'
+                        empirical_data_file, energy_component='harmonic', create_plots=True
                     )
-                else:  # lj_coulombic
+                else:  # lj_coulombic, lj_coulombic_kinetic, lj_coulombic_bath
                     self.empirical_data = EmpiricalTemperatureData(
-                        empirical_data_file, energy_component='lj_coulombic'
+                        empirical_data_file, energy_component='lj_coulombic', create_plots=True
                     )
                 print(f"Loaded empirical data for {self.temperature_method} temperature calculation")
             except Exception as e:
@@ -1795,7 +2751,7 @@ class GradientDescentTemperatureFeedback(hoomd.custom.Action):
         self._initialize_output_file()
         
         # Print configuration
-        print(f"🎯 Gradient Descent Temperature Controller initialized:")
+        print(f"Gradient Descent Temperature Controller initialized:")
         print(f"   Temperature method: {self.temperature_method}")
         print(f"   Time constant: {self.time_constant_ps:.1f} ps")
         print(f"   Learning rate α: {self.alpha:.6f}")
@@ -1813,7 +2769,7 @@ class GradientDescentTemperatureFeedback(hoomd.custom.Action):
     
     def _validate_configuration(self):
         """Validate controller configuration."""
-        if self.temperature_method not in ['kinetic', 'lj_coulombic', 'harmonic', 'harmonic_equipartition']:
+        if self.temperature_method not in ['kinetic', 'lj_coulombic', 'harmonic', 'harmonic_equipartition', 'lj_coulombic_kinetic', 'lj_coulombic_bath']:
             raise ValueError(f"Invalid temperature_method: {self.temperature_method}")
         
         if self.apply_to not in ['molecular', 'cavity', 'both']:
@@ -1875,7 +2831,7 @@ class GradientDescentTemperatureFeedback(hoomd.custom.Action):
                 import numpy as np
                 from .utils import PhysicalConstants
                 
-                with self.simulation.state.cpu_local_snapshot as snap:
+                with self._get_hoomd_simulation().state.cpu_local_snapshot as snap:
                     velocities = np.array(snap.particles.velocity)
                     masses = np.array(snap.particles.mass)
                     N_particles = len(masses)
@@ -1906,6 +2862,156 @@ class GradientDescentTemperatureFeedback(hoomd.custom.Action):
                 temperature = self.empirical_data.calculate_systemic_temperature(total_energy)
                 return max(temperature, 0.0)  # Ensure non-negative temperature
                 
+            elif self.temperature_method == 'lj_coulombic_kinetic':
+                # Dual temperature control: use maximum error signal from either LJ+Coulombic or kinetic
+                # Error signal = sign * max(|T_lj_coulombic - T_target|, |T_kinetic - T_target|)
+                
+                # Calculate kinetic temperature
+                import numpy as np
+                from .utils import PhysicalConstants
+                
+                try:
+                    # Get kinetic energy from molecular particles
+                    kinetic_energy = 0.0
+                    N_molecules = 0
+                    with self._get_hoomd_simulation().state.cpu_local_snapshot as snap:
+                        for i, ptype in enumerate(snap.particles.typeid):
+                            # Exclude cavity particle (type index depends on system setup)
+                            if i < len(snap.particles.mass) - 1:  # Assume cavity is last particle
+                                mass = snap.particles.mass[i]
+                                velocity = snap.particles.velocity[i]
+                                # KE = (1/2) * m * v^2
+                                ke_particle = 0.5 * mass * np.sum(velocity**2)
+                                kinetic_energy += ke_particle
+                                N_molecules += 1
+                    
+                    # Convert to temperature: T = (2/3) * KE / (N * kB)
+                    if N_molecules > 0:
+                        kB_hartree = PhysicalConstants.KB_HARTREE_PER_K
+                        T_kinetic_K = (2.0/3.0) * kinetic_energy / (N_molecules * kB_hartree)
+                    else:
+                        return None
+                        
+                except Exception as e:
+                    print(f"Warning: Failed to calculate kinetic temperature: {e}")
+                    return None
+                
+                # Calculate LJ+Coulombic fictive temperature from energy data
+                energy_data = self.energy_tracker.get_instantaneous_energy()
+                if self.empirical_data is None:
+                    print(f"Warning: No empirical data available for LJ+Coulombic temperature")
+                    return None
+                
+                if 'lj' not in energy_data or 'coulombic' not in energy_data:
+                    print(f"Warning: LJ+Coulombic energy not available")
+                    return None
+                
+                lj_coulombic_energy = energy_data['lj'] + energy_data['coulombic']
+                T_lj_coulombic_K = self.empirical_data.calculate_systemic_temperature(lj_coulombic_energy)
+                if T_lj_coulombic_K is None:
+                    return None
+                T_lj_coulombic_K = max(T_lj_coulombic_K, 0.0)
+                
+                # Calculate signed errors for directional control
+                error_kinetic_signed = T_kinetic_K - self.target_temperature
+                error_lj_coulombic_signed = T_lj_coulombic_K - self.target_temperature
+                
+                # Use directionally-aware selection: choose temperature requiring larger control action
+                error_kinetic_abs = abs(error_kinetic_signed)
+                error_lj_coulombic_abs = abs(error_lj_coulombic_signed)
+                
+                # Selection logic: choose temperature with larger absolute error
+                # In case of tie (within 0.1 K), prioritize LJ+Coulombic (more fundamental)
+                tolerance = 0.1  # K
+                if abs(error_kinetic_abs - error_lj_coulombic_abs) <= tolerance:
+                    selected_temperature = T_lj_coulombic_K
+                    selected_method = "lj_coulombic"
+                    reason = f"tie-break (Δerr={error_kinetic_abs-error_lj_coulombic_abs:.2f}K)"
+                elif error_kinetic_abs > error_lj_coulombic_abs:
+                    selected_temperature = T_kinetic_K
+                    selected_method = "kinetic"
+                    reason = f"larger error ({error_kinetic_abs:.1f}K > {error_lj_coulombic_abs:.1f}K)"
+                else:
+                    selected_temperature = T_lj_coulombic_K
+                    selected_method = "lj_coulombic" 
+                    reason = f"larger error ({error_lj_coulombic_abs:.1f}K > {error_kinetic_abs:.1f}K)"
+                
+                # Log the selection (occasionally)
+                current_time_ps = self.time_tracker.elapsed_time
+                if hasattr(self, '_last_dual_log_time'):
+                    if current_time_ps - self._last_dual_log_time > 10.0:  # Log every 10 ps
+                        print(f"Dual control | T_kinetic={T_kinetic_K:.1f}K (err={error_kinetic_signed:+.1f}K) | "
+                              f"T_lj_coul={T_lj_coulombic_K:.1f}K (err={error_lj_coulombic_signed:+.1f}K) | "
+                              f"Using: {selected_method} ({reason})")
+                        self._last_dual_log_time = current_time_ps
+                else:
+                    self._last_dual_log_time = current_time_ps
+                
+                return selected_temperature
+            
+            elif self.temperature_method == 'lj_coulombic_bath':
+                # Dual temperature control: use maximum error signal from either LJ+Coulombic or bath
+                # Error signal = sign * max(|T_lj_coulombic - T_target|, |T_bath - T_target|)
+                
+                # Get bath temperature from current thermostat
+                T_bath_K = self._get_current_thermostat_temperature()
+                if T_bath_K is None:
+                    print("Warning: Bath temperature not available")
+                    return None
+                
+                # Calculate LJ+Coulombic fictive temperature from energy data (same as lj_coulombic_kinetic)
+                energy_data = self.energy_tracker.get_instantaneous_energy()
+                if self.empirical_data is None:
+                    print(f"Warning: No empirical data available for LJ+Coulombic temperature")
+                    return None
+                
+                if 'lj' not in energy_data or 'coulombic' not in energy_data:
+                    print(f"Warning: LJ+Coulombic energy not available")
+                    return None
+                
+                lj_coulombic_energy = energy_data['lj'] + energy_data['coulombic']
+                T_lj_coulombic_K = self.empirical_data.calculate_systemic_temperature(lj_coulombic_energy)
+                if T_lj_coulombic_K is None:
+                    return None
+                T_lj_coulombic_K = max(T_lj_coulombic_K, 0.0)
+                
+                # Calculate signed errors for directional control
+                error_bath_signed = T_bath_K - self.target_temperature
+                error_lj_coulombic_signed = T_lj_coulombic_K - self.target_temperature
+                
+                # Use directionally-aware selection: choose temperature requiring larger control action
+                error_bath_abs = abs(error_bath_signed)
+                error_lj_coulombic_abs = abs(error_lj_coulombic_signed)
+                
+                # Selection logic: choose temperature with larger absolute error
+                # In case of tie (within 0.1 K), prioritize LJ+Coulombic (more fundamental)
+                tolerance = 0.1  # K
+                if abs(error_bath_abs - error_lj_coulombic_abs) <= tolerance:
+                    selected_temp = T_lj_coulombic_K
+                    selected_type = "lj_coulombic"
+                    reason = f"tie-break (Δerr={error_bath_abs-error_lj_coulombic_abs:.2f}K)"
+                elif error_bath_abs > error_lj_coulombic_abs:
+                    selected_temp = T_bath_K
+                    selected_type = "bath"
+                    reason = f"larger error ({error_bath_abs:.1f}K > {error_lj_coulombic_abs:.1f}K)"
+                else:
+                    selected_temp = T_lj_coulombic_K
+                    selected_type = "lj_coulombic" 
+                    reason = f"larger error ({error_lj_coulombic_abs:.1f}K > {error_bath_abs:.1f}K)"
+                
+                # Log the selection (occasionally)
+                current_time_ps = self.time_tracker.elapsed_time
+                if hasattr(self, '_last_bath_dual_log_time'):
+                    if current_time_ps - self._last_bath_dual_log_time > 10.0:  # Log every 10 ps
+                        print(f"Bath dual control | T_bath={T_bath_K:.1f}K (err={error_bath_signed:+.1f}K) | "
+                              f"T_lj_coul={T_lj_coulombic_K:.1f}K (err={error_lj_coulombic_signed:+.1f}K) | "
+                              f"Using: {selected_type} ({reason})")
+                        self._last_bath_dual_log_time = current_time_ps
+                else:
+                    self._last_bath_dual_log_time = current_time_ps
+                
+                return selected_temp
+                
             elif self.temperature_method == 'harmonic':
                 if self.empirical_data is None:
                     return None
@@ -1929,7 +3035,7 @@ class GradientDescentTemperatureFeedback(hoomd.custom.Action):
                 
                 # Get number of particles
                 from .utils import PhysicalConstants
-                with self.simulation.state.cpu_local_snapshot as snap:
+                with self._get_hoomd_simulation().state.cpu_local_snapshot as snap:
                     N_particles = len(snap.particles.mass)
                 
                 if N_particles == 0:
@@ -2074,12 +3180,12 @@ class GradientDescentTemperatureFeedback(hoomd.custom.Action):
         if updated_any and should_print_console:
             # Print detailed information
             if measured_temperature is not None and effective_temperature is not None:
-                print(f"🎯 GD Controller | Target: {self.target_temperature:.1f}K | Measured: {measured_temperature:.1f}K | "
+                print(f"GD Controller | Target: {self.target_temperature:.1f}K | Measured: {measured_temperature:.1f}K | "
                       f"Effective: {effective_temperature:.1f}K | Bath→{bath_temperature:.1f}K")
             else:
-                print(f"🎯 GD Controller | Target: {self.target_temperature:.1f}K | Bath→{bath_temperature:.1f}K")
+                print(f"GD Controller | Target: {self.target_temperature:.1f}K | Bath→{bath_temperature:.1f}K")
             self.last_console_output_time = current_time_ps
-    
+
     def act(self, timestep):
         """Execute gradient descent control at each timestep."""
         current_time_ps = self.time_tracker.elapsed_time
@@ -2093,13 +3199,13 @@ class GradientDescentTemperatureFeedback(hoomd.custom.Action):
             # Initialize current_bath_temperature from thermostats when first activating
             if self.current_bath_temperature is None:
                 self.current_bath_temperature = self._get_current_thermostat_temperature()
-                print(f"🎯 Gradient descent feedback turned ON at t = {current_time_ps:.2f} ps")
-                print(f"🎯 Initial bath temperature: {self.current_bath_temperature:.2f} K")
+                print(f"Gradient descent feedback turned ON at t = {current_time_ps:.2f} ps")
+                print(f"Initial bath temperature: {self.current_bath_temperature:.2f} K")
             else:
-                print(f"🎯 Gradient descent feedback turned ON at t = {current_time_ps:.2f} ps")
+                print(f"Gradient descent feedback turned ON at t = {current_time_ps:.2f} ps")
         elif not should_be_active and self.is_active:
             self.is_active = False
-            print(f"🎯 Gradient descent feedback turned OFF at t = {current_time_ps:.2f} ps")
+            print(f"Gradient descent feedback turned OFF at t = {current_time_ps:.2f} ps")
         
         # Skip if not active or not initialized
         if not self.is_active or self.current_bath_temperature is None:
@@ -2153,497 +3259,679 @@ class GradientDescentTemperatureFeedback(hoomd.custom.Action):
             print(f"Warning: Failed to write gradient descent output: {e}")
 
 
-class PITemperatureFeedback(hoomd.custom.Action):
+class DualIndependentTemperatureFeedback(hoomd.custom.Action):
     """
-    PI feedback controller for cavity MD simulations with IMC/λ auto-tuning.
+    Dual independent temperature feedback controller for cavity MD simulations.
     
-    This class implements a true Proportional-Integral (PI) controller for managing
-    thermostat temperatures based on system temperature measurements. It includes:
+    This class implements two independent gradient descent loops - one for the cavity
+    bath temperature and one for the molecular bath temperature. Each bath responds
+    to a different temperature signal, allowing for precise control of different
+    aspects of the system dynamics.
     
-    - IMC/λ tuning methodology with molecular time constant
-    - Anti-windup protection with back-calculation
-    - Rate limiting for smooth temperature changes
-    - Support for kinetic, LJ+Coulombic, and harmonic temperature methods
-    - Configurable setpoint weighting (β parameter)
+    The gradient descent update rule for each bath is:
+    T_bath(t+1) = T_bath(t) - α * ∇J/∇T_bath
+    T_bath(t+1) = T_bath(t) - α * 0.5 * (T_eff(t) - T_target)
     
-    The PI controller follows standard process control practices:
-    
-    .. math::
-        
-        u(t) = K_c [β r(t) - y(t)] + I(t)
-        
-        \\frac{dI}{dt} = \\frac{K_c}{T_i} e(t) + \\frac{u_{sat}(t) - u_{raw}(t)}{T_{aw}}
-    
-    where:
-    - u(t) is the controller output (bath temperature)
-    - r(t) is the setpoint (target temperature)  
-    - y(t) is the measured system temperature
-    - e(t) = r(t) - y(t) is the error
-    - β is the setpoint weighting factor (default: 0.7)
-    - T_aw is the anti-windup time constant
-    
-    **IMC/λ Auto-Tuning:**
-    
-    Based on the molecular thermal time constant τ, the controller parameters are:
-    
-    .. math::
-        
-        K_c = \\frac{τ}{λ + τ}, \\quad T_i = 2τ, \\quad λ = 2τ \\text{ to } 4τ
-    
-    This provides robust, well-damped response for cavity MD systems.
+    where T_eff(t) = (T_measured(t) + T_bath(t)) / 2 for each signal.
     
     Parameters
     ----------
-    temperature_method : str
-        Temperature calculation method ('kinetic', 'lj_coulombic', 'harmonic', 'harmonic_equipartition')
-    molecular_tau_ps : float
-        Molecular thermostat time constant in picoseconds (for auto-tuning)
+    cavity_method : str
+        Temperature calculation method for cavity bath control
+        ('kinetic', 'lj_coulombic', 'harmonic', 'harmonic_equipartition', 'lj_coulombic_kinetic')
+    molecular_method : str
+        Temperature calculation method for molecular bath control
+        ('kinetic', 'lj_coulombic', 'harmonic', 'harmonic_equipartition', 'lj_coulombic_kinetic')
+    cavity_time_constant_ps : float
+        Time constant for cavity bath gradient descent in picoseconds
+    molecular_time_constant_ps : float
+        Time constant for molecular bath gradient descent in picoseconds
     time_tracker : ElapsedTimeTracker
         Time tracker for accurate timing
-    energy_tracker : EnergyTracker  
+    energy_tracker : EnergyTracker
         Energy tracker for temperature calculations
-    molecular_thermostat : hoomd.md.methods.thermostats.Thermostat or None
+    molecular_thermostat : hoomd.md.methods.thermostats.Thermostat
         Molecular thermostat to control
-    cavity_thermostat : hoomd.md.methods.thermostats.Thermostat or None
+    cavity_thermostat : hoomd.md.methods.thermostats.Thermostat
         Cavity thermostat to control
-    target_temperature : float, optional
-        Target temperature in Kelvin. Default: 100.0
-    lambda_factor : float, optional
-        Closed-loop time scale factor (λ = lambda_factor * τ). Default: 3.0
-    beta : float, optional
-        Setpoint weighting factor (0.0 to 1.0). Default: 0.7
-    apply_to : str, optional
-        Which thermostats to control ('molecular', 'cavity', 'both'). Default: 'both'
+    cavity_target_temperature : float, optional
+        Target temperature for cavity bath in Kelvin. Default: 100.0
+    molecular_target_temperature : float, optional
+        Target temperature for molecular bath in Kelvin. Default: 100.0
     turn_on_time_ps : float, optional
-        Time to start PI control in picoseconds. Default: 0.0
+        Time to start control in picoseconds. Default: 0.0
     turn_off_time_ps : float, optional
-        Time to stop PI control in picoseconds. Default: None (never turn off)
+        Time to stop control in picoseconds. Default: None (never turn off)
     update_interval_ps : float, optional
-        Interval between control updates in picoseconds. Default: 5.0
-    T_min : float, optional
-        Minimum allowed bath temperature in Kelvin. Default: 0.0
-    T_max : float, optional
-        Maximum allowed bath temperature in Kelvin. Default: None (no upper limit)
-    rate_limit_K_per_ps : float, optional
-        Maximum rate of temperature change in K/ps. Default: None (no rate limit)
+        Interval between control updates in picoseconds. Default: 0.1
+    cavity_T_min : float, optional
+        Minimum allowed cavity bath temperature in Kelvin. Default: 0.0
+    cavity_T_max : float, optional
+        Maximum allowed cavity bath temperature in Kelvin. Default: None
+    molecular_T_min : float, optional
+        Minimum allowed molecular bath temperature in Kelvin. Default: 0.0
+    molecular_T_max : float, optional
+        Maximum allowed molecular bath temperature in Kelvin. Default: None
     output_file : str, optional
-        Output file for PI control data. Default: 'pi_feedback.csv'
+        Output file for control data. Default: 'dual_feedback.csv'
     empirical_data_file : str, optional
-        Path to empirical data file (required for 'lj_coulombic' and 'harmonic' methods)
-        
-    Attributes
-    ----------
-    Kc : float
-        Proportional gain (auto-tuned)
-    Ti : float  
-        Integral time constant in picoseconds (auto-tuned)
-    integral_state : float
-        Current integral state
-    last_output : float
-        Last controller output (for rate limiting)
-    is_active : bool
-        Whether PI control is currently active
+        Path to empirical data file (required for certain methods)
+    console_output_period_ps : float, optional
+        Console output period in picoseconds. Default: 1.0
         
     Examples
     --------
-    **Basic kinetic temperature PI control:**
+    **Basic dual independent control:**
     
-    >>> from hoomd.cavitymd.analysis import PITemperatureFeedback
+    >>> from hoomd.cavitymd.analysis import DualIndependentTemperatureFeedback
     >>> 
-    >>> pi_controller = PITemperatureFeedback(
-    ...     temperature_method='kinetic',
-    ...     molecular_tau_ps=5.0,  # 5 ps molecular tau
-    ...     time_tracker=time_tracker,
-    ...     energy_tracker=energy_tracker,
-    ...     molecular_thermostat=molecular_thermo,
-    ...     target_temperature=100.0
-    ... )
-    
-    **LJ+Coulombic fictive temperature control:**
-    
-    >>> pi_controller = PITemperatureFeedback(
-    ...     temperature_method='lj_coulombic',
-    ...     molecular_tau_ps=5.0,
+    >>> dual_controller = DualIndependentTemperatureFeedback(
+    ...     cavity_method='harmonic_equipartition',
+    ...     molecular_method='lj_coulombic_kinetic',
+    ...     cavity_time_constant_ps=5.0,
+    ...     molecular_time_constant_ps=10.0,
     ...     time_tracker=time_tracker,
     ...     energy_tracker=energy_tracker,
     ...     molecular_thermostat=molecular_thermo,
     ...     cavity_thermostat=cavity_thermo,
-    ...     target_temperature=100.0,
-    ...     empirical_data_file='equilibrium_data.txt',
-    ...     apply_to='both',
-    ...     lambda_factor=3.0  # Conservative tuning
-    ... )
-    
-    **Harmonic fictive temperature with custom tuning:**
-    
-    >>> pi_controller = PITemperatureFeedback(
-    ...     temperature_method='harmonic',
-    ...     molecular_tau_ps=2.0,  # Fast molecular response
-    ...     time_tracker=time_tracker,
-    ...     energy_tracker=energy_tracker,
-    ...     molecular_thermostat=molecular_thermo,
-    ...     target_temperature=80.0,
-    ...     empirical_data_file='harmonic_calibration.txt',
-    ...     lambda_factor=2.0,  # More aggressive tuning
-    ...     beta=0.5,  # Reduced setpoint weighting
-    ...     rate_limit_K_per_ps=0.1  # Smooth temperature changes
+    ...     cavity_target_temperature=80.0,
+    ...     molecular_target_temperature=120.0
     ... )
     
     Notes
     -----
-    - Requires accurate molecular τ for proper auto-tuning
-    - λ factor controls aggressiveness: 2τ (fast), 3τ (balanced), 4τ (conservative)
-    - Anti-windup prevents integral saturation during temperature limits
-    - Rate limiting smooths temperature changes to prevent simulation instability
-    - Compatible with all existing temperature calculation methods
+    - Each bath has independent control parameters and targets
+    - Different temperature signals can be used for different physical insights
+    - Maintains compatibility with all existing temperature calculation methods
     """
     
-    def __init__(self,
-                 temperature_method: str,
-                 molecular_tau_ps: float,
-                 time_tracker,  # ElapsedTimeTracker
-                 energy_tracker,  # EnergyTracker
+    def __init__(self, 
+                 cavity_method: str,
+                 molecular_method: str,
+                 cavity_time_constant_ps: float,
+                 molecular_time_constant_ps: float,
+                 time_tracker,
+                 energy_tracker,
+                 simulation=None,
                  molecular_thermostat=None,
                  cavity_thermostat=None,
-                 target_temperature: float = 100.0,
-                 lambda_factor: float = 3.0,
-                 beta: float = 0.7,
-                 apply_to: str = 'both',
+                 cavity_target_temperature: float = 100.0,
+                 molecular_target_temperature: float = 100.0,
+                 cavity_dynamic_target: bool = False,
+                 molecular_dynamic_target: bool = False,
                  turn_on_time_ps: float = 0.0,
                  turn_off_time_ps: Optional[float] = None,
-                 update_interval_ps: float = 5.0,
-                 T_min: float = 0.0,
-                 T_max: Optional[float] = None,
-                 rate_limit_K_per_ps: Optional[float] = None,
-                 output_file: str = 'pi_feedback.csv',
-                 empirical_data_file: Optional[str] = None):
+                 update_interval_ps: float = 0.1,
+                 cavity_T_min: float = 0.0,
+                 cavity_T_max: Optional[float] = None,
+                 molecular_T_min: float = 0.0,
+                 molecular_T_max: Optional[float] = None,
+                 output_file: str = 'dual_feedback.csv',
+                 empirical_data_file: Optional[str] = None,
+                 console_output_period_ps: float = 1.0,
+                 cavity_integral_time_constant_ps: Optional[float] = None,
+                 molecular_integral_time_constant_ps: Optional[float] = None,
+                 cavity_heating_gain_factor: float = 1.0,
+                 cavity_cooling_gain_factor: float = 1.0,
+                 molecular_heating_gain_factor: float = 1.0,
+                 molecular_cooling_gain_factor: float = 1.0,
+                 cavity_integral_heating_time_constant_ps: Optional[float] = None,
+                 cavity_integral_cooling_time_constant_ps: Optional[float] = None,
+                 molecular_integral_heating_time_constant_ps: Optional[float] = None,
+                 molecular_integral_cooling_time_constant_ps: Optional[float] = None):
         
-        super().__init__()
+        # Store configuration
+        self.cavity_method = cavity_method
+        self.molecular_method = molecular_method
+        self.cavity_time_constant_ps = cavity_time_constant_ps
+        self.molecular_time_constant_ps = molecular_time_constant_ps
+        self.cavity_integral_time_constant_ps = cavity_integral_time_constant_ps
+        self.molecular_integral_time_constant_ps = molecular_integral_time_constant_ps
         
-        # Validate inputs
-        if temperature_method not in ['kinetic', 'lj_coulombic', 'harmonic', 'harmonic_equipartition']:
-            raise ValueError(f"temperature_method must be 'kinetic', 'lj_coulombic', 'harmonic', or 'harmonic_equipartition', got {temperature_method}")
+        # Asymmetric gain factors
+        self.cavity_heating_gain_factor = cavity_heating_gain_factor
+        self.cavity_cooling_gain_factor = cavity_cooling_gain_factor
+        self.molecular_heating_gain_factor = molecular_heating_gain_factor
+        self.molecular_cooling_gain_factor = molecular_cooling_gain_factor
         
-        if temperature_method in ['lj_coulombic', 'harmonic'] and empirical_data_file is None:
-            raise ValueError(f"empirical_data_file is required for temperature_method '{temperature_method}'")
-        
-        if apply_to not in ['molecular', 'cavity', 'both']:
-            raise ValueError(f"apply_to must be 'molecular', 'cavity', or 'both', got {apply_to}")
-        
-        if not 0.0 <= beta <= 1.0:
-            raise ValueError(f"beta must be between 0.0 and 1.0, got {beta}")
-        
-        # Store core parameters
-        self.temperature_method = temperature_method
-        self.molecular_tau_ps = float(molecular_tau_ps)
+        # Asymmetric integral time constants
+        self.cavity_integral_heating_time_constant_ps = cavity_integral_heating_time_constant_ps
+        self.cavity_integral_cooling_time_constant_ps = cavity_integral_cooling_time_constant_ps
+        self.molecular_integral_heating_time_constant_ps = molecular_integral_heating_time_constant_ps
+        self.molecular_integral_cooling_time_constant_ps = molecular_integral_cooling_time_constant_ps
         self.time_tracker = time_tracker
         self.energy_tracker = energy_tracker
+        self.simulation = simulation
         self.molecular_thermostat = molecular_thermostat
         self.cavity_thermostat = cavity_thermostat
-        self.target_temperature = float(target_temperature)
-        self.lambda_factor = float(lambda_factor)
-        self.beta = float(beta)
-        self.apply_to = apply_to
-        self.turn_on_time_ps = float(turn_on_time_ps)
-        self.turn_off_time_ps = float(turn_off_time_ps) if turn_off_time_ps is not None else None
-        self.update_interval_ps = float(update_interval_ps)
-        self.T_min = float(T_min)
-        self.T_max = float(T_max) if T_max is not None else None
-        self.rate_limit_K_per_ps = float(rate_limit_K_per_ps) if rate_limit_K_per_ps is not None else None
+        self.cavity_target_temperature = cavity_target_temperature
+        self.molecular_target_temperature = molecular_target_temperature
+        self.cavity_dynamic_target = cavity_dynamic_target
+        self.molecular_dynamic_target = molecular_dynamic_target
+        self.turn_on_time_ps = turn_on_time_ps
+        self.turn_off_time_ps = turn_off_time_ps
+        self.update_interval_ps = update_interval_ps
+        self.cavity_T_min = cavity_T_min
+        self.cavity_T_max = cavity_T_max
+        self.molecular_T_min = molecular_T_min
+        self.molecular_T_max = molecular_T_max
         self.output_file = output_file
+        self.console_output_period_ps = console_output_period_ps
+        
+        # Initialize state variables
+        self.last_update_time = 0.0
+        self.last_console_output_time = 0.0
+        self.is_active = False
+        self.current_cavity_temperature = None
+        self.current_molecular_temperature = None
+        self.dynamic_targets_set = False
+        
+        # Calculate learning rates (alpha = dt / time_constant)
+        # We'll update these with actual dt during first timestep
+        self.cavity_alpha = None
+        self.molecular_alpha = None
+        
+        # Integral control parameters
+        self.cavity_alpha_i = None  # Integral gain for cavity
+        self.molecular_alpha_i = None  # Integral gain for molecular
+        
+        # Error accumulators for integral terms
+        self.cavity_error_integral = 0.0
+        self.molecular_error_integral = 0.0
         
         # Set up empirical data if needed
-        self.empirical_data = None
-        if empirical_data_file is not None:
-            self.empirical_data = EmpiricalTemperatureData(
-                data_file_path=empirical_data_file,
-                energy_component=temperature_method
-            )
+        self.cavity_empirical_data = None
+        self.molecular_empirical_data = None
         
-        # IMC/λ auto-tuning calculation
-        self.lambda_ps = self.lambda_factor * self.molecular_tau_ps
-        self.Kc = self.molecular_tau_ps / (self.lambda_ps + self.molecular_tau_ps)
-        self.Ti = 2.0 * self.molecular_tau_ps  # Integral time constant
-        self.Taw = self.Ti  # Anti-windup time constant (typically Ti)
+        if empirical_data_file:
+            # Load empirical data for cavity method if needed
+            if self.cavity_method in ['lj_coulombic', 'harmonic', 'lj_coulombic_kinetic', 'lj_coulombic_bath']:
+                try:
+                    if self.cavity_method == 'harmonic':
+                        self.cavity_empirical_data = EmpiricalTemperatureData(
+                            empirical_data_file, energy_component='harmonic', create_plots=True
+                        )
+                    else:
+                        self.cavity_empirical_data = EmpiricalTemperatureData(
+                            empirical_data_file, energy_component='lj_coulombic', create_plots=True
+                        )
+                    print(f"Loaded cavity empirical data for {self.cavity_method} method")
+                except Exception as e:
+                    print(f"Warning: Failed to load cavity empirical data: {e}")
+            
+            # Load empirical data for molecular method if needed
+            if self.molecular_method in ['lj_coulombic', 'harmonic', 'lj_coulombic_kinetic', 'lj_coulombic_bath']:
+                try:
+                    if self.molecular_method == 'harmonic':
+                        self.molecular_empirical_data = EmpiricalTemperatureData(
+                            empirical_data_file, energy_component='harmonic', create_plots=True
+                        )
+                    else:
+                        self.molecular_empirical_data = EmpiricalTemperatureData(
+                            empirical_data_file, energy_component='lj_coulombic', create_plots=True
+                        )
+                    print(f"Loaded molecular empirical data for {self.molecular_method} method")
+                except Exception as e:
+                    print(f"Warning: Failed to load molecular empirical data: {e}")
         
-        # PI controller state
-        self.integral_state: float = 0.0
-        self.last_output: float = self.target_temperature
-        self.last_update_time: float = 0.0
-        self.is_active: bool = False
-        
-        # Output tracking
-        self.measurement_history = []
-        self.output_history = []
-        self.time_history = []
-        
-        # Validation
-        if self.apply_to in ['molecular', 'both'] and self.molecular_thermostat is None:
-            raise ValueError("molecular_thermostat cannot be None when apply_to includes 'molecular'")
-        
-        if self.apply_to in ['cavity', 'both'] and self.cavity_thermostat is None:
-            raise ValueError("cavity_thermostat cannot be None when apply_to includes 'cavity'")
+        # Validate configuration
+        self._validate_configuration()
         
         # Initialize output file
         self._initialize_output_file()
         
-        print("🎛️  PI Temperature Feedback Controller initialized:")
-        print(f"   Temperature method: {self.temperature_method}")
-        print(f"   Molecular τ: {self.molecular_tau_ps:.1f} ps")
-        print(f"   IMC/λ Parameters:")
-        print(f"     λ factor: {self.lambda_factor:.1f}")
-        print(f"     λ time: {self.lambda_ps:.1f} ps")
-        print(f"     Kc (proportional gain): {self.Kc:.3f}")
-        print(f"     Ti (integral time): {self.Ti:.1f} ps")
-        print(f"   Setpoint weighting β: {self.beta:.2f}")
-        print(f"   Target temperature: {self.target_temperature:.1f} K")
-        print(f"   Apply to: {self.apply_to}")
-        print(f"   Update interval: {self.update_interval_ps:.1f} ps")
-        T_max_str = f"{self.T_max:.1f}" if self.T_max is not None else "∞"
-        print(f"   Temperature limits: [{self.T_min:.1f}, {T_max_str}] K")
-        if self.rate_limit_K_per_ps is not None:
-            print(f"   Rate limit: {self.rate_limit_K_per_ps:.3f} K/ps")
-        if self.turn_on_time_ps > 0:
-            print(f"   Turn-on time: {self.turn_on_time_ps:.1f} ps")
+        # Print configuration
+        print(f"DualIndependent Controller initialized:")
+        print(f"   Cavity: {self.cavity_method} → target {self.cavity_target_temperature:.1f}K (τ={self.cavity_time_constant_ps:.1f}ps)")
+        print(f"   Molecular: {self.molecular_method} → target {self.molecular_target_temperature:.1f}K (τ={self.molecular_time_constant_ps:.1f}ps)")
+        print(f"   Update interval: {self.update_interval_ps:.3f} ps")
+        print(f"   Turn-on time: {self.turn_on_time_ps:.1f} ps")
         if self.turn_off_time_ps is not None:
             print(f"   Turn-off time: {self.turn_off_time_ps:.1f} ps")
     
+    def _validate_configuration(self):
+        """Validate controller configuration."""
+        valid_methods = ['kinetic', 'lj_coulombic', 'harmonic', 'harmonic_equipartition', 'lj_coulombic_kinetic', 'lj_coulombic_bath']
+        
+        if self.cavity_method not in valid_methods:
+            raise ValueError(f"Invalid cavity_method: {self.cavity_method}")
+        
+        if self.molecular_method not in valid_methods:
+            raise ValueError(f"Invalid molecular_method: {self.molecular_method}")
+        
+        if self.molecular_thermostat is None:
+            raise ValueError("molecular_thermostat cannot be None")
+        
+        if self.cavity_thermostat is None:
+            raise ValueError("cavity_thermostat cannot be None")
+        
+        if self.energy_tracker is None:
+            raise ValueError("energy_tracker is required for temperature calculations")
+        
+        if self.cavity_time_constant_ps <= 0:
+            raise ValueError("cavity_time_constant_ps must be positive")
+        
+        if self.molecular_time_constant_ps <= 0:
+            raise ValueError("molecular_time_constant_ps must be positive")
+    
     def _initialize_output_file(self):
         """Initialize CSV output file with headers."""
-        with open(self.output_file, 'w') as f:
-            f.write("# PI Temperature Feedback Control Data\n")
-            f.write("# time_ps: Simulation time in picoseconds\n")
-            f.write("# measured_T_K: Measured system temperature in Kelvin\n")
-            f.write("# target_T_K: Target (setpoint) temperature in Kelvin\n")
-            f.write("# error_K: Temperature error (target - measured) in Kelvin\n")
-            f.write("# integral_state: Current integral state\n")
-            f.write("# controller_output_K: Raw controller output in Kelvin\n")
-            f.write("# saturated_output_K: Saturated output (within limits) in Kelvin\n")
-            f.write("# rate_limited_output_K: Final output after rate limiting in Kelvin\n")
-            f.write("# is_active: Whether PI control is active (0/1)\n")
-            f.write("time_ps,measured_T_K,target_T_K,error_K,integral_state,controller_output_K,saturated_output_K,rate_limited_output_K,is_active\n")
-    
-    def _calculate_system_temperature(self, current_time_ps: float) -> Optional[float]:
-        """Calculate system temperature using the specified method."""
         try:
-            if self.temperature_method == 'kinetic':
-                # Calculate kinetic temperature from energy tracker
-                energy_data = self.energy_tracker.get_instantaneous_energy()
-                if 'molecular_kinetic' in energy_data:
-                    # T = 2 * KE / (3 * N * kB) for 3D system
-                    kinetic_energy = energy_data['molecular_kinetic']
-                    # Assuming N particles - need to get from energy tracker or estimate
-                    # For now, use simplified approach
-                    from .utils import PhysicalConstants
-                    kB = PhysicalConstants.KB_HARTREE_PER_K
-                    # Estimate: typical 500 particles, 3 DOF each
-                    estimated_dof = 1500  # This should ideally come from system info
-                    temperature = 2.0 * kinetic_energy / (estimated_dof * kB)
-                    return temperature
-                else:
-                    print(f"Warning: Kinetic energy not available for temperature calculation")
-                    return None
-                    
-            elif self.temperature_method == 'lj_coulombic':
-                # Calculate fictive temperature using empirical LJ+Coulombic data
-                if self.empirical_data is None:
-                    print(f"Warning: No empirical data available for LJ+Coulombic temperature")
+            with open(self.output_file, 'w', encoding='utf-8') as f:
+                f.write("time_ps,cavity_temp,molecular_temp,cavity_effective,molecular_effective,")
+                f.write("cavity_target,molecular_target,cavity_error,molecular_error,")
+                f.write("cavity_gradient,molecular_gradient,cavity_integral,molecular_integral,")
+                f.write("cavity_integral_term,molecular_integral_term,")
+                f.write("cavity_p_gain_factor,molecular_p_gain_factor,")
+                f.write("cavity_tau_i,molecular_tau_i,cavity_output,molecular_output,active\n")
+        except Exception as e:
+            print(f"Warning: Failed to initialize dual feedback output file: {e}")
+    
+    def _calculate_system_temperature(self, method: str, empirical_data, current_time_ps: float) -> Optional[float]:
+        """Calculate system temperature using specified method."""
+        try:
+            if method == 'kinetic':
+                # Calculate kinetic temperature from particle velocities
+                import numpy as np
+                from .utils import PhysicalConstants
+                
+                # Get velocities from simulation state
+                with self._get_hoomd_simulation().state.cpu_local_snapshot as snap:
+                    velocities = np.array(snap.particles.velocity)
+                    masses = np.array(snap.particles.mass)
+                    types = np.array(snap.particles.typeid)
+                
+                # Filter out cavity particles (assuming they have type 1, molecular particles type 0)
+                molecular_mask = (types == 0)
+                molecular_velocities = velocities[molecular_mask]
+                molecular_masses = masses[molecular_mask]
+                
+                if len(molecular_velocities) == 0:
+                    return 0.0
+                
+                # Calculate kinetic energy per particle
+                ke_per_particle = 0.5 * np.sum(molecular_masses[:, np.newaxis] * molecular_velocities**2, axis=1)
+                mean_ke_per_particle = np.mean(ke_per_particle)
+                
+                # Convert to temperature: <KE>/particle = (3/2) * kB * T
+                # Therefore: T = (2/3) * <KE>/particle / kB
+                kB_hartree = PhysicalConstants.KB_HARTREE_PER_K
+                temperature_K = (2.0/3.0) * mean_ke_per_particle / kB_hartree
+                
+                return temperature_K
+                
+            elif method == 'lj_coulombic':
+                if empirical_data is None:
                     return None
                 
-                energy_data = self.energy_tracker.get_instantaneous_energy()
-                if 'lj' in energy_data and 'coulombic' in energy_data:
-                    lj_coulombic_energy = energy_data['lj'] + energy_data['coulombic']
-                    temperature = self.empirical_data.calculate_systemic_temperature(lj_coulombic_energy)
-                    return max(temperature, 0.0)  # Ensure non-negative temperature
+                # Get LJ+Coulombic energy
+                energy_dict = self.energy_tracker.get_instantaneous_energy()
+                if 'lj' not in energy_dict or 'coulombic' not in energy_dict:
+                    return None
+                
+                total_energy = energy_dict['lj'] + energy_dict['coulombic']
+                
+                # Convert to temperature using empirical data
+                temperature = empirical_data.calculate_systemic_temperature(total_energy)
+                return max(temperature, 0.0)
+                
+            elif method == 'lj_coulombic_kinetic':
+                # Dual signal: use maximum error from either LJ+Coulombic or kinetic
+                
+                # Calculate kinetic temperature
+                kinetic_temp = self._calculate_system_temperature('kinetic', None, current_time_ps)
+                if kinetic_temp is None:
+                    return None
+                
+                # Calculate LJ+Coulombic temperature
+                lj_coul_temp = self._calculate_system_temperature('lj_coulombic', empirical_data, current_time_ps)
+                if lj_coul_temp is None:
+                    return kinetic_temp
+                
+                # Return the temperature that gives the maximum error magnitude
+                # This requires knowing the target, so we'll use a simplified approach
+                # and return the average of the two signals
+                return (kinetic_temp + lj_coul_temp) / 2.0
+                
+            elif method == 'harmonic':
+                if empirical_data is None:
+                    return None
+                
+                # Get harmonic energy
+                energy_dict = self.energy_tracker.get_instantaneous_energy()
+                harmonic_energy = energy_dict.get('harmonic', 0.0)
+                
+                # Convert to temperature using empirical data
+                temperature = empirical_data.calculate_systemic_temperature(harmonic_energy)
+                return max(temperature, 0.0)
+                
+            elif method == 'harmonic_equipartition':
+                # Calculate harmonic equipartition temperature directly
+                energy_dict = self.energy_tracker.get_instantaneous_energy()
+                harmonic_energy = energy_dict.get('harmonic', 0.0)
+                
+                if harmonic_energy <= 0:
+                    return 0.0
+                
+                # Get number of particles
+                from .utils import PhysicalConstants
+                with self._get_hoomd_simulation().state.cpu_local_snapshot as snap:
+                    N_particles = len(snap.particles.mass)
+                
+                if N_particles == 0:
+                    return 0.0
+                
+                # Direct equipartition calculation
+                kB_hartree = PhysicalConstants.KB_HARTREE_PER_K
+                temperature_K = (4.0 * harmonic_energy) / (N_particles * kB_hartree)
+                return temperature_K
+                
+            elif method == 'lj_coulombic_bath':
+                # Calculate temperature from molecular bath thermostat using LJ+Coulombic coupling
+                # This method combines the bath temperature with LJ+Coulombic energy weighting
+                
+                # Get current molecular bath temperature
+                molecular_bath_temp = self._get_thermostat_temperature(self.molecular_thermostat)
+                if molecular_bath_temp is None:
+                    return None
+                
+                # Get LJ+Coulombic energy for weighting
+                energy_dict = self.energy_tracker.get_instantaneous_energy()
+                if 'lj' not in energy_dict or 'coulombic' not in energy_dict:
+                    # Fallback to bath temperature if energy components unavailable
+                    return molecular_bath_temp
+                
+                lj_coulombic_energy = energy_dict['lj'] + energy_dict['coulombic']
+                
+                # Use empirical data if available for energy-based correction
+                if empirical_data is not None:
+                    try:
+                        energy_temp = empirical_data.calculate_systemic_temperature(lj_coulombic_energy)
+                        # Weighted average: 70% bath temperature, 30% energy-derived temperature
+                        # This provides a stable signal that incorporates both thermostat control
+                        # and instantaneous energy fluctuations
+                        return 0.7 * molecular_bath_temp + 0.3 * max(energy_temp, 0.0)
+                    except Exception:
+                        # Fallback to bath temperature if empirical calculation fails
+                        return molecular_bath_temp
                 else:
-                    print(f"Warning: LJ+Coulombic energy not available for temperature calculation")
-                    return None
-                    
-            elif self.temperature_method == 'harmonic':
-                # Calculate fictive temperature using harmonic energy with T^(3/2) relation
-                if self.empirical_data is None:
-                    print(f"Warning: No empirical data available for harmonic temperature")
-                    return None
-                    
-                energy_data = self.energy_tracker.get_instantaneous_energy()
-                if 'harmonic' in energy_data:
-                    harmonic_energy = energy_data['harmonic']
-                    temperature = self.empirical_data.calculate_systemic_temperature(harmonic_energy)
-                    return max(temperature, 0.0)  # Ensure non-negative temperature
-                else:
-                    print(f"Warning: Harmonic energy not available for temperature calculation")
-                    return None
-                    
-            elif self.temperature_method == 'harmonic_equipartition':
-                # Calculate harmonic equipartition temperature directly from harmonic energy
-                # Using the same method as GradientDescentTemperatureFeedback
-                energy_data = self.energy_tracker.get_instantaneous_energy()
-                if 'harmonic' in energy_data:
-                    harmonic_energy = energy_data['harmonic']
-                    
-                    if harmonic_energy <= 0:
-                        return 0.0
-                    
-                    # Get number of particles - need better way to get this
-                    # For now, estimate from typical molecular system (500 particles)
-                    N_particles = 500  # TODO: Get this from system state
-                    
-                    # Direct equipartition calculation: T = 4*E/(N*kB) for 3D harmonic oscillator
-                    from .utils import PhysicalConstants
-                    kB_hartree = PhysicalConstants.KB_HARTREE_PER_K
-                    temperature_K = (4.0 * harmonic_energy) / (N_particles * kB_hartree)
-                    return max(temperature_K, 0.0)  # Ensure non-negative temperature
-                else:
-                    print(f"Warning: Harmonic energy not available for harmonic_equipartition temperature calculation")
-                    return None
-                    
+                    # Without empirical data, return the bath temperature directly
+                    # This ensures the method always provides a meaningful signal
+                    return molecular_bath_temp
+            
             else:
-                print(f"Warning: Unknown temperature method '{self.temperature_method}'")
+                print(f"Warning: Unknown temperature method '{method}'")
                 return None
                 
         except Exception as e:
-            print(f"Warning: Failed to calculate {self.temperature_method} temperature: {e}")
+            print(f"Warning: Could not calculate temperature using method '{method}': {e}")
             return None
     
-    def _apply_rate_limit(self, new_output: float, dt_ps: float) -> float:
-        """Apply rate limiting to controller output."""
-        if self.rate_limit_K_per_ps is None:
-            return new_output
-        
-        max_change = self.rate_limit_K_per_ps * dt_ps
-        change = new_output - self.last_output
-        
-        if abs(change) <= max_change:
-            return new_output
-        else:
-            # Limit the change
-            limited_change = max_change if change > 0 else -max_change
-            return self.last_output + limited_change
-    
-    def _update_thermostats(self, bath_temperature: float):
-        """Update thermostat temperatures using robust API detection."""
-        from .utils import PhysicalConstants
-        target_kT = bath_temperature * PhysicalConstants.KB_HARTREE_PER_K
-        
-        updated_any = False
-        
-        # Update molecular thermostat
-        if self.apply_to in ['molecular', 'both'] and self.molecular_thermostat is not None:
-            try:
-                if hasattr(self.molecular_thermostat, 'kT'):
-                    # Direct kT attribute (Langevin thermostats)
-                    self.molecular_thermostat.kT = target_kT
-                    updated_any = True
-                elif hasattr(self.molecular_thermostat, 'thermostat'):
-                    # Nested thermostat (ConstantVolume with Bussi/MTTK)
-                    nested_thermo = self.molecular_thermostat.thermostat
-                    if hasattr(nested_thermo, 'kT'):
-                        nested_thermo.kT = target_kT
-                        updated_any = True
-                    else:
-                        print(f"Warning: Cannot update nested molecular thermostat kT")
+    def _get_thermostat_temperature(self, thermostat) -> Optional[float]:
+        """Get current temperature from a thermostat."""
+        try:
+            from .utils import PhysicalConstants
+            
+            if hasattr(thermostat, 'kT'):
+                # Direct kT attribute (Langevin thermostats)
+                kT_value = thermostat.kT
+                # Handle HOOMD variants (e.g., Constant) 
+                if hasattr(kT_value, '__call__'):
+                    # It's a variant, call it with timestep 0 to get current value
+                    kT_hartree = kT_value(0)
                 else:
-                    print(f"Warning: Cannot find kT attribute in molecular thermostat")
-            except Exception as e:
-                print(f"Warning: Failed to update molecular thermostat: {e}")
-        
-        # Update cavity thermostat  
-        if self.apply_to in ['cavity', 'both'] and self.cavity_thermostat is not None:
-            try:
-                if hasattr(self.cavity_thermostat, 'kT'):
-                    # Direct kT attribute (Langevin thermostats)
-                    self.cavity_thermostat.kT = target_kT
-                    updated_any = True
-                elif hasattr(self.cavity_thermostat, 'thermostat'):
-                    # Nested thermostat (ConstantVolume with Bussi/MTTK)
-                    nested_thermo = self.cavity_thermostat.thermostat
-                    if hasattr(nested_thermo, 'kT'):
-                        nested_thermo.kT = target_kT
-                        updated_any = True
+                    # It's a plain number
+                    kT_hartree = kT_value
+                return kT_hartree / PhysicalConstants.KB_HARTREE_PER_K
+            elif hasattr(thermostat, 'thermostat'):
+                # Nested thermostat (ConstantVolume with Bussi/MTTK)
+                nested_thermo = thermostat.thermostat
+                if hasattr(nested_thermo, 'kT'):
+                    kT_value = nested_thermo.kT
+                    # Handle HOOMD variants
+                    if hasattr(kT_value, '__call__'):
+                        kT_hartree = kT_value(0)
                     else:
-                        print(f"Warning: Cannot update nested cavity thermostat kT")
-                else:
-                    print(f"Warning: Cannot find kT attribute in cavity thermostat")
-            except Exception as e:
-                print(f"Warning: Failed to update cavity thermostat: {e}")
-        
-        if updated_any:
-            print(f"🌡️  Updated thermostat temperatures to {bath_temperature:.2f} K (kT = {target_kT:.6f} a.u.)")
+                        kT_hartree = kT_value
+                    return kT_hartree / PhysicalConstants.KB_HARTREE_PER_K
+            
+            return None
+            
+        except Exception as e:
+            print(f"Warning: Failed to get thermostat temperature: {e}")
+            return None
     
+    def _update_thermostat(self, thermostat, temperature_K: float) -> bool:
+        """Update a thermostat temperature."""
+        try:
+            import hoomd
+            from .utils import PhysicalConstants
+            target_kT = temperature_K * PhysicalConstants.KB_HARTREE_PER_K
+            
+            if hasattr(thermostat, 'kT'):
+                # Direct kT attribute (Langevin thermostats)
+                # Always use Constant variant for proper HOOMD compatibility
+                thermostat.kT = hoomd.variant.Constant(target_kT)
+                return True
+            elif hasattr(thermostat, 'thermostat'):
+                # Nested thermostat (ConstantVolume with Bussi/MTTK)
+                nested_thermo = thermostat.thermostat
+                if hasattr(nested_thermo, 'kT'):
+                    nested_thermo.kT = hoomd.variant.Constant(target_kT)
+                    return True
+            
+            return False
+            
+        except Exception as e:
+            print(f"Warning: Failed to update thermostat: {e}")
+            return False
+    
+    def _set_dynamic_targets(self, current_time_ps: float):
+        """Set dynamic targets based on current bath temperatures when controller is activated."""
+        try:
+            # Get current bath temperatures from thermostats (not signal temperatures)
+            if self.cavity_dynamic_target:
+                cavity_bath_temp = self._get_thermostat_temperature(self.cavity_thermostat)
+                if cavity_bath_temp is not None:
+                    old_target = self.cavity_target_temperature
+                    self.cavity_target_temperature = cavity_bath_temp
+                    print(f"Dynamic cavity target set: {old_target:.1f} K → {cavity_bath_temp:.1f} K (bath temperature)")
+                else:
+                    print(f"Warning: Could not get cavity bath temperature for dynamic target, keeping {self.cavity_target_temperature:.1f} K")
+            
+            if self.molecular_dynamic_target:
+                molecular_bath_temp = self._get_thermostat_temperature(self.molecular_thermostat)
+                if molecular_bath_temp is not None:
+                    old_target = self.molecular_target_temperature
+                    self.molecular_target_temperature = molecular_bath_temp
+                    print(f"Dynamic molecular target set: {old_target:.1f} K → {molecular_bath_temp:.1f} K (bath temperature)")
+                else:
+                    print(f"Warning: Could not get molecular bath temperature for dynamic target, keeping {self.molecular_target_temperature:.1f} K")
+            
+            self.dynamic_targets_set = True
+            
+        except Exception as e:
+            print(f"Warning: Error setting dynamic targets: {e}")
+            self.dynamic_targets_set = True  # Don't try again
+        
     def act(self, timestep):
-        """Execute PI control at each timestep."""
+        """Execute dual independent control at each timestep."""
         current_time_ps = self.time_tracker.elapsed_time
         
-        # Check if we should start
-        if current_time_ps < self.turn_on_time_ps:
+        # Check if we should be active
+        should_be_active = (current_time_ps >= self.turn_on_time_ps and 
+                          (self.turn_off_time_ps is None or current_time_ps < self.turn_off_time_ps))
+        
+        if should_be_active and not self.is_active:
+            self.is_active = True
+            # Initialize current temperatures from thermostats when first activating
+            self.current_cavity_temperature = self._get_thermostat_temperature(self.cavity_thermostat)
+            self.current_molecular_temperature = self._get_thermostat_temperature(self.molecular_thermostat)
+            
+            # Initialize learning rates based on actual timestep
+            if self.cavity_alpha is None:
+                # Estimate timestep from update interval (rough approximation)
+                estimated_dt_ps = self.update_interval_ps
+                
+                # Proportional gains (existing)
+                self.cavity_alpha = estimated_dt_ps / self.cavity_time_constant_ps
+                self.molecular_alpha = estimated_dt_ps / self.molecular_time_constant_ps
+                
+                # Integral gains (new PI controller)
+                if self.cavity_integral_time_constant_ps is not None:
+                    self.cavity_alpha_i = estimated_dt_ps / self.cavity_integral_time_constant_ps
+                    print(f"Cavity PI controller: τₚ={self.cavity_time_constant_ps:.1f}ps, τᵢ={self.cavity_integral_time_constant_ps:.1f}ps")
+        else:
+                self.cavity_alpha_i = 0.0
+                print(f"Cavity P controller: τₚ={self.cavity_time_constant_ps:.1f}ps (no integral)")
+                
+                if self.molecular_integral_time_constant_ps is not None:
+                    self.molecular_alpha_i = estimated_dt_ps / self.molecular_integral_time_constant_ps
+                    print(f"Molecular PI controller: τₚ={self.molecular_time_constant_ps:.1f}ps, τᵢ={self.molecular_integral_time_constant_ps:.1f}ps")
+                else:
+                    self.molecular_alpha_i = 0.0
+                    print(f"Molecular P controller: τₚ={self.molecular_time_constant_ps:.1f}ps (no integral)")
+            
+        print(f"Dual independent feedback turned ON at t = {current_time_ps:.2f} ps")
+        cavity_temp_str = f"{self.current_cavity_temperature:.2f}" if self.current_cavity_temperature is not None else "None"
+        molecular_temp_str = f"{self.current_molecular_temperature:.2f}" if self.current_molecular_temperature is not None else "None"
+        print(f"Initial cavity temperature: {cavity_temp_str} K")
+        print(f"Initial molecular temperature: {molecular_temp_str} K")
+            
+        # Set dynamic targets if enabled
+        if not self.dynamic_targets_set:
+            self._set_dynamic_targets(current_time_ps)
+            
+        elif not should_be_active and self.is_active:
+            self.is_active = False
+            print(f"Dual independent feedback turned OFF at t = {current_time_ps:.2f} ps")
+        
+        # Skip if not active or not initialized
+        if not self.is_active or self.current_cavity_temperature is None or self.current_molecular_temperature is None:
             return
         
-        # Check if we should stop
-        if self.turn_off_time_ps is not None and current_time_ps >= self.turn_off_time_ps:
-            if self.is_active:
-                print(f"🔴 PI feedback turned OFF at t = {current_time_ps:.2f} ps")
-                self.is_active = False
-            return
-        
-        # Check if it's time to update
+        # Only update at specified intervals
         if current_time_ps - self.last_update_time < self.update_interval_ps:
             return
         
-        if not self.is_active:
-            print(f"🟢 PI feedback turned ON at t = {current_time_ps:.2f} ps")
-            self.is_active = True
+        # Calculate dt_ps BEFORE updating last_update_time
+        dt_ps = current_time_ps - self.last_update_time if self.last_update_time > 0 else self.update_interval_ps
+        self.last_update_time = current_time_ps
         
-        # Calculate system temperature
-        measured_temperature = self._calculate_system_temperature(current_time_ps)
-        if measured_temperature is None:
-            print(f"Warning: Could not measure temperature, skipping PI update")
+        # Calculate system temperatures for each method
+        cavity_measured_temp = self._calculate_system_temperature(
+            self.cavity_method, self.cavity_empirical_data, current_time_ps)
+        molecular_measured_temp = self._calculate_system_temperature(
+            self.molecular_method, self.molecular_empirical_data, current_time_ps)
+        
+        if cavity_measured_temp is None or molecular_measured_temp is None:
             return
         
-        # PI control calculations
-        dt_ps = current_time_ps - self.last_update_time if self.last_update_time > 0 else self.update_interval_ps
+        # Calculate effective temperatures and errors for each bath
+        cavity_effective_temp = (cavity_measured_temp + self.current_cavity_temperature) / 2.0
+        molecular_effective_temp = (molecular_measured_temp + self.current_molecular_temperature) / 2.0
         
-        # Error calculation
-        error = self.target_temperature - measured_temperature
+        cavity_error = cavity_effective_temp - self.cavity_target_temperature
+        molecular_error = molecular_effective_temp - self.molecular_target_temperature
         
-        # Proportional term with setpoint weighting
-        proportional_term = self.Kc * (self.beta * self.target_temperature - measured_temperature)
+        # Update integral error accumulators
+        self.cavity_error_integral += cavity_error * dt_ps
+        self.molecular_error_integral += molecular_error * dt_ps
         
-        # Integral term with anti-windup
-        controller_output_raw = proportional_term + self.integral_state
+        # Apply asymmetric gains based on error direction
+        # Error < 0: System too cold, need to HEAT (raise bath temperature) 
+        # Error > 0: System too hot, need to COOL (lower bath temperature)
+        
+        # Cavity asymmetric gains
+        if cavity_error < 0:  # Need to heat system
+            cavity_p_gain_factor = self.cavity_heating_gain_factor
+            cavity_tau_i = (self.cavity_integral_heating_time_constant_ps 
+                           if self.cavity_integral_heating_time_constant_ps is not None 
+                           else self.cavity_integral_time_constant_ps)
+        else:  # Need to cool system
+            cavity_p_gain_factor = self.cavity_cooling_gain_factor
+            cavity_tau_i = (self.cavity_integral_cooling_time_constant_ps 
+                           if self.cavity_integral_cooling_time_constant_ps is not None 
+                           else self.cavity_integral_time_constant_ps)
+        
+        # Molecular asymmetric gains
+        if molecular_error < 0:  # Need to heat system
+            molecular_p_gain_factor = self.molecular_heating_gain_factor
+            molecular_tau_i = (self.molecular_integral_heating_time_constant_ps 
+                              if self.molecular_integral_heating_time_constant_ps is not None 
+                              else self.molecular_integral_time_constant_ps)
+        else:  # Need to cool system
+            molecular_p_gain_factor = self.molecular_cooling_gain_factor
+            molecular_tau_i = (self.molecular_integral_cooling_time_constant_ps 
+                              if self.molecular_integral_cooling_time_constant_ps is not None 
+                              else self.molecular_integral_time_constant_ps)
+        
+        # Calculate asymmetric gradients (proportional terms)
+        cavity_gradient = 0.5 * cavity_error * cavity_p_gain_factor
+        molecular_gradient = 0.5 * molecular_error * molecular_p_gain_factor
+        
+        # Calculate asymmetric integral terms
+        if cavity_tau_i is not None:
+            cavity_alpha_i_effective = dt_ps / cavity_tau_i
+            cavity_integral_term = cavity_alpha_i_effective * self.cavity_error_integral
+        else:
+            cavity_integral_term = 0.0
+            
+        if molecular_tau_i is not None:
+            molecular_alpha_i_effective = dt_ps / molecular_tau_i
+            molecular_integral_term = molecular_alpha_i_effective * self.molecular_error_integral
+        else:
+            molecular_integral_term = 0.0
+        
+        # Apply asymmetric PI control updates
+        cavity_raw_output = (self.current_cavity_temperature - 
+                            self.cavity_alpha * cavity_gradient - 
+                            cavity_integral_term)
+        molecular_raw_output = (self.current_molecular_temperature - 
+                               self.molecular_alpha * molecular_gradient - 
+                               molecular_integral_term)
         
         # Apply saturation limits
-        if self.T_max is not None:
-            controller_output_sat = max(self.T_min, min(self.T_max, controller_output_raw))
+        if self.cavity_T_max is not None:
+            cavity_output = max(self.cavity_T_min, min(self.cavity_T_max, cavity_raw_output))
         else:
-            controller_output_sat = max(self.T_min, controller_output_raw)
+            cavity_output = max(self.cavity_T_min, cavity_raw_output)
         
-        # Anti-windup: back-calculate integral correction
-        saturation_error = controller_output_sat - controller_output_raw
-        integral_correction = saturation_error / self.Taw
+        if self.molecular_T_max is not None:
+            molecular_output = max(self.molecular_T_min, min(self.molecular_T_max, molecular_raw_output))
+        else:
+            molecular_output = max(self.molecular_T_min, molecular_raw_output)
         
-        # Update integral state
-        integral_update = (self.Kc / self.Ti) * error + integral_correction
-        self.integral_state += integral_update * dt_ps
+        # Update current temperatures and thermostats
+        self.current_cavity_temperature = cavity_output
+        self.current_molecular_temperature = molecular_output
         
-        # Apply rate limiting
-        final_output = self._apply_rate_limit(controller_output_sat, dt_ps)
+        cavity_updated = self._update_thermostat(self.cavity_thermostat, cavity_output)
+        molecular_updated = self._update_thermostat(self.molecular_thermostat, molecular_output)
         
-        # Update thermostats
-        self._update_thermostats(final_output)
+        # Console output (periodic)
+        should_print_console = (current_time_ps - self.last_console_output_time) >= self.console_output_period_ps
         
-        # Store data for output
-        self.measurement_history.append(measured_temperature)
-        self.output_history.append(final_output)
-        self.time_history.append(current_time_ps)
+        if (cavity_updated or molecular_updated) and should_print_console:
+            print(f"Dual Controller | Cavity: {self.cavity_method}→{cavity_output:.1f}K | "
+                  f"Molecular: {self.molecular_method}→{molecular_output:.1f}K")
+            self.last_console_output_time = current_time_ps
         
-        # Write to CSV file
-        with open(self.output_file, 'a') as f:
-            f.write(f"{current_time_ps:.6f},{measured_temperature:.3f},{self.target_temperature:.3f},"
-                   f"{error:.3f},{self.integral_state:.6f},{controller_output_raw:.3f},"
-                   f"{controller_output_sat:.3f},{final_output:.3f},{int(self.is_active)}\n")
-        
-        # Update state
-        self.last_output = final_output
+        # Log data
+        try:
+            with open(self.output_file, 'a', encoding='utf-8') as f:
+                f.write(f"{current_time_ps:.6f},{cavity_measured_temp:.6f},{molecular_measured_temp:.6f},")
+                f.write(f"{cavity_effective_temp:.6f},{molecular_effective_temp:.6f},")
+                f.write(f"{self.cavity_target_temperature:.6f},{self.molecular_target_temperature:.6f},")
+                f.write(f"{cavity_error:.6f},{molecular_error:.6f},")
+                f.write(f"{cavity_gradient:.6f},{molecular_gradient:.6f},")
+                f.write(f"{self.cavity_error_integral:.6f},{self.molecular_error_integral:.6f},")
+                f.write(f"{cavity_integral_term:.6f},{molecular_integral_term:.6f},")
+                f.write(f"{cavity_p_gain_factor:.6f},{molecular_p_gain_factor:.6f},")
+                f.write(f"{cavity_tau_i if cavity_tau_i is not None else -1:.6f},{molecular_tau_i if molecular_tau_i is not None else -1:.6f},")
+                f.write(f"{cavity_output:.6f},{molecular_output:.6f},{int(self.is_active)}\n")
+        except Exception as e:
+            print(f"Warning: Failed to write dual feedback output: {e}")
 
 
 class DipoleMomentFDRTracker(hoomd.custom.Action):
@@ -2693,7 +3981,8 @@ class DipoleMomentFDRTracker(hoomd.custom.Action):
         Direction for electric field perturbations (3D vector). Default: [0,0,1]
     enable_response_measurement : bool, optional
         Whether to enable response measurements (requires fork-and-clone). Default: False
-    
+    output_period_ps : float, optional
+        Output period in ps. Default: 0.1
     Attributes
     ----------
     dipole_history : List[np.ndarray]
@@ -2706,7 +3995,7 @@ class DipoleMomentFDRTracker(hoomd.custom.Action):
         Time grid for autocorrelation
     susceptibility : Optional[np.ndarray]
         Measured susceptibility χ_μ(t) (if response measurement enabled)
-    
+        
     Examples
     --------
     **Basic dipole autocorrelation tracking:**
@@ -2750,7 +4039,8 @@ class DipoleMomentFDRTracker(hoomd.custom.Action):
                  correlation_output_interval_ps: float = 0.1,
                  exclude_cavity: bool = True,
                  field_direction: Union[List[float], np.ndarray] = [0, 0, 1],
-                 enable_response_measurement: bool = False):
+                 enable_response_measurement: bool = False,
+                 output_period_ps: float = 0.1):
         
         super().__init__()
         
@@ -2760,7 +4050,7 @@ class DipoleMomentFDRTracker(hoomd.custom.Action):
         self.correlation_output_interval_ps = float(correlation_output_interval_ps)
         self.exclude_cavity = bool(exclude_cavity)
         self.enable_response_measurement = bool(enable_response_measurement)
-        
+        self.output_period_ps = float(output_period_ps)
         # Normalize field direction
         self.field_direction = np.array(field_direction, dtype=np.float64)
         field_magnitude = np.linalg.norm(self.field_direction)
@@ -2785,15 +4075,16 @@ class DipoleMomentFDRTracker(hoomd.custom.Action):
             'minus_clone': [],  # Dipole data from -E₀ clone
             'times': []         # Time stamps for response data
         }
-        
+        self.output_period_ps = float(output_period_ps)
         # Initialize output file
         self._initialize_output_file()
         
-        print(f"📊 DipoleMomentFDRTracker initialized:")
+        print(f"DipoleMomentFDRTracker initialized:")
         print(f"   Output file: {self.output_file}")
         print(f"   Max correlation time: {self.max_correlation_time_ps:.1f} ps")
         print(f"   Field direction: {self.field_direction}")
         print(f"   Exclude cavity: {self.exclude_cavity}")
+        print(f"   Output period: {self.output_period_ps:.3f} ps")
         if self.enable_response_measurement:
             print(f"   Response measurement: Enabled (requires fork-and-clone)")
         else:
@@ -2922,7 +4213,7 @@ class DipoleMomentFDRTracker(hoomd.custom.Action):
                 for t, C, C_norm in zip(correlation_times, autocorrelation, normalized_correlation):
                     f.write(f"{t:.6f},{C:.6e},{C_norm:.6f}\n")
                     
-            print(f"📊 Autocorrelation data saved to {correlation_file}")
+            print(f"Autocorrelation data saved to {correlation_file}")
             
         except Exception as e:
             print(f"Warning: Failed to save autocorrelation data: {e}")
@@ -3092,3 +4383,2171 @@ class DipoleMomentFDRTracker(hoomd.custom.Action):
             if len(self.autocorrelation) > 0:
                 self._save_autocorrelation_data(self.correlation_times, self.autocorrelation)
         self.last_update_time = current_time_ps
+
+
+class OffsetTemperatureController(hoomd.custom.Action):
+    """
+    Offset temperature controller for cavity MD simulations.
+    
+    This controller sets the bath temperature to a fixed offset from a target temperature:
+    T_bath = T_target + dT_offset
+    
+    Unlike gradient descent controllers, this provides direct, immediate temperature control
+    without feedback loops or convergence dynamics. The offset can be positive (heating)
+    or negative (cooling) relative to the target.
+    
+    Parameters
+    ----------
+    temperature_method : str
+        Temperature calculation method to determine the target
+        ('kinetic', 'lj_coulombic', 'harmonic', 'harmonic_equipartition', 'lj_coulombic_bath')
+    temperature_offset_K : float
+        Temperature offset in Kelvin (can be positive or negative)
+        T_bath = T_measured + temperature_offset_K
+    time_tracker : ElapsedTimeTracker
+        Time tracker for accurate timing
+    energy_tracker : EnergyTracker
+        Energy tracker for temperature calculations
+    molecular_thermostat : hoomd.md.methods.thermostats.Thermostat or None
+        Molecular thermostat to control
+    cavity_thermostat : hoomd.md.methods.thermostats.Thermostat or None
+        Cavity thermostat to control
+    apply_to : str, optional
+        Which thermostats to control ('molecular', 'cavity', 'both'). Default: 'both'
+    turn_on_time_ps : float, optional
+        Time to start control in picoseconds. Default: 0.0
+    turn_off_time_ps : float, optional
+        Time to stop control in picoseconds. Default: None (never turn off)
+    update_interval_ps : float, optional
+        Interval between control updates in picoseconds. Default: 0.1
+    T_min : float, optional
+        Minimum allowed bath temperature in Kelvin. Default: 0.0
+    T_max : float, optional
+        Maximum allowed bath temperature in Kelvin. Default: None (no upper limit)
+    output_file : str, optional
+        Output file for control data. Default: 'offset_feedback.csv'
+    empirical_data_file : str, optional
+        Path to empirical data file (required for certain methods)
+    console_output_period_ps : float, optional
+        Console output period in picoseconds. Default: 1.0
+        
+    Examples
+    --------
+    **Basic offset control - keep bath 50K below measured kinetic temperature:**
+    
+    >>> from hoomd.cavitymd.analysis import OffsetTemperatureController
+    >>> 
+    >>> offset_controller = OffsetTemperatureController(
+    ...     temperature_method='kinetic',
+    ...     temperature_offset_K=-50.0,  # 50K below kinetic temperature
+    ...     time_tracker=time_tracker,
+    ...     energy_tracker=energy_tracker,
+    ...     molecular_thermostat=molecular_thermo,
+    ...     apply_to='molecular'
+    ... )
+    
+    **Harmonic equipartition offset control:**
+    
+    >>> offset_controller = OffsetTemperatureController(
+    ...     temperature_method='harmonic_equipartition',
+    ...     temperature_offset_K=20.0,  # 20K above harmonic temperature
+    ...     time_tracker=time_tracker,
+    ...     energy_tracker=energy_tracker,
+    ...     molecular_thermostat=molecular_thermo,
+    ...     cavity_thermostat=cavity_thermo,
+    ...     apply_to='both'
+    ... )
+    
+    Notes
+    -----
+    - No feedback dynamics or convergence time - immediate temperature setting
+    - Positive offset = bath hotter than measured temperature
+    - Negative offset = bath cooler than measured temperature
+    - Compatible with all existing temperature calculation methods
+    """
+    
+    def __init__(self, 
+                 temperature_method: str,
+                 temperature_offset_K: float,
+                 time_tracker,
+                 energy_tracker,
+                 simulation=None,
+                 molecular_thermostat=None,
+                 cavity_thermostat=None,
+                 apply_to: str = 'both',
+                 turn_on_time_ps: float = 0.0,
+                 turn_off_time_ps: Optional[float] = None,
+                 update_interval_ps: float = 0.1,
+                 T_min: float = 0.0,
+                 T_max: Optional[float] = None,
+                 output_file: str = 'offset_feedback.csv',
+                 empirical_data_file: Optional[str] = None,
+                 console_output_period_ps: float = 1.0):
+        
+        # Store core parameters
+        self.temperature_method = temperature_method
+        self.temperature_offset_K = float(temperature_offset_K)
+        self.time_tracker = time_tracker
+        self.energy_tracker = energy_tracker
+        self.simulation = simulation
+        self.molecular_thermostat = molecular_thermostat
+        self.cavity_thermostat = cavity_thermostat
+        
+        # Control parameters
+        self.apply_to = apply_to
+        self.turn_on_time_ps = float(turn_on_time_ps)
+        self.turn_off_time_ps = float(turn_off_time_ps) if turn_off_time_ps is not None else None
+        self.update_interval_ps = float(update_interval_ps)
+        self.T_min = float(T_min)
+        self.T_max = float(T_max) if T_max is not None else None
+        self.output_file = output_file
+        self.console_output_period_ps = float(console_output_period_ps)
+        
+        # Load empirical data if needed
+        self.empirical_data = None
+        if empirical_data_file is not None and temperature_method in ['lj_coulombic', 'harmonic', 'lj_coulombic_bath']:
+            try:
+                energy_component = 'lj_coulombic' if 'lj_coulombic' in temperature_method else 'harmonic'
+                self.empirical_data = EmpiricalTemperatureData(
+                    data_file_path=empirical_data_file,
+                    energy_component=energy_component
+                )
+            except Exception as e:
+                print(f"Warning: Could not load empirical data file {empirical_data_file}: {e}")
+        
+        # Control state
+        self.is_active = False
+        self.current_bath_temperature = None
+        self.last_update_time = 0.0
+        self.last_console_output_time = 0.0
+        
+        # Initialize output file
+        self._initialize_output_file()
+    
+    def _initialize_output_file(self):
+        """Initialize CSV output file with headers."""
+        try:
+            with open(self.output_file, 'w', encoding='utf-8') as f:
+                f.write("# Offset Temperature Controller Output\n")
+                f.write("# time_ps: simulation time in picoseconds\n")
+                f.write("# measured_temp_K: measured system temperature\n")
+                f.write("# target_bath_temp_K: target bath temperature (measured + offset)\n")
+                f.write("# actual_bath_temp_K: actual bath temperature after limits\n")
+                f.write("# offset_K: temperature offset applied\n")
+                f.write("# active: whether controller is active (1=active, 0=inactive)\n")
+                f.write("time_ps,measured_temp_K,target_bath_temp_K,actual_bath_temp_K,offset_K,active\n")
+        except Exception as e:
+            print(f"Warning: Failed to initialize offset controller output file: {e}")
+    
+    def _calculate_system_temperature(self, current_time_ps: float) -> Optional[float]:
+        """Calculate system temperature using the specified method."""
+        if self.temperature_method == 'kinetic':
+            # Calculate kinetic temperature from particle velocities
+            import numpy as np
+            from .utils import PhysicalConstants
+            
+            try:
+                kinetic_energy = 0.0
+                N_molecules = 0
+                with self._get_hoomd_simulation().state.cpu_local_snapshot as snap:
+                    for i, ptype in enumerate(snap.particles.typeid):
+                        # Exclude cavity particle (assume it's the last particle)
+                        if i < len(snap.particles.mass) - 1:
+                            mass = snap.particles.mass[i]
+                            velocity = np.array(snap.particles.velocity[i])
+                            ke_particle = 0.5 * mass * np.sum(velocity**2)
+                            kinetic_energy += ke_particle
+                            N_molecules += 1
+                
+                if N_molecules > 0:
+                    kB_hartree = PhysicalConstants.KB_HARTREE_PER_K
+                    temperature_K = (2.0/3.0) * kinetic_energy / (N_molecules * kB_hartree)
+                    return max(temperature_K, 0.0)
+                else:
+                    return None
+                    
+            except Exception as e:
+                print(f"Warning: Could not calculate kinetic temperature: {e}")
+                return None
+        
+        elif self.temperature_method == 'harmonic_equipartition':
+            # Calculate harmonic temperature using equipartition theorem
+            try:
+                energy_data = self.energy_tracker.get_instantaneous_energy()
+                if energy_data is None:
+                    return None
+                
+                harmonic_energy_hartree = energy_data.get('harmonic', 0.0)
+                
+                # Use equipartition theorem: E_harmonic = (3/2) * N * kB * T
+                # Assume N=500 molecular particles (excluding cavity)
+                N_molecules = 500
+                from .utils import PhysicalConstants
+                kB_hartree = PhysicalConstants.KB_HARTREE_PER_K
+                
+                if harmonic_energy_hartree > 0:
+                    temperature_K = (2.0/3.0) * harmonic_energy_hartree / (N_molecules * kB_hartree)
+                    return max(temperature_K, 0.0)
+                else:
+                    return None
+                    
+            except Exception as e:
+                print(f"Warning: Could not calculate harmonic equipartition temperature: {e}")
+                return None
+        
+        elif self.temperature_method in ['lj_coulombic', 'lj_coulombic_bath']:
+            # Calculate LJ+Coulombic fictive temperature using empirical data
+            if self.empirical_data is None:
+                print(f"Warning: No empirical data available for method '{self.temperature_method}'")
+                return None
+            
+            try:
+                energy_data = self.energy_tracker.get_instantaneous_energy()
+                if energy_data is None:
+                    return None
+                
+                lj_energy = energy_data.get('lj', 0.0)
+                coulomb_energy = energy_data.get('coulombic', 0.0)
+                total_lj_coulomb = lj_energy + coulomb_energy
+                
+                temperature_K = self.empirical_data.calculate_systemic_temperature(
+                    instantaneous_energy_hartree=total_lj_coulomb,
+                    num_particles=500
+                )
+                return max(temperature_K, 0.0)
+                        
+            except Exception as e:
+                print(f"Warning: Could not calculate LJ+Coulombic temperature: {e}")
+                return None
+        
+        elif self.temperature_method == 'harmonic':
+            # Calculate harmonic fictive temperature using empirical data
+            if self.empirical_data is None:
+                print(f"Warning: No empirical data available for method '{self.temperature_method}'")
+                return None
+            
+            try:
+                energy_data = self.energy_tracker.get_instantaneous_energy()
+                if energy_data is None:
+                    return None
+                
+                harmonic_energy = energy_data.get('harmonic', 0.0)
+                temperature_K = self.empirical_data.calculate_systemic_temperature(
+                    instantaneous_energy_hartree=harmonic_energy,
+                    num_particles=500
+                )
+                return max(temperature_K, 0.0)
+                
+            except Exception as e:
+                print(f"Warning: Could not calculate harmonic temperature: {e}")
+                return None
+        
+        else:
+            print(f"Warning: Unknown temperature method '{self.temperature_method}'")
+            return None
+    
+    def _update_thermostats(self, bath_temperature: float):
+        """Update thermostat temperatures."""
+        try:
+            from .utils import PhysicalConstants
+            import hoomd    
+            
+            kT_hartree = bath_temperature * PhysicalConstants.KB_HARTREE_PER_K
+            
+            if self.apply_to in ['molecular', 'both'] and self.molecular_thermostat is not None:
+                if hasattr(self.molecular_thermostat, 'kT'):
+                    self.molecular_thermostat.kT = hoomd.variant.Constant(kT_hartree)
+                elif hasattr(self.molecular_thermostat, 'thermostat'):
+                    nested_thermo = self.molecular_thermostat.thermostat
+                    if hasattr(nested_thermo, 'kT'):
+                        nested_thermo.kT = hoomd.variant.Constant(kT_hartree)
+            
+            if self.apply_to in ['cavity', 'both'] and self.cavity_thermostat is not None:
+                if hasattr(self.cavity_thermostat, 'kT'):
+                    self.cavity_thermostat.kT = hoomd.variant.Constant(kT_hartree)
+                elif hasattr(self.cavity_thermostat, 'thermostat'):
+                    nested_thermo = self.cavity_thermostat.thermostat
+                    if hasattr(nested_thermo, 'kT'):
+                        nested_thermo.kT = hoomd.variant.Constant(kT_hartree)
+                        
+        except Exception as e:
+            print(f"Warning: Failed to update thermostats: {e}")
+    
+    def act(self, timestep):
+        """Execute offset temperature control at each timestep."""
+        current_time_ps = self.time_tracker.elapsed_time
+        
+        # Check if we should be active
+        should_be_active = (current_time_ps >= self.turn_on_time_ps and 
+                          (self.turn_off_time_ps is None or current_time_ps < self.turn_off_time_ps))
+        
+        if should_be_active and not self.is_active:
+            self.is_active = True
+            print(f"Offset temperature controller turned ON at t = {current_time_ps:.2f} ps")
+            print(f"Temperature offset: {self.temperature_offset_K:+.1f} K")
+        elif not should_be_active and self.is_active:
+            self.is_active = False
+            print(f"Offset temperature controller turned OFF at t = {current_time_ps:.2f} ps")
+        
+        # Skip if not active
+        if not self.is_active:
+            return
+        
+        # Only update at specified intervals
+        if current_time_ps - self.last_update_time < self.update_interval_ps:
+            return
+        
+        self.last_update_time = current_time_ps
+        
+        # Calculate measured system temperature
+        measured_temperature = self._calculate_system_temperature(current_time_ps)
+        
+        if measured_temperature is None:
+            return
+        
+        # Calculate target bath temperature: T_bath = T_measured + offset
+        target_bath_temperature = measured_temperature + self.temperature_offset_K
+        
+        # Apply temperature limits
+        if self.T_max is not None:
+            actual_bath_temperature = max(self.T_min, min(self.T_max, target_bath_temperature))
+        else:
+            actual_bath_temperature = max(self.T_min, target_bath_temperature)
+        
+        # Update thermostats
+        self.current_bath_temperature = actual_bath_temperature
+        self._update_thermostats(actual_bath_temperature)
+        
+        # Console output
+        if current_time_ps - self.last_console_output_time >= self.console_output_period_ps:
+            print(f"Offset Controller | {self.temperature_method}→{measured_temperature:.1f}K | "
+                  f"Bath: {actual_bath_temperature:.1f}K (offset: {self.temperature_offset_K:+.1f}K)")
+            self.last_console_output_time = current_time_ps
+        
+        # Log data
+        try:
+            with open(self.output_file, 'a', encoding='utf-8') as f:
+                f.write(f"{current_time_ps:.6f},{measured_temperature:.6f},{target_bath_temperature:.6f},"
+                       f"{actual_bath_temperature:.6f},{self.temperature_offset_K:.6f},{int(self.is_active)}\n")
+        except Exception as e:
+            print(f"Warning: Failed to write offset controller output: {e}")
+
+
+class DiffEqController(hoomd.custom.Action):
+    """
+    Differential equation temperature controller for cavity MD simulations.
+    
+    This controller implements a first-order differential equation to control
+    the bath temperature based on a signal temperature:
+    
+    dT_bath(t)/dt = -(T_bath(t) - T_signal(t)) / τ
+    
+    where:
+    - T_bath(t) is the bath temperature
+    - T_signal(t) is the measured signal temperature (kinetic, LJ+Coulombic, etc.)
+    - τ is the time constant controlling response speed
+    
+    The discretized update rule is:
+    T_bath(t+dt) = T_bath(t) + dt * (-(T_bath(t) - T_signal(t)) / τ)
+    T_bath(t+dt) = T_bath(t) - (dt/τ) * (T_bath(t) - T_signal(t))
+    
+    Parameters
+    ----------
+    temperature_method : str
+        Temperature calculation method for signal ('kinetic', 'lj_coulombic', 'harmonic', 'harmonic_equipartition', 'lj_coulombic_bath')
+    time_constant_ps : float
+        Time constant τ in picoseconds (controls response speed)
+    time_tracker : ElapsedTimeTracker
+        Time tracker for accurate timing
+    energy_tracker : EnergyTracker
+        Energy tracker for temperature calculations
+    molecular_thermostat : hoomd.md.methods.thermostats.Thermostat or None
+        Molecular thermostat to control
+    cavity_thermostat : hoomd.md.methods.thermostats.Thermostat or None
+        Cavity thermostat to control
+    apply_to : str, optional
+        Which thermostats to control ('molecular', 'cavity', 'both'). Default: 'both'
+    turn_on_time_ps : float, optional
+        Time to start control in picoseconds. Default: 0.0
+    turn_off_time_ps : float, optional
+        Time to stop control in picoseconds. Default: None (never turn off)
+    update_interval_ps : float, optional
+        Interval between control updates in picoseconds. Default: 0.1
+    T_min : float, optional
+        Minimum allowed bath temperature in Kelvin. Default: 0.0
+    T_max : float, optional
+        Maximum allowed bath temperature in Kelvin. Default: None (no upper limit)
+    rate_limit_K_per_ps : float, optional
+        Maximum rate of temperature change in K/ps. Default: None (no rate limit)
+    output_file : str, optional
+        Output file for control data. Default: 'diffeq_feedback.csv'
+    empirical_data_file : str, optional
+        Path to empirical data file (required for certain methods)
+    console_output_period_ps : float, optional
+        Console output period in picoseconds. Default: 1.0
+        
+    Examples
+    --------
+    **Basic differential equation control following kinetic temperature:**
+    
+    >>> from hoomd.cavitymd.analysis import DiffEqController
+    >>> 
+    >>> diffeq_controller = DiffEqController(
+    ...     temperature_method='kinetic',
+    ...     time_constant_ps=5.0,  # 5 ps response time
+    ...     time_tracker=time_tracker,
+    ...     energy_tracker=energy_tracker,
+    ...     molecular_thermostat=molecular_thermo,
+    ...     apply_to='molecular'
+    ... )
+    
+    **Fast response to LJ+Coulombic signal:**
+    
+    >>> diffeq_controller = DiffEqController(
+    ...     temperature_method='lj_coulombic_bath',
+    ...     time_constant_ps=1.0,  # Fast 1 ps response
+    ...     time_tracker=time_tracker,
+    ...     energy_tracker=energy_tracker,
+    ...     molecular_thermostat=molecular_thermo,
+    ...     cavity_thermostat=cavity_thermo,
+    ...     empirical_data_file='lj_coulombic_calibration.txt',
+    ...     apply_to='both'
+    ... )
+    
+    Notes
+    -----
+    - Smaller time constants lead to faster response to signal changes
+    - The bath temperature exponentially approaches the signal temperature
+    - Unlike feedback controllers, this directly tracks the signal without a target
+    - Compatible with all existing temperature calculation methods
+    """
+    
+    def __init__(self,
+                 temperature_method: str,
+                 time_constant_ps: float,
+                 time_tracker,
+                 energy_tracker,
+                 simulation=None,
+                 molecular_thermostat=None,
+                 cavity_thermostat=None,
+                 apply_to: str = 'both',
+                 turn_on_time_ps: float = 0.0,
+                 turn_off_time_ps: Optional[float] = None,
+                 update_interval_ps: float = 0.1,
+                 T_min: float = 0.0,
+                 T_max: Optional[float] = None,
+                 rate_limit_K_per_ps: Optional[float] = None,
+                 output_file: str = 'diffeq_feedback.csv',
+                 empirical_data_file: Optional[str] = None,
+                 console_output_period_ps: float = 1.0):
+        
+        # Store core parameters
+        self.temperature_method = temperature_method
+        self.time_constant_ps = float(time_constant_ps)
+        self.time_tracker = time_tracker
+        self.energy_tracker = energy_tracker
+        self.simulation = simulation
+        self.molecular_thermostat = molecular_thermostat
+        self.cavity_thermostat = cavity_thermostat
+        
+        # Control parameters
+        self.apply_to = apply_to
+        self.turn_on_time_ps = float(turn_on_time_ps)
+        self.turn_off_time_ps = float(turn_off_time_ps) if turn_off_time_ps is not None else None
+        self.update_interval_ps = float(update_interval_ps)
+        self.T_min = float(T_min)
+        self.T_max = float(T_max) if T_max is not None else None
+        self.rate_limit_K_per_ps = float(rate_limit_K_per_ps) if rate_limit_K_per_ps is not None else None
+        self.output_file = output_file
+        self.console_output_period_ps = float(console_output_period_ps)
+        
+        # Load empirical data if needed
+        self.empirical_data = None
+        if empirical_data_file is not None and temperature_method in ['lj_coulombic', 'harmonic', 'lj_coulombic_bath']:
+            try:
+                energy_component = 'lj_coulombic' if 'lj_coulombic' in temperature_method else 'harmonic'
+                self.empirical_data = EmpiricalTemperatureData(
+                    data_file_path=empirical_data_file,
+                    energy_component=energy_component
+                )
+            except Exception as e:
+                print(f"Warning: Could not load empirical data file {empirical_data_file}: {e}")
+        
+        # Control state
+        self.is_active = False
+        self.current_bath_temperature = None
+        self.last_update_time = 0.0
+        self.last_console_output_time = 0.0
+        
+        # Initialize output file
+        self._initialize_output_file()
+    
+    def _initialize_output_file(self):
+        """Initialize CSV output file with headers."""
+        try:
+            with open(self.output_file, 'w', encoding='utf-8') as f:
+                f.write("# Differential Equation Temperature Controller Output\n")
+                f.write("# time_ps: simulation time in picoseconds\n")
+                f.write("# signal_temp_K: measured signal temperature\n")
+                f.write("# bath_temp_K: bath temperature setting\n")
+                f.write("# dt_ps: timestep used for integration\n")
+                f.write("# derivative_K_per_ps: dT_bath/dt calculated\n")
+                f.write("# active: whether controller is active (1=active, 0=inactive)\n")
+                f.write("time_ps,signal_temp_K,bath_temp_K,dt_ps,derivative_K_per_ps,active\n")
+        except Exception as e:
+            print(f"Warning: Failed to initialize differential equation controller output file: {e}")
+    
+    def _calculate_system_temperature(self, current_time_ps: float) -> Optional[float]:
+        """Calculate system temperature using the specified method."""
+        # Use the same implementation as OffsetTemperatureController
+        if self.temperature_method == 'kinetic':
+            # Calculate kinetic temperature from particle velocities
+            import numpy as np
+            from .utils import PhysicalConstants
+            
+            try:
+                kinetic_energy = 0.0
+                N_molecules = 0
+                with self._get_hoomd_simulation().state.cpu_local_snapshot as snap:
+                    for i, ptype in enumerate(snap.particles.typeid):
+                        # Exclude cavity particle (assume it's the last particle)
+                        if i < len(snap.particles.mass) - 1:
+                            mass = snap.particles.mass[i]
+                            velocity = np.array(snap.particles.velocity[i])
+                            ke_particle = 0.5 * mass * np.sum(velocity**2)
+                            kinetic_energy += ke_particle
+                            N_molecules += 1
+                
+                if N_molecules > 0:
+                    kB_hartree = PhysicalConstants.KB_HARTREE_PER_K
+                    temperature_K = (2.0/3.0) * kinetic_energy / (N_molecules * kB_hartree)
+                    return max(temperature_K, 0.0)
+                else:
+                    return None
+                    
+            except Exception as e:
+                print(f"Warning: Could not calculate kinetic temperature: {e}")
+                return None
+        
+        elif self.temperature_method == 'harmonic_equipartition':
+            # Calculate harmonic temperature using equipartition theorem
+            try:
+                energy_data = self.energy_tracker.get_instantaneous_energy()
+                if energy_data is None:
+                    return None
+                
+                harmonic_energy_hartree = energy_data.get('harmonic', 0.0)
+                
+                # Use equipartition theorem: E_harmonic = (3/2) * N * kB * T
+                # Assume N=500 molecular particles (excluding cavity)
+                N_molecules = 500
+                from .utils import PhysicalConstants
+                kB_hartree = PhysicalConstants.KB_HARTREE_PER_K
+                
+                if harmonic_energy_hartree > 0:
+                    temperature_K = (2.0/3.0) * harmonic_energy_hartree / (N_molecules * kB_hartree)
+                    return max(temperature_K, 0.0)
+                else:
+                    return None
+                    
+            except Exception as e:
+                print(f"Warning: Could not calculate harmonic equipartition temperature: {e}")
+                return None
+        
+        elif self.temperature_method in ['lj_coulombic', 'lj_coulombic_bath']:
+            # Calculate LJ+Coulombic fictive temperature using empirical data
+            if self.empirical_data is None:
+                print(f"Warning: No empirical data available for method '{self.temperature_method}'")
+                return None
+            
+            try:
+                energy_data = self.energy_tracker.get_instantaneous_energy()
+                if energy_data is None:
+                    return None
+                
+                lj_energy = energy_data.get('lj', 0.0)
+                coulomb_energy = energy_data.get('coulombic', 0.0)
+                total_lj_coulomb = lj_energy + coulomb_energy
+                
+                temperature_K = self.empirical_data.calculate_systemic_temperature(
+                    instantaneous_energy_hartree=total_lj_coulomb,
+                    num_particles=500
+                )
+                return max(temperature_K, 0.0)
+                
+            except Exception as e:
+                print(f"Warning: Could not calculate LJ+Coulombic temperature: {e}")
+                return None
+        
+        elif self.temperature_method == 'harmonic':
+            # Calculate harmonic fictive temperature using empirical data
+            if self.empirical_data is None:
+                print(f"Warning: No empirical data available for method '{self.temperature_method}'")
+                return None
+            
+            try:
+                energy_data = self.energy_tracker.get_instantaneous_energy()
+                if energy_data is None:
+                    return None
+                
+                harmonic_energy = energy_data.get('harmonic', 0.0)
+                temperature_K = self.empirical_data.calculate_systemic_temperature(
+                    instantaneous_energy_hartree=harmonic_energy,
+                    num_particles=500
+                )
+                return max(temperature_K, 0.0)
+                
+            except Exception as e:
+                print(f"Warning: Could not calculate harmonic temperature: {e}")
+                return None
+        
+        else:
+            print(f"Warning: Unknown temperature method '{self.temperature_method}'")
+            return None
+    
+    def _get_current_thermostat_temperature(self) -> float:
+        """Get current thermostat temperature for initialization."""
+        try:
+            from .utils import PhysicalConstants
+            
+            # Try molecular thermostat first
+            if self.molecular_thermostat is not None:
+                try:
+                    if hasattr(self.molecular_thermostat, 'kT'):
+                        kT = self.molecular_thermostat.kT
+                        if hasattr(kT, 'value'):
+                            kT = kT.value
+                        elif callable(kT):
+                            kT = kT()
+                        return kT / PhysicalConstants.KB_HARTREE_PER_K
+                    elif hasattr(self.molecular_thermostat, 'thermostat'):
+                        nested = self.molecular_thermostat.thermostat
+                        if hasattr(nested, 'kT'):
+                            kT = nested.kT
+                            if hasattr(kT, 'value'):
+                                kT = kT.value
+                            elif callable(kT):
+                                kT = kT()
+                            return kT / PhysicalConstants.KB_HARTREE_PER_K
+                except:
+                    pass
+            
+            # Try cavity thermostat as backup
+            if self.cavity_thermostat is not None:
+                try:
+                    if hasattr(self.cavity_thermostat, 'kT'):
+                        kT = self.cavity_thermostat.kT
+                        if hasattr(kT, 'value'):
+                            kT = kT.value
+                        elif callable(kT):
+                            kT = kT()
+                        return kT / PhysicalConstants.KB_HARTREE_PER_K
+                    elif hasattr(self.cavity_thermostat, 'thermostat'):
+                        nested = self.cavity_thermostat.thermostat
+                        if hasattr(nested, 'kT'):
+                            kT = nested.kT
+                            if hasattr(kT, 'value'):
+                                kT = kT.value
+                            elif callable(kT):
+                                kT = kT()
+                            return kT / PhysicalConstants.KB_HARTREE_PER_K
+                except:
+                    pass
+            
+            # Fallback to 300K
+            return 300.0
+            
+        except Exception as e:
+            print(f"Warning: Could not get current thermostat temperature: {e}")
+            return 300.0
+
+    def _apply_rate_limit(self, new_output: float, dt_ps: float) -> float:
+        """Apply rate limiting to controller output."""
+        if self.rate_limit_K_per_ps is None or self.current_bath_temperature is None:
+            return new_output
+        
+        max_change = self.rate_limit_K_per_ps * dt_ps
+        change = new_output - self.current_bath_temperature
+        
+        if abs(change) <= max_change:
+            return new_output
+        else:
+            # Limit the change
+            limited_change = max_change if change > 0 else -max_change
+            return self.current_bath_temperature + limited_change
+    
+    def _update_thermostats(self, bath_temperature: float):
+        """Update thermostat temperatures."""
+        try:
+            import hoomd
+            from .utils import PhysicalConstants
+            kT_hartree = bath_temperature * PhysicalConstants.KB_HARTREE_PER_K
+            
+            if self.apply_to in ['molecular', 'both'] and self.molecular_thermostat is not None:
+                if hasattr(self.molecular_thermostat, 'kT'):
+                    self.molecular_thermostat.kT = hoomd.variant.Constant(kT_hartree)
+                elif hasattr(self.molecular_thermostat, 'thermostat'):
+                    nested = self.molecular_thermostat.thermostat
+                    if hasattr(nested, 'kT'):
+                        nested.kT = hoomd.variant.Constant(kT_hartree)
+            
+            if self.apply_to in ['cavity', 'both'] and self.cavity_thermostat is not None:
+                if hasattr(self.cavity_thermostat, 'kT'):
+                    self.cavity_thermostat.kT = hoomd.variant.Constant(kT_hartree)
+                elif hasattr(self.cavity_thermostat, 'thermostat'):
+                    nested = self.cavity_thermostat.thermostat
+                    if hasattr(nested, 'kT'):
+                        nested.kT = hoomd.variant.Constant(kT_hartree)
+                        
+        except Exception as e:
+            print(f"Warning: Failed to update thermostats: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def act(self, timestep):
+        """Execute differential equation control at each timestep."""
+        current_time_ps = self.time_tracker.elapsed_time
+        
+        # Check if we should be active
+        should_be_active = (current_time_ps >= self.turn_on_time_ps and 
+                          (self.turn_off_time_ps is None or current_time_ps < self.turn_off_time_ps))
+        
+        if should_be_active and not self.is_active:
+            self.is_active = True
+            # Initialize current_bath_temperature from thermostats when first activating
+            if self.current_bath_temperature is None:
+                self.current_bath_temperature = self._get_current_thermostat_temperature()
+                print(f"Differential equation controller turned ON at t = {current_time_ps:.2f} ps")
+                print(f"Initial bath temperature: {self.current_bath_temperature:.2f} K")
+                print(f"Time constant: {self.time_constant_ps:.2f} ps")
+            else:
+                print(f"Differential equation controller turned ON at t = {current_time_ps:.2f} ps")
+        elif not should_be_active and self.is_active:
+            self.is_active = False
+            print(f"Differential equation controller turned OFF at t = {current_time_ps:.2f} ps")
+        
+        # Skip if not active or not initialized
+        if not self.is_active or self.current_bath_temperature is None:
+            return
+        
+        # Only update at specified intervals
+        if current_time_ps - self.last_update_time < self.update_interval_ps:
+            return
+        
+        # Calculate dt_ps BEFORE updating last_update_time
+        dt_ps = current_time_ps - self.last_update_time if self.last_update_time > 0 else self.update_interval_ps
+        self.last_update_time = current_time_ps
+        
+        # Calculate signal temperature
+        signal_temperature = self._calculate_system_temperature(current_time_ps)
+        
+        if signal_temperature is None:
+            return
+        
+        # Implement differential equation: dT_bath/dt = -(T_bath - T_signal) / τ
+        # Discretized: T_bath(t+dt) = T_bath(t) + dt * (-(T_bath(t) - T_signal(t)) / τ)
+        derivative_K_per_ps = -(self.current_bath_temperature - signal_temperature) / self.time_constant_ps
+        raw_output = self.current_bath_temperature + dt_ps * derivative_K_per_ps
+        
+        # Apply saturation limits
+        if self.T_max is not None:
+            saturated_output = max(self.T_min, min(self.T_max, raw_output))
+        else:
+            saturated_output = max(self.T_min, raw_output)
+        
+        # Apply rate limiting
+        rate_limited_output = self._apply_rate_limit(saturated_output, dt_ps)
+        
+        # Update current bath temperature and thermostats
+        self.current_bath_temperature = rate_limited_output
+        self._update_thermostats(self.current_bath_temperature)
+        
+        # Console output
+        if current_time_ps - self.last_console_output_time >= self.console_output_period_ps:
+            print(f"DiffEq Controller | {self.temperature_method}→{signal_temperature:.1f}K | "
+                  f"Bath: {self.current_bath_temperature:.1f}K | dT/dt: {derivative_K_per_ps:+.2f}K/ps")
+            self.last_console_output_time = current_time_ps
+        
+        # Log data
+        try:
+            with open(self.output_file, 'a', encoding='utf-8') as f:
+                f.write(f"{current_time_ps:.6f},{signal_temperature:.6f},{self.current_bath_temperature:.6f},"
+                       f"{dt_ps:.6f},{derivative_K_per_ps:.6f},{int(self.is_active)}\n")
+        except Exception as e:
+            print(f"Warning: Failed to write differential equation controller output: {e}")
+
+
+class SinusoidalBathTemperatureController(hoomd.custom.Action):
+    """
+    Sinusoidal bath temperature controller for cavity MD simulations.
+    
+    This controller modulates the bath temperature sinusoidally around a dynamic target
+    temperature, with the amplitude dynamically adjusted based on a configurable temperature
+    method. This provides a temperature control strategy that oscillates around
+    equilibrium while responding to different aspects of the system's thermal state.
+    
+    The temperature schedule follows:
+    T_bath(t) = T_mean + A(t) * sin(2π * t / T_period + φ)
+    
+    where:
+    - T_mean: Dynamic target temperature (set based on initial system state)
+    - A(t): Dynamic amplitude based on specified temperature method
+    - T_period: Period of sinusoidal oscillation
+    - φ: Phase offset
+    
+    The amplitude is updated according to:
+    A(t) = amplitude_scale * |T_method(t) - T_mean|
+    
+    Parameters
+    ----------
+    period_ps : float
+        Period of sinusoidal temperature oscillation in picoseconds
+    amplitude_scale : float
+        Scaling factor for amplitude based on harmonic equipartition deviation
+    phase_offset : float
+        Phase offset for sinusoidal function (in radians)
+    time_tracker : ElapsedTimeTracker
+        Time tracker for accurate timing
+    energy_tracker : EnergyTracker
+        Energy tracker for temperature calculations
+    molecular_thermostat : hoomd.md.methods.thermostats.Thermostat
+        Molecular thermostat to control
+    cavity_thermostat : hoomd.md.methods.thermostats.Thermostat  
+        Cavity thermostat to control
+    apply_to : str
+        Which thermostats to control ('molecular', 'cavity', 'both')
+    target_temperature : float, optional
+        Static target temperature in Kelvin. Ignored if dynamic_target=True
+    dynamic_target : bool, optional
+        Whether to set mean temperature dynamically at turn-on time. Default: True
+    turn_on_time_ps : float, optional
+        Time to start control in picoseconds. Default: 0.0
+    turn_off_time_ps : float, optional
+        Time to stop control in picoseconds. Default: None (never turn off)
+    update_interval_ps : float, optional
+        Interval between control updates in picoseconds. Default: 0.1
+    T_min : float, optional
+        Minimum allowed bath temperature in Kelvin. Default: 0.1
+    T_max : float, optional
+        Maximum allowed bath temperature in Kelvin. Default: None
+    output_file : str, optional
+        Output file for control data. Default: 'sinusoidal_bath_controller.csv'
+    empirical_data_file : str, optional
+        Path to empirical data file for harmonic equipartition calculation
+    console_output_period_ps : float, optional
+        Console output period in picoseconds. Default: 1.0
+    amplitude_update_interval_ps : float, optional
+        Interval for updating amplitude based on harmonic temperature. Default: 1.0
+    amplitude_temperature_method : str, optional
+        Temperature method to use for amplitude calculation. Options: 'harmonic_equipartition', 
+        'kinetic', 'lj_coulombic', 'harmonic'. Default: 'harmonic_equipartition'
+    adaptive_range_mode : bool, optional
+        If True, uses adaptive range mode where sinusoid bounds are fixed at target temperature
+        and range adapts to |Ts(t) - Ttarget|. If False, uses fixed mean with variable amplitude.
+        Default: False
+        
+    Examples
+    --------
+    **Basic sinusoidal bath control:**
+    
+    >>> controller = SinusoidalBathTemperatureController(
+    ...     period_ps=2.0,
+    ...     amplitude_scale=0.1,
+    ...     phase_offset=0.0,
+    ...     time_tracker=time_tracker,
+    ...     energy_tracker=energy_tracker,
+    ...     molecular_thermostat=molecular_thermo,
+    ...     cavity_thermostat=cavity_thermo,
+    ...     apply_to='both',
+    ...     dynamic_target=True,
+    ...     turn_on_time_ps=100.0
+    ... )
+    
+    Notes
+    -----
+    - Mean temperature is set to the current bath temperature at turn-on if dynamic_target=True
+    - Amplitude responds to deviations in harmonic equipartition temperature from the mean
+    - Both thermostats oscillate in phase (same sinusoidal schedule)
+    - Temperature limits are applied after sinusoidal calculation
+    """
+    
+    def __init__(self,
+                 period_ps: float,
+                 amplitude_scale: float,
+                 phase_offset: float = 0.0,
+                 time_tracker=None,
+                 energy_tracker=None,
+                 simulation=None,
+                 molecular_thermostat=None,
+                 cavity_thermostat=None,
+                 apply_to: str = 'both',
+                 target_temperature: float = 100.0,
+                 dynamic_target: bool = True,
+                 turn_on_time_ps: float = 0.0,
+                 turn_off_time_ps: Optional[float] = None,
+                 update_interval_ps: float = 0.1,
+                 T_min: float = 0.1,
+                 T_max: Optional[float] = None,
+                 output_file: str = 'sinusoidal_bath_controller.csv',
+                 empirical_data_file: Optional[str] = None,
+                 console_output_period_ps: float = 1.0,
+                 amplitude_update_interval_ps: float = 1.0,
+                 amplitude_temperature_method: str = 'harmonic_equipartition',
+                 adaptive_range_mode: bool = False):
+        
+        # Store configuration
+        self.period_ps = period_ps
+        self.amplitude_scale = amplitude_scale
+        self.phase_offset = phase_offset
+        self.time_tracker = time_tracker
+        self.energy_tracker = energy_tracker
+        self.simulation = simulation
+        self.molecular_thermostat = molecular_thermostat
+        self.cavity_thermostat = cavity_thermostat
+        self.apply_to = apply_to
+        self.target_temperature = target_temperature
+        self.dynamic_target = dynamic_target
+        self.turn_on_time_ps = turn_on_time_ps
+        self.turn_off_time_ps = turn_off_time_ps
+        self.update_interval_ps = update_interval_ps
+        self.T_min = T_min
+        self.T_max = T_max
+        self.output_file = output_file
+        self.empirical_data_file = empirical_data_file
+        self.console_output_period_ps = console_output_period_ps
+        self.amplitude_update_interval_ps = amplitude_update_interval_ps
+        self.amplitude_temperature_method = amplitude_temperature_method
+        self.adaptive_range_mode = adaptive_range_mode
+        
+        # Load empirical data for amplitude temperature calculation
+        self.empirical_data = None
+        if empirical_data_file:
+            try:
+                # Determine which energy component to use based on amplitude temperature method
+                if self.amplitude_temperature_method in ['lj_coulombic']:
+                    energy_component = 'lj_coulombic'
+                elif self.amplitude_temperature_method in ['harmonic']:
+                    energy_component = 'harmonic'
+                else:
+                    # For kinetic and harmonic_equipartition, we don't need empirical data
+                    energy_component = None
+                
+                if energy_component:
+                    self.empirical_data = EmpiricalTemperatureData(empirical_data_file, energy_component)
+                    print(f"Loaded empirical data from {empirical_data_file} for {energy_component} energy")
+                else:
+                    print(f"Empirical data not needed for amplitude method '{self.amplitude_temperature_method}'")
+                    
+            except Exception as e:
+                print(f"Warning: Could not load empirical data from {empirical_data_file}: {e}")
+                self.empirical_data = None
+        
+        # State variables
+        self.is_active = False
+        self.mean_temperature = target_temperature
+        self.current_amplitude = 0.0
+        self.dynamic_target_set = False
+        self.last_update_time = 0.0
+        self.last_amplitude_update_time = 0.0
+        self.last_console_output_time = 0.0
+        
+        # Initialize output file
+        self._initialize_output_file()
+    
+    def _initialize_output_file(self):
+        """Initialize CSV output file with headers."""
+        try:
+            with open(self.output_file, 'w', encoding='utf-8') as f:
+                f.write("time_ps,target_temp_K,current_amplitude_K,amplitude_method_temp_K,"
+                       "calculated_bath_temp_K,sinusoidal_component_K,is_active\n")
+            print(f"Initialized sinusoidal bath controller output: {self.output_file}")
+        except Exception as e:
+            print(f"Warning: Failed to initialize sinusoidal bath controller output file: {e}")
+    
+    def _get_thermostat_temperature(self, thermostat) -> Optional[float]:
+        """Get current temperature from thermostat in Kelvin."""
+        if thermostat is None:
+            return None
+        
+        try:
+            from .utils import PhysicalConstants
+            
+            # Try different thermostat structures
+            kT_hartree = None
+            if hasattr(thermostat, 'kT'):
+                # Direct kT attribute (Langevin thermostats)
+                if hasattr(thermostat.kT, 'value'):
+                    kT_hartree = thermostat.kT.value
+                else:
+                    kT_hartree = thermostat.kT
+            elif hasattr(thermostat, 'thermostat'):
+                # Nested thermostat (ConstantVolume with Bussi/MTTK)
+                nested_thermo = thermostat.thermostat
+                if hasattr(nested_thermo, 'kT'):
+                    if hasattr(nested_thermo.kT, 'value'):
+                        kT_hartree = nested_thermo.kT.value
+            else:
+                        kT_hartree = nested_thermo.kT
+            
+            if kT_hartree is not None:
+                return kT_hartree / PhysicalConstants.KB_HARTREE_PER_K
+            else:
+                return None
+                
+        except Exception as e:
+            print(f"Warning: Failed to get thermostat temperature: {e}")
+            return None
+    
+    def _calculate_amplitude_temperature(self, current_time_ps: float) -> Optional[float]:
+        """Calculate temperature using the specified amplitude temperature method."""
+        if self.energy_tracker is None:
+            return None
+        
+        try:
+            method = self.amplitude_temperature_method
+            
+            if method == 'harmonic_equipartition':
+                # Get harmonic energy from energy tracker
+                energy_dict = self.energy_tracker.get_instantaneous_energy()
+                harmonic_energy = energy_dict.get('harmonic', 0.0)
+                
+                if harmonic_energy <= 0:
+                    return None
+                
+                # Get number of particles
+                from .utils import PhysicalConstants
+                with self._get_hoomd_simulation().state.cpu_local_snapshot as snap:
+                    N_particles = len(snap.particles.mass)
+                
+                if N_particles == 0:
+                    return None
+                
+                # Direct equipartition calculation: T = (4*E_harmonic)/(N*kB)
+                kB_hartree = PhysicalConstants.KB_HARTREE_PER_K
+                temperature_K = (4.0 * harmonic_energy) / (N_particles * kB_hartree)
+                
+                return max(temperature_K, 0.0)
+                
+            elif method == 'kinetic':
+                # Calculate kinetic temperature
+                with self._get_hoomd_simulation().state.cpu_local_snapshot as snap:
+                    velocities = snap.particles.velocity
+                    masses = snap.particles.mass
+                    
+                # Calculate kinetic energy per particle: (1/2) * m * v^2
+                kinetic_energies = 0.5 * masses[:, np.newaxis] * (velocities ** 2)
+                total_kinetic_energy = np.sum(kinetic_energies)
+                
+                # Convert to temperature using equipartition theorem: (3/2) * N * kB * T = KE
+                N_particles = len(masses)
+                if N_particles == 0:
+                    return None
+                    
+                from .utils import PhysicalConstants
+                kB_hartree = PhysicalConstants.KB_HARTREE_PER_K
+                temperature_K = (2.0 * total_kinetic_energy) / (3.0 * N_particles * kB_hartree)
+                
+                return max(temperature_K, 0.0)
+                
+            elif method == 'lj_coulombic':
+                # Calculate LJ + Coulombic temperature using empirical data
+                if self.empirical_data is None:
+                    print(f"Warning: No empirical data available for method '{method}'")
+                    return None
+                
+                energy_dict = self.energy_tracker.get_instantaneous_energy()
+                lj_energy = energy_dict.get('lj', 0.0)
+                coulombic_energy = energy_dict.get('coulombic', 0.0)
+                total_energy = lj_energy + coulombic_energy
+                
+                # Use empirical data to convert energy to temperature
+                temperature_K = self.empirical_data.calculate_systemic_temperature(
+                    instantaneous_energy_hartree=total_energy,
+                    num_particles=500  # Assume 500 molecular particles
+                )
+                return max(temperature_K, 0.0)
+                
+            elif method == 'harmonic':
+                # Calculate harmonic temperature using empirical data
+                if self.empirical_data is None:
+                    print(f"Warning: No empirical data available for method '{method}'")
+                    return None
+                
+                energy_dict = self.energy_tracker.get_instantaneous_energy()
+                harmonic_energy = energy_dict.get('harmonic', 0.0)
+                
+                # Use empirical data to convert energy to temperature
+                temperature_K = self.empirical_data.calculate_systemic_temperature(
+                    instantaneous_energy_hartree=harmonic_energy,
+                    num_particles=500  # Assume 500 molecular particles
+                )
+                return max(temperature_K, 0.0)
+                
+            else:
+                print(f"Warning: Unknown amplitude temperature method '{method}'")
+                return None
+                
+        except Exception as e:
+            print(f"Warning: Failed to calculate amplitude temperature using method '{method}': {e}")
+            return None
+    
+    def _set_dynamic_target(self, current_time_ps: float):
+        """Set dynamic target temperature based on current system state."""
+        if not self.dynamic_target or self.dynamic_target_set:
+            return
+        
+        # Try to get current bath temperature from either thermostat
+        bath_temp = None
+        if self.apply_to in ['molecular', 'both'] and self.molecular_thermostat is not None:
+            bath_temp = self._get_thermostat_temperature(self.molecular_thermostat)
+        
+        if bath_temp is None and self.apply_to in ['cavity', 'both'] and self.cavity_thermostat is not None:
+            bath_temp = self._get_thermostat_temperature(self.cavity_thermostat)
+        
+        if bath_temp is not None:
+            if self.adaptive_range_mode:
+                # In adaptive range mode, set target_temperature and let _update_adaptive_range_parameters calculate mean
+                self.target_temperature = bath_temp
+                print(f"Sinusoidal bath controller: Dynamic target set to {self.target_temperature:.2f} K at t = {current_time_ps:.2f} ps")
+            else:
+                # In fixed mean mode, set mean_temperature directly
+                self.mean_temperature = bath_temp
+                print(f"Sinusoidal bath controller: Dynamic target set to {self.mean_temperature:.2f} K at t = {current_time_ps:.2f} ps")
+            self.dynamic_target_set = True
+        else:
+            print(f"Warning: Could not determine bath temperature for dynamic target, using {self.target_temperature:.2f} K")
+            if not self.adaptive_range_mode:
+                self.mean_temperature = self.target_temperature
+            self.dynamic_target_set = True
+    
+    def _update_amplitude(self, current_time_ps: float):
+        """Update amplitude based on specified temperature method and mode."""
+        amplitude_temp = self._calculate_amplitude_temperature(current_time_ps)
+        
+        if self.adaptive_range_mode:
+            self._update_adaptive_range_parameters(amplitude_temp, current_time_ps)
+        else:
+            # Original mode: fixed mean, variable amplitude
+            if amplitude_temp is not None:
+                # Amplitude scales with deviation from mean temperature
+                deviation = abs(amplitude_temp - self.mean_temperature)
+                self.current_amplitude = self.amplitude_scale * deviation
+            else:
+                # Fall back to a small default amplitude if calculation fails
+                self.current_amplitude = self.amplitude_scale * 5.0  # 5K typical deviation
+    
+    def _update_adaptive_range_parameters(self, signal_temp: Optional[float], current_time_ps: float):
+        """Update parameters for adaptive range mode.
+        
+        In adaptive range mode:
+        - Range (max - min) = amplitude_scale * |Ts(t) - Ttarget|
+        - If Ts(t) > Ttarget: max = Ttarget, min = Ttarget - |Ts(t) - Ttarget| (dip down)
+        - If Ts(t) < Ttarget: min = Ttarget, max = Ttarget + |Ts(t) - Ttarget| (reach up)
+        - Target temperature is always one of the bounds (min or max)
+        """
+        if signal_temp is None:
+            # Fallback: small range around target
+            self.current_amplitude = self.amplitude_scale * 5.0  # 5K default
+            self.mean_temperature = self.target_temperature
+            return
+        
+        # Calculate the deviation from target
+        deviation = signal_temp - self.target_temperature
+        range_magnitude = self.amplitude_scale * abs(deviation)
+        
+        # Set amplitude (half the range since sinusoid goes ±amplitude around mean)
+        self.current_amplitude = range_magnitude / 2.0
+        
+        # Adjust mean temperature based on deviation direction
+        if deviation > 0:
+            # Signal too hot: max = target, min = target - range
+            # Mean = (max + min)/2 = (target + target - range)/2 = target - range/2
+            proposed_mean = self.target_temperature - self.current_amplitude
+            # Ensure mean doesn't go below T_min (which would create negative temperatures)
+            if proposed_mean < self.T_min:
+                # Adjust the range to keep mean at T_min
+                self.current_amplitude = self.target_temperature - self.T_min
+                self.mean_temperature = self.T_min
+            else:
+                self.mean_temperature = proposed_mean
+        elif deviation < 0:
+            # Signal too cold: min = target, max = target + range
+            # Mean = (max + min)/2 = (target + range + target)/2 = target + range/2
+            self.mean_temperature = self.target_temperature + self.current_amplitude
+        else:
+            # Perfect match: oscillate around target
+            self.mean_temperature = self.target_temperature
+    
+    def _update_thermostats(self, bath_temperature: float):
+        """Update thermostat temperatures."""
+        try:
+            from .utils import PhysicalConstants
+            import hoomd
+            
+            # Convert temperature to kT in atomic units
+            kT_hartree = bath_temperature * PhysicalConstants.KB_HARTREE_PER_K
+            
+            # Update molecular thermostat
+            if self.apply_to in ['molecular', 'both'] and self.molecular_thermostat is not None:
+                if hasattr(self.molecular_thermostat, 'kT'):
+                    # Direct kT attribute (Langevin thermostats)
+                    self.molecular_thermostat.kT = hoomd.variant.Constant(kT_hartree)
+                elif hasattr(self.molecular_thermostat, 'thermostat'):
+                    # Nested thermostat (ConstantVolume with Bussi/MTTK)
+                    nested_thermo = self.molecular_thermostat.thermostat
+                    if hasattr(nested_thermo, 'kT'):
+                        nested_thermo.kT = hoomd.variant.Constant(kT_hartree)
+            
+            # Update cavity thermostat
+            if self.apply_to in ['cavity', 'both'] and self.cavity_thermostat is not None:
+                if hasattr(self.cavity_thermostat, 'kT'):
+                    # Direct kT attribute (Langevin thermostats)
+                    self.cavity_thermostat.kT = hoomd.variant.Constant(kT_hartree)
+                elif hasattr(self.cavity_thermostat, 'thermostat'):
+                    # Nested thermostat (ConstantVolume with Bussi/MTTK)
+                    nested_thermo = self.cavity_thermostat.thermostat
+                    if hasattr(nested_thermo, 'kT'):
+                        nested_thermo.kT = hoomd.variant.Constant(kT_hartree)
+                        
+        except Exception as e:
+            print(f"Warning: Failed to update thermostats in sinusoidal controller: {e}")
+    
+    def act(self, timestep):
+        """Execute sinusoidal bath temperature control at each timestep."""
+        current_time_ps = self.time_tracker.elapsed_time
+        
+        # Check if we should be active
+        should_be_active = (current_time_ps >= self.turn_on_time_ps and 
+                          (self.turn_off_time_ps is None or current_time_ps < self.turn_off_time_ps))
+        
+        if should_be_active and not self.is_active:
+            self.is_active = True
+            print(f"Sinusoidal bath temperature controller turned ON at t = {current_time_ps:.2f} ps")
+            print(f"Period: {self.period_ps:.2f} ps, Amplitude scale: {self.amplitude_scale:.3f}")
+            
+            # Set dynamic target if enabled
+            self._set_dynamic_target(current_time_ps)
+            
+        elif not should_be_active and self.is_active:
+            self.is_active = False
+            print(f"Sinusoidal bath temperature controller turned OFF at t = {current_time_ps:.2f} ps")
+        
+        # Skip if not active
+        if not self.is_active:
+            return
+        
+        # Only update at specified intervals
+        if current_time_ps - self.last_update_time < self.update_interval_ps:
+            return
+        
+        self.last_update_time = current_time_ps
+        
+        # Get amplitude temperature BEFORE changing bath temperature
+        amplitude_temp = self._calculate_amplitude_temperature(current_time_ps)
+        
+        # Update amplitude at specified intervals
+        if current_time_ps - self.last_amplitude_update_time >= self.amplitude_update_interval_ps:
+            self._update_amplitude(current_time_ps)
+            self.last_amplitude_update_time = current_time_ps
+        
+        # Calculate sinusoidal temperature
+        import math
+        time_phase = 2.0 * math.pi * current_time_ps / self.period_ps + self.phase_offset
+        sinusoidal_component = self.current_amplitude * math.sin(time_phase)
+        target_bath_temperature = self.mean_temperature + sinusoidal_component
+        
+        # Apply temperature limits with strict T_min constraint
+        if self.T_max is not None:
+            actual_bath_temperature = max(self.T_min, min(self.T_max, target_bath_temperature))
+        else:
+            actual_bath_temperature = max(self.T_min, target_bath_temperature)
+        
+        # Additional safety check: ensure temperature is always above minimum
+        if actual_bath_temperature < self.T_min:
+            print(f"Warning: Temperature {actual_bath_temperature:.2f}K below minimum {self.T_min:.2f}K, "
+                  f"clamping to minimum at t={current_time_ps:.2f} ps")
+            actual_bath_temperature = self.T_min
+        
+        # Update thermostats
+        self._update_thermostats(actual_bath_temperature)
+        
+        # Console output
+        if current_time_ps - self.last_console_output_time >= self.console_output_period_ps:
+            temp_method_display = self.amplitude_temperature_method.replace('_', ' ').title()
+            print(f"Sinusoidal Bath | Mean: {self.mean_temperature:.1f}K | "
+                  f"Amplitude: {self.current_amplitude:.2f}K | Bath: {actual_bath_temperature:.1f}K | "
+                  f"{temp_method_display}: {amplitude_temp:.1f}K" if amplitude_temp else f"Bath: {actual_bath_temperature:.1f}K")
+            self.last_console_output_time = current_time_ps
+        
+        # Log data
+        try:
+            with open(self.output_file, 'a', encoding='utf-8') as f:
+                f.write(f"{current_time_ps:.6f},{target_bath_temperature:.6f},"
+                       f"{self.current_amplitude:.6f},{amplitude_temp or 0.0:.6f},"
+                       f"{actual_bath_temperature:.6f},{sinusoidal_component:.6f},{int(self.is_active)}\n")
+        except Exception as e:
+            print(f"Warning: Failed to write sinusoidal bath controller output: {e}")
+
+
+class AdaptiveBathTemperatureController(hoomd.custom.Action):
+    """
+    Adaptive bath temperature controller for cavity MD simulations using GD framework.
+    
+    This controller implements a gradient descent approach where the bath temperature
+    evolves according to a differential equation toward a dynamically calculated target:
+    
+    dTb(t)/dt = -(Tb(t) - Tstar(t)) / tau
+    
+    where Tstar(t) is the dynamic target temperature calculated as:
+    - If Ts(t) > Ttarget: Tstar = Ttarget - amplitude_scale * |Ts(t) - Ttarget| (cool down)  
+    - If Ts(t) < Ttarget: Tstar = Ttarget + amplitude_scale * |Ts(t) - Ttarget| (heat up)
+    
+    This provides smooth temperature evolution with configurable response time (tau).
+    
+    Parameters
+    ----------
+    amplitude_scale : float
+        Scaling factor for bath temperature adjustment based on temperature error
+    time_constant_ps : float
+        Time constant tau for GD evolution in picoseconds
+    time_tracker : ElapsedTimeTracker
+        Time tracker for accurate timing
+    energy_tracker : EnergyTracker
+        Energy tracker for signal temperature calculations
+    molecular_thermostat : hoomd.md.methods.thermostats.Thermostat
+        Molecular thermostat to control
+    cavity_thermostat : hoomd.md.methods.thermostats.Thermostat  
+        Cavity thermostat to control
+    apply_to : str
+        Which thermostats to control ('molecular', 'cavity', 'both')
+    target_temperature : float, optional
+        Static target temperature in Kelvin. Ignored if dynamic_target=True
+    dynamic_target : bool, optional
+        Whether to set target temperature dynamically at turn-on time. Default: True
+    turn_on_time_ps : float, optional
+        Time to start control in picoseconds. Default: 0.0
+    turn_off_time_ps : float, optional
+        Time to stop control in picoseconds. Default: None (never turn off)
+    update_interval_ps : float, optional
+        Interval between control updates in picoseconds. Default: 0.1
+    T_min : float, optional
+        Minimum allowed bath temperature in Kelvin. Default: 0.1
+    T_max : float, optional
+        Maximum allowed bath temperature in Kelvin. Default: None
+    output_file : str, optional
+        Output file for control data. Default: 'adaptive_bath_controller.csv'
+    empirical_data_file : str, optional
+        Path to empirical data file for signal temperature calculation
+    console_output_period_ps : float, optional
+        Console output period in picoseconds. Default: 1.0
+    signal_temperature_method : str, optional
+        Temperature method for signal calculation. Options: 'harmonic_equipartition', 
+        'kinetic', 'lj_coulombic', 'harmonic'. Default: 'harmonic_equipartition'
+    """
+    
+    def __init__(self,
+                 amplitude_scale: float,
+                 time_constant_ps: float,
+                 time_tracker=None,
+                 energy_tracker=None,
+                 simulation=None,
+                 molecular_thermostat=None,
+                 cavity_thermostat=None,
+                 apply_to: str = 'both',
+                 target_temperature: float = 100.0,
+                 dynamic_target: bool = True,
+                 turn_on_time_ps: float = 0.0,
+                 turn_off_time_ps: Optional[float] = None,
+                 update_interval_ps: float = 0.1,
+                 T_min: float = 0.1,
+                 T_max: Optional[float] = None,
+                 output_file: str = 'adaptive_bath_controller.csv',
+                 empirical_data_file: Optional[str] = None,
+                 console_output_period_ps: float = 1.0,
+                 signal_temperature_method: str = 'harmonic_equipartition'):
+        
+        # Store configuration
+        self.amplitude_scale = amplitude_scale
+        self.time_constant_ps = time_constant_ps
+        self.time_tracker = time_tracker
+        self.energy_tracker = energy_tracker
+        self.simulation = simulation
+        self.molecular_thermostat = molecular_thermostat
+        self.cavity_thermostat = cavity_thermostat
+        self.apply_to = apply_to
+        self.target_temperature = target_temperature
+        self.dynamic_target = dynamic_target
+        self.turn_on_time_ps = turn_on_time_ps
+        self.turn_off_time_ps = turn_off_time_ps
+        self.update_interval_ps = update_interval_ps
+        self.T_min = T_min
+        self.T_max = T_max
+        self.output_file = output_file
+        self.empirical_data_file = empirical_data_file
+        self.console_output_period_ps = console_output_period_ps
+        self.signal_temperature_method = signal_temperature_method
+        
+        # Initialize state
+        self.is_active = False
+        self.dynamic_target_set = False
+        self.last_update_time = -1.0
+        self.last_console_output_time = -1.0
+        self.current_bath_temperature = None  # Will be initialized at turn-on
+        
+        # Load empirical data if needed
+        self.empirical_data = None
+        if empirical_data_file and signal_temperature_method in ['lj_coulombic', 'harmonic']:
+            try:
+                # EmpiricalTemperatureData is defined in this same module
+                # Use direct reference since we're in the same file
+                self.empirical_data = EmpiricalTemperatureData(empirical_data_file)
+                print(f"Loaded empirical data for {signal_temperature_method} signal temperature calculation")
+            except Exception as e:
+                print(f"Warning: Failed to load empirical data from {empirical_data_file}: {e}")
+        
+        # Initialize output file
+        self._initialize_output_file()
+    
+    def _initialize_output_file(self):
+        """Initialize the output CSV file with headers."""
+        try:
+            with open(self.output_file, 'w', encoding='utf-8') as f:
+                f.write("# Adaptive Bath Temperature Controller Output (GD Framework)\\n")
+                f.write("# time_ps: simulation time in picoseconds\\n")
+                f.write("# signal_temp_K: signal temperature used for control\\n")
+                f.write("# target_temp_K: target temperature\\n") 
+                f.write("# Tstar_K: dynamic target temperature for GD evolution\\n")
+                f.write("# bath_temp_K: current bath temperature\\n")
+                f.write("# temp_error_K: temperature error (signal - target)\\n")
+                f.write("# dTb_dt: bath temperature time derivative\\n")
+                f.write("# is_active: whether controller is active (1=active, 0=inactive)\\n")
+                f.write("time_ps,signal_temp_K,target_temp_K,Tstar_K,bath_temp_K,temp_error_K,dTb_dt,is_active\\n")
+        except Exception as e:
+            print(f"Warning: Failed to initialize adaptive bath controller output file: {e}")
+    
+    def _set_dynamic_target(self, current_time_ps: float):
+        """Set dynamic target temperature based on current signal temperature."""
+        if not self.dynamic_target or self.dynamic_target_set:
+            return
+        
+        # Calculate signal temperature at turn-on time
+        signal_temp = self._calculate_signal_temperature()
+        if signal_temp is not None and signal_temp > self.T_min:
+            self.target_temperature = signal_temp
+            self.dynamic_target_set = True
+            print(f"Adaptive bath controller: Dynamic target set to {self.target_temperature:.2f} K (signal temperature) at t = {current_time_ps:.2f} ps")
+        else:
+            # Fallback: try to get current bath temperature
+            bath_temp = self._get_current_bath_temperature()
+            if bath_temp is not None and bath_temp > self.T_min:
+                self.target_temperature = bath_temp
+                print(f"Adaptive bath controller: Dynamic target set to {self.target_temperature:.2f} K (bath temperature) at t = {current_time_ps:.2f} ps")
+            else:
+                print(f"Warning: Could not determine signal or bath temperature for dynamic target, using {self.target_temperature:.2f} K")
+            self.dynamic_target_set = True
+    
+    def _calculate_signal_temperature(self):
+        """Calculate signal temperature using the specified method."""
+        print(f"DEBUG: AdaptiveBathController calculating signal temperature using method: {self.signal_temperature_method}")
+        
+        if self.signal_temperature_method == 'kinetic':
+            temp = self._calculate_kinetic_temperature()
+        elif self.signal_temperature_method == 'harmonic_equipartition':
+            temp = self._calculate_harmonic_equipartition_temperature()
+        elif self.signal_temperature_method == 'lj_coulombic':
+            temp = self._calculate_lj_coulombic_temperature()
+        elif self.signal_temperature_method == 'harmonic':
+            temp = self._calculate_harmonic_fictive_temperature()
+        else:
+            print(f"Warning: Unknown signal temperature method: {self.signal_temperature_method}")
+            return None
+        
+        print(f"DEBUG: Signal temperature calculated: {temp} K using method {self.signal_temperature_method}")
+        return temp
+    
+    def _calculate_kinetic_temperature(self):
+        """Calculate kinetic temperature from particle velocities."""
+        try:
+            hoomd_sim = self._get_hoomd_simulation()
+            if hoomd_sim and hasattr(hoomd_sim.state, 'thermodynamic_quantities'):
+                return hoomd_sim.state.thermodynamic_quantities.kinetic_temperature
+            return None
+        except Exception as e:
+            print(f"Warning: Failed to calculate kinetic temperature: {e}")
+            return None
+    
+    def _calculate_harmonic_equipartition_temperature(self):
+        """Calculate harmonic equipartition temperature directly."""
+        try:
+            if not self.energy_tracker:
+                return None
+            
+            energy_data = self.energy_tracker.get_instantaneous_energy()
+            harmonic_energy = energy_data.get('harmonic', 0.0)
+            if harmonic_energy is None or harmonic_energy <= 0:
+                return None
+            
+            # Get number of particles for proper equipartition
+            with self._get_hoomd_simulation().state.cpu_local_snapshot as snap:
+                N_particles = len(snap.particles.mass)
+                # Exclude cavity particle if it exists (typically the last one)
+                if hasattr(self.simulation, 'cavity_particle_exists') and self.simulation.cavity_particle_exists:
+                    N_particles -= 1
+                elif N_particles > 1:  # Assume cavity exists if more than 1 particle
+                    N_particles -= 1
+            
+            if N_particles <= 0:
+                return None
+            
+            # Harmonic equipartition: T = 4*U/(N*kB) where N is number of atoms
+            from .utils import PhysicalConstants
+            kB_atomic = PhysicalConstants.KB_HARTREE_PER_K
+            temperature = (4.0 * harmonic_energy) / (N_particles * kB_atomic)
+            
+            return max(temperature, 0.0)
+            
+        except Exception as e:
+            print(f"Warning: Failed to calculate harmonic equipartition temperature: {e}")
+            return None
+    
+    def _calculate_lj_coulombic_temperature(self):
+        """Calculate LJ+Coulombic fictive temperature using empirical data."""
+        try:
+            if not self.empirical_data or not self.energy_tracker:
+                print(f"DEBUG: Missing empirical_data={self.empirical_data is not None} or energy_tracker={self.energy_tracker is not None}")
+                return None
+            
+            energy_data = self.energy_tracker.get_instantaneous_energy()
+            
+            # Get LJ and Coulombic energies separately and sum them
+            lj_energy = energy_data.get('lj', 0.0)
+            coulombic_energy = energy_data.get('coulombic', 0.0)
+            
+            if lj_energy is None or coulombic_energy is None:
+                print(f"DEBUG: Missing energy components: lj={lj_energy}, coulombic={coulombic_energy}")
+                return None
+            
+            lj_coul_energy = lj_energy + coulombic_energy
+            print(f"DEBUG: LJ+Coulombic energy = {lj_energy} + {coulombic_energy} = {lj_coul_energy} hartree")
+            
+            temperature = self.empirical_data.calculate_systemic_temperature(lj_coul_energy)
+            print(f"DEBUG: LJ+Coulombic temperature from empirical data: {temperature} K")
+            
+            return temperature
+            
+        except Exception as e:
+            print(f"Warning: Failed to calculate LJ+Coulombic temperature: {e}")
+            return None
+    
+    def _calculate_harmonic_fictive_temperature(self):
+        """Calculate harmonic fictive temperature using empirical data."""
+        try:
+            if not self.empirical_data or not self.energy_tracker:
+                return None
+            
+            energy_data = self.energy_tracker.get_instantaneous_energy()
+            harmonic_energy = energy_data.get('harmonic', 0.0)
+            if harmonic_energy is None:
+                return None
+            
+            return self.empirical_data.calculate_systemic_temperature(harmonic_energy)
+            
+        except Exception as e:
+            print(f"Warning: Failed to calculate harmonic fictive temperature: {e}")
+            return None
+    
+    def _get_current_bath_temperature(self):
+        """Get current bath temperature from thermostats using robust API detection."""
+        try:
+            from .utils import PhysicalConstants
+            
+            # First, try direct thermostat references (most reliable)
+            if self.apply_to in ['molecular', 'both'] and self.molecular_thermostat is not None:
+                try:
+                    if hasattr(self.molecular_thermostat, 'kT'):
+                        kT = self.molecular_thermostat.kT
+                        # Handle hoomd.variant.Constant objects
+                        if hasattr(kT, '__call__'):
+                            kT_value = kT(0)  # Call with dummy timestep
+                        else:
+                            kT_value = float(kT)
+                        return kT_value / PhysicalConstants.KB_HARTREE_PER_K
+                    elif hasattr(self.molecular_thermostat, 'thermostat') and hasattr(self.molecular_thermostat.thermostat, 'kT'):
+                        # Handle nested thermostats (e.g., Bussi within ConstantVolume)
+                        kT = self.molecular_thermostat.thermostat.kT
+                        if hasattr(kT, '__call__'):
+                            kT_value = kT(0)
+                        else:
+                            kT_value = float(kT)
+                        return kT_value / PhysicalConstants.KB_HARTREE_PER_K
+                except Exception as e:
+                    print(f"Warning: Failed to get molecular thermostat temperature: {e}")
+            
+            # Try cavity thermostat as backup
+            if self.apply_to in ['cavity', 'both'] and self.cavity_thermostat is not None:
+                try:
+                    if hasattr(self.cavity_thermostat, 'kT'):
+                        kT = self.cavity_thermostat.kT
+                        if hasattr(kT, '__call__'):
+                            kT_value = kT(0)
+                        else:
+                            kT_value = float(kT)
+                        return kT_value / PhysicalConstants.KB_HARTREE_PER_K
+                    elif hasattr(self.cavity_thermostat, 'thermostat') and hasattr(self.cavity_thermostat.thermostat, 'kT'):
+                        kT = self.cavity_thermostat.thermostat.kT
+                        if hasattr(kT, '__call__'):
+                            kT_value = kT(0)
+                        else:
+                            kT_value = float(kT)
+                        return kT_value / PhysicalConstants.KB_HARTREE_PER_K
+                except Exception as e:
+                    print(f"Warning: Failed to get cavity thermostat temperature: {e}")
+            
+            # Fallback: try via simulation integrator (original approach)
+            if hasattr(self.simulation, 'operations') and hasattr(self.simulation.operations, 'integrator'):
+                integrator = self.simulation.operations.integrator
+                if hasattr(integrator, 'thermostats') and len(integrator.thermostats) > 0:
+                    first_thermostat = integrator.thermostats[0]
+                    if hasattr(first_thermostat, 'kT'):
+                        kT = first_thermostat.kT
+                        if hasattr(kT, '__call__'):
+                            kT_value = kT(0)
+                        else:
+                            kT_value = float(kT)
+                        return kT_value / PhysicalConstants.KB_HARTREE_PER_K
+                        
+            print("Warning: Could not access any thermostat for bath temperature")
+            return None
+        except Exception as e:
+            print(f"Warning: Failed to get current bath temperature: {e}")
+            return None
+    
+    def _update_thermostats(self, temperature: float):
+        """Update thermostat temperatures using robust API detection."""
+        try:
+            from .utils import PhysicalConstants
+            import hoomd
+            target_kT = temperature * PhysicalConstants.KB_HARTREE_PER_K
+            
+            # Update molecular thermostat
+            if self.apply_to in ['molecular', 'both'] and self.molecular_thermostat is not None:
+                try:
+                    if hasattr(self.molecular_thermostat, 'kT'):
+                        # Direct kT attribute (Langevin thermostats)
+                        self.molecular_thermostat.kT = hoomd.variant.Constant(target_kT)
+                    elif hasattr(self.molecular_thermostat, 'thermostat'):
+                        # Nested thermostat (ConstantVolume with Bussi/MTTK)
+                        nested_thermo = self.molecular_thermostat.thermostat
+                        if hasattr(nested_thermo, 'kT'):
+                            nested_thermo.kT = hoomd.variant.Constant(target_kT)
+                        else:
+                            print(f"Warning: Cannot update nested molecular thermostat kT")
+                    else:
+                        print(f"Warning: Cannot find kT attribute in molecular thermostat")
+                except Exception as e:
+                    print(f"Warning: Failed to update molecular thermostat: {e}")
+            
+            # Update cavity thermostat  
+            if self.apply_to in ['cavity', 'both'] and self.cavity_thermostat is not None:
+                try:
+                    if hasattr(self.cavity_thermostat, 'kT'):
+                        # Direct kT attribute (Langevin thermostats)
+                        self.cavity_thermostat.kT = hoomd.variant.Constant(target_kT)
+                    elif hasattr(self.cavity_thermostat, 'thermostat'):
+                        # Nested thermostat (ConstantVolume with Bussi/MTTK)
+                        nested_thermo = self.cavity_thermostat.thermostat
+                        if hasattr(nested_thermo, 'kT'):
+                            nested_thermo.kT = hoomd.variant.Constant(target_kT)
+                        else:
+                            print(f"Warning: Cannot update nested cavity thermostat kT")
+                    else:
+                        print(f"Warning: Cannot find kT attribute in cavity thermostat")
+                except Exception as e:
+                    print(f"Warning: Failed to update cavity thermostat: {e}")
+                
+        except Exception as e:
+            print(f"Warning: Failed to update thermostats: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def act(self, timestep):
+        """Execute adaptive bath temperature control using GD framework at each timestep."""
+        try:
+            # Get current time
+            current_time_ps = self.time_tracker.elapsed_time
+            
+            # Check if controller should be active
+            if current_time_ps < self.turn_on_time_ps:
+                self.is_active = False
+                return
+            
+            if self.turn_off_time_ps is not None and current_time_ps >= self.turn_off_time_ps:
+                self.is_active = False
+                return
+            
+            # Initialize on first activation
+            if not self.is_active:
+                self._set_dynamic_target(current_time_ps)
+                # Initialize current bath temperature from thermostats
+                self.current_bath_temperature = self._get_current_bath_temperature()
+                if self.current_bath_temperature is None:
+                    self.current_bath_temperature = self.target_temperature
+                self.is_active = True
+                self.last_update_time = current_time_ps
+                print(f"Adaptive bath controller activated at t = {current_time_ps:.2f} ps")
+                print(f"Initial bath temperature: {self.current_bath_temperature:.2f} K")
+                print(f"Time constant: {self.time_constant_ps:.3f} ps")
+                return
+            
+            # Update at specified intervals
+            if current_time_ps - self.last_update_time < self.update_interval_ps:
+                return
+            
+            # Calculate dt for this update step
+            dt_ps = current_time_ps - self.last_update_time
+            
+            # Calculate signal temperature
+            signal_temp = self._calculate_signal_temperature()
+            if signal_temp is None:
+                return
+            
+            # Calculate temperature error and dynamic target Tstar
+            temp_error = signal_temp - self.target_temperature
+            
+            if temp_error > 0:
+                # Signal too hot: cool down
+                Tstar = self.target_temperature - self.amplitude_scale * abs(temp_error)
+            elif temp_error < 0:
+                # Signal too cold: heat up
+                Tstar = self.target_temperature + self.amplitude_scale * abs(temp_error)
+            else:
+                # Perfect match: use target temperature
+                Tstar = self.target_temperature
+            
+            # Implement GD evolution: dTb(t)/dt = -(Tb(t) - Tstar(t)) / tau
+            dTb_dt = -(self.current_bath_temperature - Tstar) / self.time_constant_ps
+            
+            # Update bath temperature: Tb(t+dt) = Tb(t) + dt * dTb/dt
+            new_bath_temp = self.current_bath_temperature + dt_ps * dTb_dt
+            
+            # Apply temperature limits
+            if self.T_max is not None:
+                actual_bath_temp = max(self.T_min, min(self.T_max, new_bath_temp))
+            else:
+                actual_bath_temp = max(self.T_min, new_bath_temp)
+            
+            # Store the updated temperature for next iteration
+            self.current_bath_temperature = actual_bath_temp
+            
+            # Update thermostats
+            self._update_thermostats(actual_bath_temp)
+            self.last_update_time = current_time_ps
+            
+            # Console output
+            if current_time_ps - self.last_console_output_time >= self.console_output_period_ps:
+                signal_method_display = self.signal_temperature_method.replace('_', ' ').title()
+                print(f"Adaptive Bath (GD) | Target: {self.target_temperature:.1f}K | "
+                      f"Signal: {signal_temp:.1f}K | Tstar: {Tstar:.1f}K | "
+                      f"Bath: {actual_bath_temp:.1f}K | dTb/dt: {dTb_dt:+.2f}K/ps | "
+                      f"τ: {self.time_constant_ps:.2f}ps")
+                self.last_console_output_time = current_time_ps
+            
+            # Log data
+            try:
+                with open(self.output_file, 'a', encoding='utf-8') as f:
+                    f.write(f"{current_time_ps:.6f},{signal_temp:.6f},"
+                           f"{self.target_temperature:.6f},{Tstar:.6f},"
+                           f"{actual_bath_temp:.6f},{temp_error:.6f},"
+                           f"{dTb_dt:.6f},{int(self.is_active)}\\n")
+            except Exception as e:
+                print(f"Warning: Failed to write adaptive bath controller output: {e}")
+        
+        except Exception as e:
+            print(f"Error in adaptive bath temperature controller: {e}")
+
+
+class QuenchController(hoomd.custom.Action):
+    """
+    Instantaneous temperature quench controller for cavity MD simulations.
+    
+    This controller provides an instantaneous quench from an initial temperature
+    to a target temperature. Once activated, it immediately sets both thermostats
+    to the target temperature.
+    
+    Parameters
+    ----------
+    initial_temperature : float
+        Initial temperature in Kelvin
+    target_temperature : float
+        Target temperature in Kelvin (quench destination)
+    quench_time_ps : float
+        Time at which to activate the quench in picoseconds
+    time_tracker : ElapsedTimeTracker
+        Time tracker for accurate timing
+    molecular_thermostat : hoomd.md.methods.thermostats.Thermostat or None
+        Molecular thermostat to control
+    cavity_thermostat : hoomd.md.methods.thermostats.Thermostat or None
+        Cavity thermostat to control
+    apply_to : str, optional
+        Which thermostats to control ('molecular', 'cavity', 'both'). Default: 'both'
+    output_file : str, optional
+        Output file for quench control data. Default: 'quench_control.csv'
+    console_output_period_ps : float, optional
+        Console output period in picoseconds. Default: 1.0
+        
+    Examples
+    --------
+    **Instantaneous quench from 300K to 4K at t=50ps:**
+    
+    >>> from hoomd.cavitymd.analysis import QuenchController
+    >>> 
+    >>> quench_controller = QuenchController(
+    ...     initial_temperature=300.0,
+    ...     target_temperature=4.0,
+    ...     quench_time_ps=50.0,
+    ...     time_tracker=time_tracker,
+    ...     molecular_thermostat=molecular_thermo,
+    ...     cavity_thermostat=cavity_thermo,
+    ...     apply_to='both'
+    ... )
+    
+    Notes
+    -----
+    - Provides instantaneous quench (no gradual temperature ramp)
+    - Quench occurs exactly at the specified quench_time_ps
+    - Once quenched, temperature remains constant at target value
+    """
+    
+    def __init__(self, 
+                 initial_temperature: float,
+                 target_temperature: float,
+                 quench_time_ps: float,
+                 time_tracker,
+                 molecular_thermostat=None,
+                 cavity_thermostat=None,
+                 apply_to: str = 'both',
+                 output_file: str = 'quench_control.csv',
+                 console_output_period_ps: float = 1.0):
+        
+        super().__init__()
+        
+        # Store configuration
+        self.initial_temperature = float(initial_temperature)
+        self.target_temperature = float(target_temperature)
+        self.quench_time_ps = float(quench_time_ps)
+        self.time_tracker = time_tracker
+        self.molecular_thermostat = molecular_thermostat
+        self.cavity_thermostat = cavity_thermostat
+        self.apply_to = apply_to
+        self.output_file = output_file
+        self.console_output_period_ps = float(console_output_period_ps)
+        
+        # State variables
+        self.is_quenched = False
+        self.last_output_time = -1.0
+        self.last_console_output_time = 0.0
+        
+        # Validate configuration
+        self._validate_configuration()
+        
+        # Initialize output file
+        self._initialize_output_file()
+        
+        print(f"QuenchController initialized:")
+        print(f"   Initial temperature: {self.initial_temperature:.1f} K")
+        print(f"   Target temperature: {self.target_temperature:.1f} K")
+        print(f"   ΔT = {self.target_temperature - self.initial_temperature:+.1f} K")
+        print(f"   Quench time: {self.quench_time_ps:.1f} ps")
+        print(f"   Applied to: {self.apply_to}")
+        print(f"   Quench type: {'Cooling' if self.target_temperature < self.initial_temperature else 'Heating'}")
+    
+    def _validate_configuration(self):
+        """Validate controller configuration."""
+        if self.initial_temperature <= 0:
+            raise ValueError("initial_temperature must be positive")
+        
+        if self.target_temperature <= 0:
+            raise ValueError("target_temperature must be positive")
+        
+        if self.quench_time_ps < 0:
+            raise ValueError("quench_time_ps must be non-negative")
+        
+        if self.apply_to not in ['molecular', 'cavity', 'both']:
+            raise ValueError("apply_to must be 'molecular', 'cavity', or 'both'")
+        
+        if self.apply_to in ['molecular', 'both'] and self.molecular_thermostat is None:
+            raise ValueError("molecular_thermostat cannot be None when apply_to includes 'molecular'")
+        
+        if self.apply_to in ['cavity', 'both'] and self.cavity_thermostat is None:
+            raise ValueError("cavity_thermostat cannot be None when apply_to includes 'cavity'")
+    
+    def _initialize_output_file(self):
+        """Initialize CSV output file with headers."""
+        try:
+            with open(self.output_file, 'w', encoding='utf-8') as f:
+                f.write("time_ps,is_quenched,current_temp,target_temp,applied_to\n")
+        except Exception as e:
+            print(f"Warning: Failed to initialize quench controller output file: {e}")
+    
+    def _update_thermostat(self, thermostat, temperature_K: float) -> bool:
+        """Update thermostat temperature with immediate velocity rescaling."""
+        if thermostat is None:
+            return False
+        
+        try:
+            from .utils import PhysicalConstants
+            import hoomd
+            
+            # Convert temperature to kT in atomic units
+            kT_hartree = temperature_K * PhysicalConstants.KB_HARTREE_PER_K
+            
+            # Handle different thermostat types
+            updated = False
+            
+            if hasattr(thermostat, 'kT'):
+                # Direct kT attribute (Langevin thermostats)
+                thermostat.kT = hoomd.variant.Constant(kT_hartree)
+                # Set tau to small value for fast response (but not extreme)
+                if hasattr(thermostat, 'default_gamma'):
+                    # For Langevin: gamma = 1/tau, so large gamma = small tau
+                    # Use tau = 0.01 ps instead of 1e-6 for numerical stability
+                    thermostat.default_gamma = 100.0  # Equivalent to tau = 0.01 ps
+                updated = True
+                
+            elif hasattr(thermostat, 'thermostat'):
+                # Nested thermostat (ConstantVolume with Bussi/MTTK)
+                nested_thermo = thermostat.thermostat
+                if hasattr(nested_thermo, 'kT'):
+                    nested_thermo.kT = hoomd.variant.Constant(kT_hartree)
+                    # Set tau to small value for fast response (but not extreme)
+                    if hasattr(nested_thermo, 'tau'):
+                        # Use tau = 0.01 ps instead of 1e-6 for numerical stability
+                        nested_thermo.tau = PhysicalConstants.ps_to_atomic_units(0.01)
+                    updated = True
+            
+            if not updated:
+                print(f"Warning: Could not update thermostat of type {type(thermostat)}")
+                return False
+            
+            # Note: tau is set to 0.01 ps for fast (but stable) temperature response
+            # This provides rapid equilibration without numerical instabilities
+            
+            return True
+        except Exception as e:
+            print(f"Warning: Failed to update thermostat temperature: {e}")
+            return False
+    
+    def act(self, timestep):
+        """Execute quench control at each timestep."""
+        current_time_ps = self.time_tracker.elapsed_time
+        
+        # Check if it's time to quench
+        if not self.is_quenched and current_time_ps >= self.quench_time_ps:
+            # Perform instantaneous quench
+            molecular_updated = False
+            cavity_updated = False
+            
+            if self.apply_to in ['molecular', 'both']:
+                molecular_updated = self._update_thermostat(self.molecular_thermostat, self.target_temperature)
+            
+            if self.apply_to in ['cavity', 'both']:
+                cavity_updated = self._update_thermostat(self.cavity_thermostat, self.target_temperature)
+            
+            if molecular_updated or cavity_updated:
+                self.is_quenched = True
+                print("")
+                print(f"*** INSTANTANEOUS QUENCH ACTIVATED at t={current_time_ps:.3f}ps ***")
+                print(f"*** Temperature: {self.initial_temperature:.1f}K → {self.target_temperature:.1f}K ***")
+                print(f"*** Applied to: {self.apply_to} thermostat(s) ***")
+                print("")
+        
+        # Determine current temperature
+        current_temp = self.target_temperature if self.is_quenched else self.initial_temperature
+        
+        # Console output (periodic)
+        should_print_console = (current_time_ps - self.last_console_output_time) >= self.console_output_period_ps
+        
+        if should_print_console:
+            status = "QUENCHED" if self.is_quenched else "PRE-QUENCH"
+            print(f"Quench Controller | Status: {status} | T = {current_temp:.1f}K | t = {current_time_ps:.1f}ps")
+            self.last_console_output_time = current_time_ps
+        
+        # Log data (every timestep)
+        if current_time_ps != self.last_output_time:
+            try:
+                with open(self.output_file, 'a', encoding='utf-8') as f:
+                    f.write(f"{current_time_ps:.6f},{self.is_quenched},{current_temp:.6f},{self.target_temperature:.6f},{self.apply_to}\n")
+                self.last_output_time = current_time_ps
+            except Exception as e:
+                print(f"Warning: Failed to write quench controller output: {e}")
+
+
+class AutoStopController(hoomd.custom.custom_action.Action):
+    """
+    Auto-stop controller for cavity coupling convergence detection.
+    
+    This controller monitors the convergence between LJ+Coulombic fictive temperature
+    and kinetic temperature. When they converge within a specified tolerance over
+    an averaging window, it signals to disable cavity coupling.
+    
+    Your specifications:
+    - Turn off coupling when 10 ps average of LJ+Coulombic fictive temperature 
+      is less than 1 K from kinetic temperature
+    - 10 ps window and 1 K tolerance should be tunable via flags
+    - By default, turned on when coupling is first activated
+    - Print console output showing calculations regardless of convergence
+    
+    Parameters
+    ----------
+    temperature_tracker : TemperatureTracker
+        Temperature tracker for accessing temperature data
+    time_tracker : ElapsedTimeTracker
+        Time tracker for simulation timing
+    tolerance : float
+        Convergence tolerance in Kelvin (default: 1.0)
+    window_ps : float
+        Averaging window in picoseconds (default: 10.0)
+    coupling_start_time_ps : float
+        Time when coupling starts in picoseconds (default: 0.0)
+    """
+    
+    def __init__(self, temperature_tracker, time_tracker, tolerance=1.0, window_ps=10.0, coupling_start_time_ps=0.0, target_temperature=None):
+        super().__init__()
+        
+        self.temperature_tracker = temperature_tracker
+        self.time_tracker = time_tracker
+        self.tolerance = tolerance
+        self.window_ps = window_ps
+        self.coupling_start_time_ps = coupling_start_time_ps
+        self.target_temperature = target_temperature  # Need target for 3-way convergence check
+        
+        # State variables
+        self.is_converged = False
+        self.convergence_time_ps = None
+        self.simulation = None
+        
+        # History for averaging over exactly 10 ps window (in ps, not timesteps!)
+        self.kinetic_history = []
+        self.fictive_history = []
+        self.time_history = []
+        
+        # Console output control - print every 5 ps to show calculations
+        self.last_console_output_time = 0.0
+        self.console_output_interval = 5.0  # Show calculations every 5 ps
+        
+        print(f"AutoStopController initialized:")
+        print(f"  Tolerance: {self.tolerance:.1f} K (tunable via --auto-stop-tol)")
+        print(f"  Averaging window: {self.window_ps:.1f} ps (tunable via --auto-stop-window)")
+        print(f"  Coupling start time: {self.coupling_start_time_ps:.1f} ps")
+        print(f"  Target temperature: {self.target_temperature:.1f} K" if self.target_temperature else "  Target temperature: Not specified")
+        print(f"  Convergence requires ALL THREE conditions:")
+        print(f"    |T_fictive - T_kinetic| < {self.tolerance:.1f} K")
+        print(f"    |T_fictive - T_target| < {self.tolerance:.1f} K") 
+        print(f"    |T_kinetic - T_target| < {self.tolerance:.1f} K")
+    
+    def set_simulation(self, simulation):
+        """Set reference to main simulation object for signaling."""
+        self.simulation = simulation
+    
+    def update(self):
+        """Update auto-stop controller and check for convergence."""
+        current_time_ps = self.time_tracker.elapsed_time
+        
+        # Only start monitoring after coupling has started (as you specified)
+        if current_time_ps < self.coupling_start_time_ps:
+            return
+            
+        # Get current temperatures
+        try:
+            kinetic_temp = getattr(self.temperature_tracker, 'kinetic_temperature', None)
+            fictive_temp = getattr(self.temperature_tracker, 'lj_coulombic_fictive_temperature', None)
+            
+            if kinetic_temp is None or fictive_temp is None:
+                # Still print what we're trying to do
+                if current_time_ps - self.last_console_output_time >= self.console_output_interval:
+                    print(f"AutoStop | t={current_time_ps:.1f}ps | Waiting for temperature data | "
+                          f"kinetic={'available' if kinetic_temp else 'missing'} | "
+                          f"fictive={'available' if fictive_temp else 'missing'}")
+                    self.last_console_output_time = current_time_ps
+                return
+            
+            # Add to history
+            self.kinetic_history.append(kinetic_temp)
+            self.fictive_history.append(fictive_temp)
+            self.time_history.append(current_time_ps)
+            
+            # Remove old data outside the window (exactly your 10 ps specification)
+            cutoff_time = current_time_ps - self.window_ps
+            while self.time_history and self.time_history[0] < cutoff_time:
+                self.kinetic_history.pop(0)
+                self.fictive_history.pop(0)
+                self.time_history.pop(0)
+            
+            # Calculate averages if we have enough data
+            if len(self.kinetic_history) > 0:
+                kinetic_avg = sum(self.kinetic_history) / len(self.kinetic_history)
+                fictive_avg = sum(self.fictive_history) / len(self.fictive_history)
+                window_span = current_time_ps - self.time_history[0] if self.time_history else 0.0
+                
+                # Calculate ALL THREE convergence conditions as you specified
+                diff_fictive_kinetic = abs(fictive_avg - kinetic_avg)
+                diff_fictive_target = abs(fictive_avg - self.target_temperature) if self.target_temperature else float('inf')
+                diff_kinetic_target = abs(kinetic_avg - self.target_temperature) if self.target_temperature else float('inf')
+                
+                # Check if ALL THREE conditions are satisfied
+                condition1 = diff_fictive_kinetic < self.tolerance  # |T_fictive - T_kinetic| < tol
+                condition2 = diff_fictive_target < self.tolerance   # |T_fictive - T_target| < tol
+                condition3 = diff_kinetic_target < self.tolerance   # |T_kinetic - T_target| < tol
+                all_converged = condition1 and condition2 and condition3
+                
+                # Console output ALWAYS (as you requested - regardless of convergence)
+                if current_time_ps - self.last_console_output_time >= self.console_output_interval:
+                    target_str = f"{self.target_temperature:.2f}K" if self.target_temperature else "N/A"
+                    print(f"AutoStop | t={current_time_ps:.1f}ps | "
+                          f"T_kinetic_avg={kinetic_avg:.2f}K | T_fictive_avg={fictive_avg:.2f}K | T_target={target_str} | "
+                          f"diff_fict_kin={diff_fictive_kinetic:.2f}K | diff_fict_tgt={diff_fictive_target:.2f}K | diff_kin_tgt={diff_kinetic_target:.2f}K | "
+                          f"tol={self.tolerance:.1f}K | window={window_span:.1f}ps ({len(self.kinetic_history)} samples) | "
+                          f"converged={'YES' if all_converged else 'NO'} ({condition1}/{condition2}/{condition3})")
+                    self.last_console_output_time = current_time_ps
+                
+                # Check for convergence (ALL THREE conditions must be satisfied)
+                if all_converged:
+                    if not self.is_converged:
+                        # First time convergence detected
+                        self.is_converged = True
+                        self.convergence_time_ps = current_time_ps
+                        print("")
+                        print(f"*** AUTO-STOP TRIGGERED at t={current_time_ps:.1f}ps ***")
+                        print(f"*** ALL THREE convergence conditions satisfied: ***")
+                        print(f"***   |T_fictive - T_kinetic| = {diff_fictive_kinetic:.2f}K < {self.tolerance:.1f}K ***")
+                        print(f"***   |T_fictive - T_target|  = {diff_fictive_target:.2f}K < {self.tolerance:.1f}K ***")
+                        print(f"***   |T_kinetic - T_target|  = {diff_kinetic_target:.2f}K < {self.tolerance:.1f}K ***")
+                        print(f"*** Temperatures: T_fictive={fictive_avg:.2f}K, T_kinetic={kinetic_avg:.2f}K, T_target={self.target_temperature:.2f}K ***")
+                        print(f"*** Coupling will be turned off indefinitely ***")
+                        print("")
+                        
+                        # Set the auto-stop signal only once when first converged
+                        self._set_auto_stop_signal()
+                    
+        except Exception as e:
+            print(f"Warning: AutoStopController update failed: {e}")
+    
+    def _set_auto_stop_signal(self):
+        """Set the auto-stop signal to disable coupling indefinitely."""
+        try:
+            # Set signal on main simulation object (most reliable method)
+            if self.simulation is not None:
+                self.simulation.auto_stop_coupling_signal = True
+                print(f"AutoStop: Set signal on simulation object")
+                
+        except Exception as e:
+            print(f"Warning: Failed to set auto-stop signal: {e}")
+    
+    def should_stop_coupling(self):
+        """Check if coupling should be stopped (calls update)."""
+        self.update()
+        return self.is_converged
+    
+    def act(self, timestep):
+        """HOOMD custom action interface."""
+        self.update()

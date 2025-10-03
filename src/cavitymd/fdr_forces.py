@@ -268,7 +268,7 @@ class PerturbationForce(hoomd.md.force.Force):
             current_time_ps >= self.stop_time_ps and 
             not self._has_stopped):
             if self._is_active:
-                print(f"🔴 PerturbationForce turned OFF at t = {current_time_ps:.3f} ps")
+                print(f" PerturbationForce turned OFF at t = {current_time_ps:.3f} ps")
                 self._cpp_obj.setEnabled(False)
                 self._is_active = False
                 self._has_stopped = True
