@@ -583,6 +583,9 @@ class CavityMDSimulation:
                  enable_temp_tracker: bool = False,
                  temp_tracker_output_period_ps: float = 0.1,
                  temp_tracker_empirical_data_file: Optional[str] = None,
+                 # Molecular temperature decomposition parameters
+                 enable_molecular_temps: bool = False,
+                 molecular_temps_output_period_ps: float = 1.0,
                  # Dipole moment FDR parameters
                  enable_dipole_fdr: bool = False,
                  dipole_fdr_output_period_ps: float = 0.1,
@@ -844,6 +847,10 @@ class CavityMDSimulation:
         self.enable_temp_tracker = enable_temp_tracker
         self.temp_tracker_output_period_ps = temp_tracker_output_period_ps
         self.temp_tracker_empirical_data_file = temp_tracker_empirical_data_file
+        
+        # Molecular temperature decomposition parameters
+        self.enable_molecular_temps = enable_molecular_temps
+        self.molecular_temps_output_period_ps = molecular_temps_output_period_ps
         
         # Dipole moment FDR parameters
         self.enable_dipole_fdr = enable_dipole_fdr
@@ -2665,7 +2672,13 @@ class CavityMDSimulation:
         if getattr(self, 'enable_temp_tracker', False):
             self._setup_temperature_tracker()
             enabled_features.append(f"comprehensive temperature tracker ({self.temp_tracker_output_period_ps:.1f} ps)")
+        
+        # Set up molecular temperature decomposition if enabled
+        if getattr(self, 'enable_molecular_temps', False):
+            self._setup_molecular_temperature_tracker()
+            enabled_features.append(f"molecular temperature decomposition ({self.molecular_temps_output_period_ps:.1f} ps)")
             
+        if getattr(self, 'enable_temp_tracker', False):
             # Set up auto-stop controller if enabled (requires temperature tracker)
             if getattr(self, 'enable_auto_stop', False):
                 self._setup_auto_stop_controller()
@@ -3187,6 +3200,43 @@ class CavityMDSimulation:
         except Exception as e:
             self.log_error(f"Failed to setup temperature tracker: {e}")
             self.temperature_tracker = None
+    
+    def _setup_molecular_temperature_tracker(self):
+        """Set up molecular temperature decomposition tracker."""
+        try:
+            from .molecular_temperatures import DiatomicMolecularTemperatures
+            
+            # Create output file path
+            output_file = f"molecular_temperatures.csv"
+            
+            # Create molecular temperature tracker
+            self.molecular_temp_tracker = DiatomicMolecularTemperatures(
+                simulation=self.sim,  # Pass HOOMD sim object
+                time_tracker=self.time_tracker,
+                output_period_ps=self.molecular_temps_output_period_ps,
+                output_file=output_file,
+                debug=False  # Suppress debug output by default
+            )
+            
+            # Add to simulation
+            # Use time-based trigger that works for both adaptive and fixed timestep
+            mol_temp_trigger_steps = max(1, int(self.molecular_temps_output_period_ps * 1000))
+            mol_temp_writer = hoomd.write.CustomWriter(
+                action=self.molecular_temp_tracker,
+                trigger=hoomd.trigger.Periodic(mol_temp_trigger_steps)
+            )
+            self.sim.operations.writers.append(mol_temp_writer)
+            
+            self.log_info(" Molecular temperature decomposition enabled")
+            self.log_info(f"  Output file: {output_file}")
+            self.log_info(f"  Output period: {self.molecular_temps_output_period_ps:.1f} ps")
+            self.log_info(f"  Tracking: T_trans, T_rot, T_vib for O-O and N-N dimers")
+            
+        except Exception as e:
+            import traceback
+            self.log_error(f"Failed to setup molecular temperature tracker: {e}")
+            self.log_error(f"Full traceback: {traceback.format_exc()}")
+            self.molecular_temp_tracker = None
     
     def _update_composite_adaptive_components(self):
         """Update composite variant to use adaptive square wave if requested and temperature tracker is available."""
