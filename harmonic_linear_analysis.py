@@ -44,7 +44,7 @@ def quantum_harmonic_model(T, E0, N_eff, omega_eff):
 def analyze_harmonic_energy(empirical_file):
     """Comprehensive analysis of harmonic energy temperature dependence."""
     
-    print("🔬 HARMONIC ENERGY TEMPERATURE DEPENDENCE ANALYSIS")
+    print(" HARMONIC ENERGY TEMPERATURE DEPENDENCE ANALYSIS")
     print("=" * 60)
     
     # Load data
@@ -52,11 +52,11 @@ def analyze_harmonic_energy(empirical_file):
     T = data['temperature'].values
     E_harmonic = data['harmonic_hartree'].values
     
-    print(f"📊 Dataset: {len(T)} points, T = {T.min():.1f} - {T.max():.1f} K")
+    print(f" Dataset: {len(T)} points, T = {T.min():.1f} - {T.max():.1f} K")
     print(f"    Harmonic energy: {E_harmonic.min():.6f} - {E_harmonic.max():.6f} Ha")
     
     # Fit different models
-    print(f"\n🔧 FITTING DIFFERENT MODELS:")
+    print(f"\n FITTING DIFFERENT MODELS:")
     
     # 1. Linear model
     popt_linear, pcov_linear = curve_fit(linear_model, T, E_harmonic)
@@ -65,7 +65,7 @@ def analyze_harmonic_energy(empirical_file):
     rmse_linear = np.sqrt(np.mean((E_harmonic - E_pred_linear)**2))
     r2_linear = 1 - np.var(E_harmonic - E_pred_linear) / np.var(E_harmonic)
     
-    print(f"   📈 LINEAR: E = {E0_lin:.6f} + {slope_lin:.6f}·T")
+    print(f"    LINEAR: E = {E0_lin:.6f} + {slope_lin:.6f}·T")
     print(f"      RMSE: {rmse_linear:.6f} Ha, R² = {r2_linear:.4f}")
     
     # 2. Power law model
@@ -76,7 +76,7 @@ def analyze_harmonic_energy(empirical_file):
     rmse_power = np.sqrt(np.mean((E_harmonic - E_pred_power)**2))
     r2_power = 1 - np.var(E_harmonic - E_pred_power) / np.var(E_harmonic)
     
-    print(f"   📈 POWER: E = {E0_pow:.6f} + {A_pow:.6f}·T^{alpha_pow:.3f}")
+    print(f"    POWER: E = {E0_pow:.6f} + {A_pow:.6f}·T^{alpha_pow:.3f}")
     print(f"      RMSE: {rmse_power:.6f} Ha, R² = {r2_power:.4f}")
     
     # 3. Quantum harmonic (attempt - may not converge)
@@ -91,15 +91,15 @@ def analyze_harmonic_energy(empirical_file):
         rmse_quantum = np.sqrt(np.mean((E_harmonic - E_pred_quantum)**2))
         r2_quantum = 1 - np.var(E_harmonic - E_pred_quantum) / np.var(E_harmonic)
         
-        print(f"   📈 QUANTUM: N_eff = {N_eff:.0f}, ω_eff = {omega_eff:.0f} K")
+        print(f"    QUANTUM: N_eff = {N_eff:.0f}, ω_eff = {omega_eff:.0f} K")
         print(f"      RMSE: {rmse_quantum:.6f} Ha, R² = {r2_quantum:.4f}")
         quantum_fit = True
     except:
-        print(f"   📈 QUANTUM: Fit failed (data may be too limited)")
+        print(f"    QUANTUM: Fit failed (data may be too limited)")
         quantum_fit = False
     
     # Physical analysis
-    print(f"\n🔍 PHYSICAL ANALYSIS:")
+    print(f"\n PHYSICAL ANALYSIS:")
     
     # Expected slope for classical harmonic oscillators
     N_atoms = 500  # Approximate
@@ -111,22 +111,22 @@ def analyze_harmonic_energy(empirical_file):
     print(f"   Ratio (fitted/expected): {slope_lin/expected_slope_classical:.3f}")
     
     if slope_lin/expected_slope_classical < 0.5:
-        print(f"   ⚠️  Slope much smaller than expected - indicates coupling/anharmonicity")
+        print(f"     Slope much smaller than expected - indicates coupling/anharmonicity")
     elif slope_lin/expected_slope_classical > 0.8:
-        print(f"   ✅ Slope close to classical expectation")
+        print(f"    Slope close to classical expectation")
     
     # Power law analysis
     print(f"\n   Power law α = {alpha_pow:.3f}:")
     if alpha_pow < 0.9:
-        print(f"   ⚠️  α < 1: Sublinear - UNPHYSICAL for harmonic oscillators")
+        print(f"     α < 1: Sublinear - UNPHYSICAL for harmonic oscillators")
     elif alpha_pow > 1.1:
-        print(f"   ⚠️  α > 1: Superlinear - possible anharmonic effects")
+        print(f"     α > 1: Superlinear - possible anharmonic effects")
     else:
-        print(f"   ✅ α ≈ 1: Nearly linear - consistent with harmonic behavior")
+        print(f"    α ≈ 1: Nearly linear - consistent with harmonic behavior")
     
     # Extrapolation comparison
     T_extrap = np.array([5, 10, 20, 50, 77])
-    print(f"\n📉 EXTRAPOLATION TO LOW TEMPERATURES:")
+    print(f"\n EXTRAPOLATION TO LOW TEMPERATURES:")
     print(f"T(K) | Linear(Ha) | Power(Ha) | Diff(Ha) | Diff(K)")
     print(f"-----|------------|-----------|----------|--------")
     
@@ -209,17 +209,17 @@ def analyze_harmonic_energy(empirical_file):
     plt.show()
     
     # Summary and recommendations
-    print(f"\n🎯 SUMMARY AND RECOMMENDATIONS:")
+    print(f"\n SUMMARY AND RECOMMENDATIONS:")
     print(f"   Statistical best fit: {'Power law' if rmse_power < rmse_linear else 'Linear'}")
     print(f"   Physical expectation: Linear (harmonic oscillators)")
     print(f"   Extrapolation difference: Up to {max(abs(linear_model(T_extrap, *popt_linear) - power_model(T_extrap, *popt_power))):.6f} Ha")
     
     if alpha_pow < 0.95:
-        print(f"   ⚠️  RECOMMENDATION: Use linear model for physical consistency")
+        print(f"     RECOMMENDATION: Use linear model for physical consistency")
         print(f"      The sublinear power law (α={alpha_pow:.3f}) is unphysical for harmonic modes")
         print(f"      Consider: 1) anharmonic corrections, 2) mode coupling, 3) data artifacts")
     else:
-        print(f"   ✅ Both models reasonable, power law α≈1 suggests nearly harmonic behavior")
+        print(f"    Both models reasonable, power law α≈1 suggests nearly harmonic behavior")
     
     return {
         'linear_params': popt_linear,

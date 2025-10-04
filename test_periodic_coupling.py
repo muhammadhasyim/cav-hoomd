@@ -59,7 +59,7 @@ def test_periodic_variant_basic():
             print(f"  t={t:.2f} ps: g(t)={value:.6f} (expected: {expected[i]:.6f})")
             assert abs(value - expected[i]) < 1e-12, f"Value mismatch at t={t}"
         
-        print("  ✓ Basic oscillation test passed")
+        print("   Basic oscillation test passed")
         
         # Test 2: Different period and phase
         print("\nTest 2: Different period and phase (period=2.0 ps, phase=π/2)")
@@ -78,7 +78,7 @@ def test_periodic_variant_basic():
         print(f"  t=0.0 ps with π/2 phase: g(t)={value:.6f} (expected: {expected:.6f})")
         assert abs(value - expected) < 1e-12
         
-        print("  ✓ Phase offset test passed")
+        print("   Phase offset test passed")
         
         # Test 3: Start time delay
         print("\nTest 3: Delayed start (start_time=1.0 ps)")
@@ -103,13 +103,13 @@ def test_periodic_variant_basic():
         print(f"  t=1.25 ps (0.25 ps after start): g(t)={value:.6f} (expected: {expected:.6f})")
         assert abs(value - expected) < 1e-12
         
-        print("  ✓ Delayed start test passed")
+        print("   Delayed start test passed")
         
-        print("\n✓ All PeriodicVariant tests passed!")
+        print("\n All PeriodicVariant tests passed!")
         return True
         
     except Exception as e:
-        print(f"✗ PeriodicVariant test failed: {e}")
+        print(f" PeriodicVariant test failed: {e}")
         return False
 
 
@@ -140,7 +140,7 @@ def test_simulation_integration():
             enable_fkt=False
         )
         
-        print(f"  ✓ Simulation created successfully")
+        print(f"   Simulation created successfully")
         print(f"  Periodic coupling: {sim.periodic_coupling}")
         print(f"  Period: {sim.periodic_period_ps} ps")
         print(f"  Phase offset: {sim.periodic_phase_offset} rad")
@@ -163,16 +163,16 @@ def test_simulation_integration():
                 enable_energy_tracking=False,
                 enable_fkt=False
             )
-            print("  ✗ Should have failed with negative period")
+            print("   Should have failed with negative period")
             return False
         except:
-            print("  ✓ Correctly rejected negative period")
+            print("   Correctly rejected negative period")
         
-        print("\n✓ CavityMDSimulation integration test passed!")
+        print("\n CavityMDSimulation integration test passed!")
         return True
         
     except Exception as e:
-        print(f"✗ Integration test failed: {e}")
+        print(f" Integration test failed: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -273,14 +273,14 @@ def plot_periodic_coupling_examples():
         # Save plot
         output_file = 'periodic_coupling_examples.png'
         plt.savefig(output_file, dpi=300, bbox_inches='tight')
-        print(f"  ✓ Plot saved as: {output_file}")
+        print(f"   Plot saved as: {output_file}")
         
         plt.show()
         
         return True
         
     except Exception as e:
-        print(f"✗ Plotting failed: {e}")
+        print(f" Plotting failed: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -307,7 +307,7 @@ def main():
     # Final summary
     print("\n" + "=" * 60)
     if success:
-        print("✓ ALL TESTS PASSED - Periodic coupling implementation is working correctly!")
+        print(" ALL TESTS PASSED - Periodic coupling implementation is working correctly!")
         print("\nUsage example:")
         print("""
 from hoomd.cavitymd.simulation import CavityMDSimulation
@@ -331,7 +331,7 @@ sim = CavityMDSimulation(
 exit_code = sim.run()
         """)
     else:
-        print("✗ SOME TESTS FAILED - Please check the implementation")
+        print(" SOME TESTS FAILED - Please check the implementation")
         return 1
     
     return 0

@@ -35,9 +35,9 @@ def test_laser_drive_initialization():
             phmass=1.0
         )
         
-        print(f"  ✓ Laser enabled: {cavity_force.laser_enabled}")
-        print(f"  ✓ Laser frequency: {cavity_force.laser_frequency:.6e} a.u.")
-        print(f"  ✓ Laser amplitude: {cavity_force.laser_amplitude:.6e} a.u.")
+        print(f"   Laser enabled: {cavity_force.laser_enabled}")
+        print(f"   Laser frequency: {cavity_force.laser_frequency:.6e} a.u.")
+        print(f"   Laser amplitude: {cavity_force.laser_amplitude:.6e} a.u.")
         
         # Test 2: Laser enabled with specific parameters
         print("\n1.2 Testing laser drive enabled...")
@@ -54,23 +54,23 @@ def test_laser_drive_initialization():
             laser_amplitude=laser_amplitude
         )
         
-        print(f"  ✓ Laser enabled: {cavity_force_laser.laser_enabled}")
-        print(f"  ✓ Input frequency: {laser_freq_cm1:.1f} cm⁻¹")
-        print(f"  ✓ Converted frequency: {cavity_force_laser.laser_frequency:.6e} a.u.")
-        print(f"  ✓ Expected frequency: {laser_freq_cm1 * 4.556335e-6:.6e} a.u.")
-        print(f"  ✓ Laser amplitude: {cavity_force_laser.laser_amplitude:.6e} a.u.")
+        print(f"   Laser enabled: {cavity_force_laser.laser_enabled}")
+        print(f"   Input frequency: {laser_freq_cm1:.1f} cm⁻¹")
+        print(f"   Converted frequency: {cavity_force_laser.laser_frequency:.6e} a.u.")
+        print(f"   Expected frequency: {laser_freq_cm1 * 4.556335e-6:.6e} a.u.")
+        print(f"   Laser amplitude: {cavity_force_laser.laser_amplitude:.6e} a.u.")
         
         # Validate unit conversion
         expected_freq_au = laser_freq_cm1 * 4.556335e-6
         freq_diff = abs(cavity_force_laser.laser_frequency - expected_freq_au)
         assert freq_diff < 1e-10, f"Unit conversion failed: {freq_diff}"
         
-        print("  ✓ Unit conversion validated!")
-        print("✅ Test 1 PASSED: Laser initialization works correctly")
+        print("   Unit conversion validated!")
+        print(" Test 1 PASSED: Laser initialization works correctly")
         return True
         
     except Exception as e:
-        print(f"❌ Test 1 FAILED: {e}")
+        print(f" Test 1 FAILED: {e}")
         return False
 
 def test_cavity_simulation_with_laser():
@@ -124,7 +124,7 @@ def test_cavity_simulation_with_laser():
         
         # Initialize state
         sim.create_state_from_snapshot(snap)
-        print("  ✓ Test system created")
+        print("   Test system created")
         
         # Set up integrator
         print("  - Setting up integrator...")
@@ -159,7 +159,7 @@ def test_cavity_simulation_with_laser():
         integrator.methods.append(nve)
         
         sim.operations.integrator = integrator
-        print("  ✓ Integrator configured")
+        print("   Integrator configured")
         
         # Test short run
         print("\n2.2 Running test simulation...")
@@ -169,19 +169,19 @@ def test_cavity_simulation_with_laser():
         sim.run(10, write_at_start=True)
         
         # Check if forces are computed without errors
-        print("  ✓ 10 steps completed successfully")
+        print("   10 steps completed successfully")
         
         # Get cavity force parameters
         try:
             if hasattr(cavity_force, '_cpp_obj') and cavity_force._cpp_obj is not None:
                 params = cavity_force._cpp_obj.getParams()
-                print(f"  ✓ Laser enabled in C++: {params.get('laser_enabled', 'Unknown')}")
-                print(f"  ✓ Laser frequency in C++: {params.get('laser_frequency', 'Unknown'):.6e} a.u.")
-                print(f"  ✓ Laser amplitude in C++: {params.get('laser_amplitude', 'Unknown'):.6e} a.u.")
+                print(f"   Laser enabled in C++: {params.get('laser_enabled', 'Unknown')}")
+                print(f"   Laser frequency in C++: {params.get('laser_frequency', 'Unknown'):.6e} a.u.")
+                print(f"   Laser amplitude in C++: {params.get('laser_amplitude', 'Unknown'):.6e} a.u.")
             else:
-                print("  ⚠ C++ object not yet initialized (expected for short test)")
+                print("   C++ object not yet initialized (expected for short test)")
         except Exception as e:
-            print(f"  ⚠ Could not access C++ parameters: {e}")
+            print(f"   Could not access C++ parameters: {e}")
         
         # Test energy components
         try:
@@ -190,18 +190,18 @@ def test_cavity_simulation_with_laser():
             dipole = cavity_force.dipole_self_energy
             total = cavity_force.total_cavity_energy
             
-            print(f"  ✓ Harmonic energy: {harmonic:.6e}")
-            print(f"  ✓ Coupling energy: {coupling:.6e}") 
-            print(f"  ✓ Dipole self-energy: {dipole:.6e}")
-            print(f"  ✓ Total cavity energy: {total:.6e}")
+            print(f"   Harmonic energy: {harmonic:.6e}")
+            print(f"   Coupling energy: {coupling:.6e}") 
+            print(f"   Dipole self-energy: {dipole:.6e}")
+            print(f"   Total cavity energy: {total:.6e}")
         except Exception as e:
-            print(f"  ⚠ Energy access failed (expected if C++ not initialized): {e}")
+            print(f"   Energy access failed (expected if C++ not initialized): {e}")
         
-        print("✅ Test 2 PASSED: Simulation with laser runs without errors")
+        print(" Test 2 PASSED: Simulation with laser runs without errors")
         return True
         
     except Exception as e:
-        print(f"❌ Test 2 FAILED: {e}")
+        print(f" Test 2 FAILED: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -253,13 +253,13 @@ def test_laser_force_time_dependence():
     assert abs(f1 - laser_amplitude) < 1e-10, "Force at t=0 should equal amplitude"
     assert abs(f2) < 1e-8, "Force at t=T/4 should be near zero"
     
-    print("  ✓ Force time dependence mathematically verified")
-    print("✅ Test 3 PASSED: Laser force time dependence is correct")
+    print("   Force time dependence mathematically verified")
+    print(" Test 3 PASSED: Laser force time dependence is correct")
     return True
 
 def main():
     """Run all laser drive tests."""
-    print("🚀 LASER DRIVE TESTING SUITE")
+    print(" LASER DRIVE TESTING SUITE")
     print("Testing laser drive forcing implementation in CavityForce")
     print("=" * 60)
     
@@ -285,20 +285,20 @@ def main():
     print(f"Tests passed: {tests_passed}/{total_tests}")
     
     if tests_passed == total_tests:
-        print("🎉 ALL TESTS PASSED! Laser drive implementation is working correctly.")
-        print("\n📋 IMPLEMENTATION SUMMARY:")
-        print("  ✓ Laser parameters (enabled, frequency, amplitude) correctly handled")
-        print("  ✓ Unit conversion from cm⁻¹ to atomic units working")  
-        print("  ✓ C++ force implementation accepts laser parameters")
-        print("  ✓ Python interface correctly configured")
-        print("  ✓ Time-dependent force F_L*cos(ω_L*t) mathematically validated")
-        print("\n🔧 NEXT STEPS:")
+        print(" ALL TESTS PASSED! Laser drive implementation is working correctly.")
+        print("\n IMPLEMENTATION SUMMARY:")
+        print("   Laser parameters (enabled, frequency, amplitude) correctly handled")
+        print("   Unit conversion from cm⁻¹ to atomic units working")  
+        print("   C++ force implementation accepts laser parameters")
+        print("   Python interface correctly configured")
+        print("   Time-dependent force F_L*cos(ω_L*t) mathematically validated")
+        print("\n NEXT STEPS:")
         print("  - Compile and test the C++ implementation")
         print("  - Run actual simulations with laser drive")
         print("  - Validate energy conservation and physical behavior")
         return 0
     else:
-        print(f"❌ {total_tests - tests_passed} test(s) failed. Please check the implementation.")
+        print(f" {total_tests - tests_passed} test(s) failed. Please check the implementation.")
         return 1
 
 if __name__ == "__main__":

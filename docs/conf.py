@@ -39,11 +39,11 @@ if on_rtd:
     sys.modules['hoomd.bussi_reservoir._bussi_reservoir'] = MagicMock()
     sys.modules['cavitymd._cavitymd'] = MagicMock()
     sys.modules['bussi_reservoir._bussi_reservoir'] = MagicMock()
-    print("✅ Mocked C++ extensions")
+    print(" Mocked C++ extensions")
     
     # Import HOOMD (available via conda)
     import hoomd
-    print("✅ HOOMD base package imported")
+    print(" HOOMD base package imported")
     
     # Import our plugins directly and register them in the hoomd namespace
     try:
@@ -94,7 +94,7 @@ if on_rtd:
         if hasattr(bussi_reservoir, 'BussiReservoir'):
             hoomd.bussi_reservoir.BussiReservoir = bussi_reservoir.BussiReservoir
             
-        print("✅ Successfully imported and registered plugin modules")
+        print(" Successfully imported and registered plugin modules")
         print(f"  CavityForce available: {hasattr(hoomd.cavitymd.forces, 'CavityForce') if hasattr(hoomd.cavitymd, 'forces') else False}")
         print(f"  BussiReservoir available: {hasattr(hoomd.bussi_reservoir, 'BussiReservoir')}")
         print(f"  Analysis module available: {hasattr(hoomd.cavitymd, 'analysis')}")
@@ -102,7 +102,7 @@ if on_rtd:
         print(f"  AdaptiveTimestepUpdater available: {hasattr(hoomd.cavitymd.simulation, 'AdaptiveTimestepUpdater') if hasattr(hoomd.cavitymd, 'simulation') else False}")
         
     except Exception as e:
-        print(f"❌ Failed to import plugins: {e}")
+        print(f" Failed to import plugins: {e}")
         import traceback
         traceback.print_exc()
         
@@ -153,9 +153,9 @@ if on_rtd:
         sys.modules['hoomd.cavitymd'] = mock_cavitymd
         sys.modules['hoomd.bussi_reservoir'] = mock_bussi
         
-        print("✅ Created fallback mock modules for documentation build")
+        print(" Created fallback mock modules for documentation build")
     
-    print("✅ Plugin setup complete")
+    print(" Plugin setup complete")
 else:
     print("Local environment - no mocking needed")
 

@@ -238,7 +238,7 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
             if feedback_turn_off_time_ps is not None:
                 print(f"  Turn off time: {feedback_turn_off_time_ps} ps")
             if feedback_auto_stopping:
-                print(f"  🤖 Auto-stopping: Enabled (min time: {auto_stop_min_time_ps} ps, smoothing: {auto_stop_smoothing_window})")
+                print(f"   Auto-stopping: Enabled (min time: {auto_stop_min_time_ps} ps, smoothing: {auto_stop_smoothing_window})")
             print(f"  Temperature range: [{feedback_T_min:.1f}, {feedback_T_max:.1f}] K")
         
         print(f"  Replica: {replica}")

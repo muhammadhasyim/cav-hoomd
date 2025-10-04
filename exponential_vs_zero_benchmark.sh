@@ -1,25 +1,36 @@
 #!/bin/bash
 
-# Unified Exponential Wave vs Zero Coupling Benchmark Script
+# Unified Exponential Wave vs Zero Coupling Benchmark Script (Fair Comparison)
+# Aligned with exponential_wave_command.sh configuration
 # 
-# This script runs two simulations sequentially:
-# 1. Exponential wave coupling with adaptive controllers
-# 2. Zero coupling with GD controller using the final temperature from simulation 1
+# This script runs two simulations sequentially to test controller effectiveness:
+# 1. Exponential wave coupling (3e-4) with DiffEq + Adaptive Bath controllers
+# 2. Zero coupling (0.0) with GD controller targeting the same final temperature
+#
+# FAIR COMPARISON DESIGN:
+#   - Both use same thermostats (Bussi + Langevin)
+#   - Both use same adaptive timestep (error_tolerance=2.0)
+#   - Both start from same initial configuration (cooling-0.gsd)
+#   - Both track molecular temperatures (T_trans, T_rot, T_vib)
+#   - Exp wave uses: DiffEq + Adaptive Bath + cavity coupling
+#   - Zero coupling uses: GD controller only, NO cavity coupling
+#   - Question: Can GD controller reach same T without cavity help?
 #
 # Usage:
 #   ./exponential_vs_zero_benchmark.sh [num_replicas] [device] [runtime_ps] [diffeq_turn_on_ps] [diffeq_turn_off_ps] [adaptive_turn_on_ps] [gd_turn_on_ps]
 #
 # Examples:
-#   ./exponential_vs_zero_benchmark.sh                                    # Default: 1 replica, GPU, 5000ps runtime
-#   ./exponential_vs_zero_benchmark.sh 3 CPU                             # 3 replicas on CPU, default times
-#   ./exponential_vs_zero_benchmark.sh 1 GPU 2000 5.0 300.0 300.0 5.0    # Custom timing: 2000ps runtime, controllers at 5ps/300ps/300ps/5ps
-#   ./exponential_vs_zero_benchmark.sh 5 GPU 10000 10.0 1000.0 1000.0 10.0 # Long run: 10000ps, switch at 1000ps
+#   ./exponential_vs_zero_benchmark.sh                                        # Default: 1 replica, GPU, 3000ps
+#   ./exponential_vs_zero_benchmark.sh 3 CPU                                 # 3 replicas on CPU
+#   ./exponential_vs_zero_benchmark.sh 1 GPU 5000 500.0 1000.0 1000.0 500.0  # 5000ps runtime
+#   ./exponential_vs_zero_benchmark.sh 5 GPU 10000 1000.0 2000.0 2000.0 1000.0 # Long run
 
 set -e  # Exit on any error
 
 # Help function
 show_help() {
     echo "Unified Exponential Wave vs Zero Coupling Benchmark Script"
+    echo "Aligned with exponential_wave_command.sh configuration"
     echo ""
     echo "Usage:"
     echo "  $0 [num_replicas] [device] [runtime_ps] [diffeq_turn_on_ps] [diffeq_turn_off_ps] [adaptive_turn_on_ps] [gd_turn_on_ps]"
@@ -27,22 +38,30 @@ show_help() {
     echo "Parameters:"
     echo "  num_replicas        Number of simulation replicas (default: 1)"
     echo "  device              Compute device: CPU or GPU (default: GPU)"
-    echo "  runtime_ps          Total simulation time in picoseconds (default: 5000.0)"
-    echo "  diffeq_turn_on_ps   DiffEq controller turn-on time in ps (default: 10.0)"
-    echo "  diffeq_turn_off_ps  DiffEq controller turn-off time in ps (default: 560.0)"
-    echo "  adaptive_turn_on_ps Adaptive Bath controller turn-on time in ps (default: 560.0)"
-    echo "  gd_turn_on_ps       GD controller turn-on time for zero coupling in ps (default: 10.0)"
+    echo "  runtime_ps          Total simulation time in picoseconds (default: 3000.0)"
+    echo "  diffeq_turn_on_ps   DiffEq controller turn-on time in ps (default: 500.0)"
+    echo "  diffeq_turn_off_ps  DiffEq controller turn-off time in ps (default: 1000.0)"
+    echo "  adaptive_turn_on_ps Adaptive Bath controller turn-on time in ps (default: 1000.0)"
+    echo "  gd_turn_on_ps       GD controller turn-on time for zero coupling (default: 500.0)"
     echo ""
     echo "Examples:"
-    echo "  $0                                    # Default: 1 replica, GPU, 5000ps runtime"
-    echo "  $0 3 CPU                             # 3 replicas on CPU, default times"
-    echo "  $0 1 GPU 2000 5.0 300.0 300.0 5.0    # Custom timing: 2000ps runtime"
-    echo "  $0 5 GPU 10000 10.0 1000.0 1000.0 10.0 # Long run: 10000ps, switch at 1000ps"
+    echo "  $0                                           # Default: 1 replica, GPU, 3000ps"
+    echo "  $0 3 CPU                                    # 3 replicas on CPU"
+    echo "  $0 1 GPU 5000 500.0 1000.0 1000.0 500.0     # 5000ps runtime"
+    echo "  $0 5 GPU 10000 1000.0 2000.0 2000.0 1000.0  # Long run: 10000ps"
     echo ""
-    echo "Controller Timeline:"
-    echo "  Phase 1: DiffEq Controller controls temperature (diffeq_turn_on → diffeq_turn_off)"
-    echo "  Phase 2: Adaptive Bath Controller takes over (adaptive_turn_on → end)"
-    echo "  Zero Coupling: GD Controller maintains target temperature (gd_turn_on → end)"
+    echo "Controller Timeline (Exponential Wave):"
+    echo "  Phase 1: DiffEq Controller + Exp Wave Coupling (diffeq_turn_on → diffeq_turn_off)"
+    echo "  Phase 2: Adaptive Bath Controller (adaptive_turn_on → end)"
+    echo "  Coupling: 3e-4, period=50ps, tau=1.0ps, amplitude_scale=5.0"
+    echo "  Time constant: 0.1 ps (same for both DiffEq and Adaptive)"
+    echo ""
+    echo "Zero Coupling (Fair Comparison):"
+    echo "  Identical settings to exponential wave, but:"
+    echo "  - coupling = 0.0 (no cavity)"
+    echo "  - GD controller with time_constant=0.1 ps (same as exp wave controllers)"
+    echo "  - GD target = final temperature from exp wave simulation"
+    echo "  - Question: Can GD reach same T without cavity help?"
     echo ""
     exit 0
 }
@@ -52,14 +71,14 @@ if [[ "$1" == "-h" || "$1" == "--help" ]]; then
     show_help
 fi
 
-# Configuration with defaults
+# Configuration with defaults (aligned with exponential_wave_command.sh)
 NUM_REPLICAS=${1:-1}        # Default to 1 replica if not specified
 DEVICE=${2:-GPU}            # Default to GPU if not specified
-RUNTIME_PS=${3:-5000.0}     # Default to 5000.0 ps runtime
-DIFFEQ_TURN_ON_PS=${4:-10.0}    # Default DiffEq controller turn-on time
-DIFFEQ_TURN_OFF_PS=${5:-560.0}  # Default DiffEq controller turn-off time (when adaptive takes over)
-ADAPTIVE_TURN_ON_PS=${6:-560.0} # Default Adaptive Bath controller turn-on time
-GD_TURN_ON_PS=${7:-10.0}        # Default GD controller turn-on time for zero coupling
+RUNTIME_PS=${3:-3000.0}     # Default to 3000.0 ps runtime (matches wave command)
+DIFFEQ_TURN_ON_PS=${4:-500.0}    # Default DiffEq controller turn-on time (matches exp-start-time)
+DIFFEQ_TURN_OFF_PS=${5:-1000.0}  # Default DiffEq controller turn-off time (matches exp-stop-time)
+ADAPTIVE_TURN_ON_PS=${6:-1000.0} # Default Adaptive Bath controller turn-on time (matches exp-stop-time)
+GD_TURN_ON_PS=${7:-500.0}        # Default GD controller turn-on time for zero coupling (match wave timing)
 
 echo "=========================================="
 echo "EXPONENTIAL WAVE vs ZERO COUPLING BENCHMARK"
@@ -68,9 +87,17 @@ echo "Configuration:"
 echo "  Number of replicas: $NUM_REPLICAS"
 echo "  Device: $DEVICE"
 echo "  Runtime: $RUNTIME_PS ps each simulation"
-echo "  DiffEq controller: ON at ${DIFFEQ_TURN_ON_PS}ps, OFF at ${DIFFEQ_TURN_OFF_PS}ps"
-echo "  Adaptive Bath controller: ON at ${ADAPTIVE_TURN_ON_PS}ps"
-echo "  GD controller (zero coupling): ON at ${GD_TURN_ON_PS}ps"
+echo ""
+echo "Exponential Wave Simulation:"
+echo "  Coupling: 3e-4 (exp wave: period=50ps, tau=1.0ps)"
+echo "  Controllers: DiffEq (${DIFFEQ_TURN_ON_PS}-${DIFFEQ_TURN_OFF_PS}ps) → Adaptive Bath (${ADAPTIVE_TURN_ON_PS}ps+)"
+echo "  Time constant: 0.1 ps"
+echo ""
+echo "Zero Coupling Simulation (Fair Comparison):"
+echo "  Coupling: 0.0 (no cavity)"
+echo "  Controller: GD (kinetic temp tracking, ON at ${GD_TURN_ON_PS}ps)"
+echo "  Time constant: 0.1 ps (same as exp wave)"
+echo "  Target: Final temperature from exp wave simulation"
 echo ""
 
 # Generate replica range (0-N)
@@ -210,24 +237,24 @@ echo "=========================================="
 echo "STEP 1: Running Exponential Wave Experiment"
 echo "=========================================="
 echo "Configuration:"
-echo "  - Coupling: 1.25e-4 (exponential wave, period=50ps, tau=0.1ps)"
+echo "  - Coupling: 3e-4 (exponential wave, period=50ps, tau=1.0ps)"
 echo "  - Phase 1 (${DIFFEQ_TURN_ON_PS}-${DIFFEQ_TURN_OFF_PS} ps): DiffEq Controller + Exponential Wave"
-echo "  - Phase 2 (${ADAPTIVE_TURN_ON_PS}+ ps): Adaptive Bath Controller"
+echo "  - Phase 2 (${ADAPTIVE_TURN_ON_PS}+ ps): Adaptive Bath Controller (amplitude_scale=5.0)"
 echo "  - Runtime: $RUNTIME_PS ps"
 echo "  - Replicas: $REPLICA_RANGE"
+echo "  - Molecular temps: Enabled"
 echo ""
 
-# Run exponential wave simulation directly
+# Run exponential wave simulation directly (aligned with exponential_wave_command.sh)
 python3 18_unified_cavity_dynamics.py \
   --molecular-bath bussi \
   --cavity-bath langevin \
   --coupling-type exponentialwave \
-  --coupling 1.25e-4 \
+  --coupling 3e-4 \
   --exp-period 50.0 \
-  --exp-tau 0.1 \
+  --exp-tau 1.0 \
   --exp-start-time $DIFFEQ_TURN_ON_PS \
   --exp-stop-time $DIFFEQ_TURN_OFF_PS \
-  --exp-adaptive \
   --temperature 300.0 \
   --frequency 1560.0 \
   --molecular-tau 1.0 \
@@ -245,10 +272,10 @@ python3 18_unified_cavity_dynamics.py \
   --diffeq-apply-to both \
   --diffeq-T-min 0.1 \
   --enable-adaptive-bath \
-  --adaptive-bath-amplitude-scale 1.0 \
+  --adaptive-bath-amplitude-scale 10.0 \
   --adaptive-bath-time-constant 0.1 \
   --adaptive-bath-turn-on-time $ADAPTIVE_TURN_ON_PS \
-  --adaptive-bath-update-interval 0.001 \
+  --adaptive-bath-update-interval 0.0 \
   --adaptive-bath-T-min 0.1 \
   --adaptive-bath-dynamic-target \
   --adaptive-bath-apply-to both \
@@ -259,11 +286,13 @@ python3 18_unified_cavity_dynamics.py \
   --replicas $REPLICA_RANGE \
   --energy-output-period-ps 0.01 \
   --console-output-period-ps 1.0 \
-  --error-tolerance 5.0 \
+  --error-tolerance 2.0 \
   --initial-fraction 1e-6 \
-  --input-gsd final_nodiss_cavitymd/init-0.gsd \
+  --input-gsd cooling-0.gsd \
   --time-constant-ps 10.0 \
   --enable-dynamic-coupling-detection \
+  --enable-molecular-temps \
+  --molecular-temps-output-period-ps 1.0 \
   --coupling-change-threshold 1e-5 &
 
 # Wait for completion
@@ -275,11 +304,11 @@ echo "=========================================="
 echo "STEP 2: Extracting Final Equilibrium Temperature"
 echo "=========================================="
 
-# Find the exponential wave output directory
-EXP_OUTPUT_DIR=$(find . -maxdepth 1 -name "cavity_coupling_1eneg05" -type d | head -1)
+# Find the exponential wave output directory (coupling 3e-4)
+EXP_OUTPUT_DIR=$(find . -maxdepth 1 -name "*cavity_coupling_3eneg04*" -type d | head -1)
 
 if [[ -z "$EXP_OUTPUT_DIR" ]]; then
-    echo "ERROR: Could not find exponential wave output directory: cavity_coupling_1eneg05"
+    echo "ERROR: Could not find exponential wave output directory matching pattern: *cavity_coupling_3eneg04*"
     echo "Available cavity directories:"
     find . -maxdepth 1 -name "*cavity*" -type d 2>/dev/null || echo "  No cavity directories found"
     exit 1
@@ -332,11 +361,13 @@ echo "Configuration:"
 echo "  - Coupling: 0.0 (no cavity coupling)"
 echo "  - GD Controller: kinetic temperature tracking (ON at ${GD_TURN_ON_PS}ps)"
 echo "  - Target temperature: $FINAL_TEMP_K K (from exponential wave)"
+echo "  - Time constant: 0.1 ps (same as exp wave controllers)"
 echo "  - Runtime: $RUNTIME_PS ps"
 echo "  - Replicas: $REPLICA_RANGE"
+echo "  - Molecular temps: Enabled"
 echo ""
 
-# Run zero coupling simulation directly with extracted temperature
+# Run zero coupling simulation with GD controller targeting extracted temperature
 python3 18_unified_cavity_dynamics.py \
   --molecular-bath bussi \
   --cavity-bath langevin \
@@ -350,26 +381,26 @@ python3 18_unified_cavity_dynamics.py \
   --enable-energy-tracker \
   --enable-temp-tracker \
   --temp-tracker-empirical-data-file /home/mh7373/GitRepos/cav-hoomd/potential_energy_vs_T.txt \
-#   --enable-gd-feedback \
-#   --gd-method kinetic \
-#   --gd-target $FINAL_TEMP_K \
-#   --gd-time-constant 0.1 \
-#   --gd-turn-on-time $GD_TURN_ON_PS \
-#   --gd-update-interval 0.0001 \
-#   --gd-apply-to both \
-#   --gd-T-min 10.0 \
+  --enable-gd-feedback \
+  --gd-method kinetic \
+  --gd-target $FINAL_TEMP_K \
+  --gd-time-constant 0.1 \
+  --gd-turn-on-time $GD_TURN_ON_PS \
+  --gd-update-interval 0.0 \
+  --gd-apply-to both \
+  --gd-T-min 0.1 \
   --device $DEVICE \
   --seed 42 \
   --replicas $REPLICA_RANGE \
   --energy-output-period-ps 0.01 \
   --console-output-period-ps 1.0 \
-#   --error-tolerance 5.0 \
-#   --initial-fraction 1e-6 \
-  --fixed-timestep \
-  --timestep 2.0 \
-  --input-gsd final_nodiss_cavitymd/init-0.gsd \
-#   --time-constant-ps 100.0 \
+  --error-tolerance 2.0 \
+  --initial-fraction 1e-6 \
+  --input-gsd cooling-0.gsd \
+  --time-constant-ps 10.0 \
   --enable-dynamic-coupling-detection \
+  --enable-molecular-temps \
+  --molecular-temps-output-period-ps 1.0 \
   --coupling-change-threshold 1e-5 &
 
 # Wait for completion
@@ -383,24 +414,50 @@ echo "=========================================="
 
 echo "Exponential Wave vs Zero Coupling benchmark complete!"
 echo ""
-echo "Results:"
-echo "  1. Exponential Wave (DiffEq → Adaptive Bath) → Final temp: $FINAL_TEMP_K K (averaged across $NUM_REPLICAS replicas)"
-echo "  2. Zero Coupling (GD Controller) → Target temp: $FINAL_TEMP_K K (running $NUM_REPLICAS replicas)"
+echo "FAIR COMPARISON SUMMARY:"
+echo "========================================"
+echo "Both simulations use IDENTICAL settings:"
+echo "  - Same thermostats: Bussi (molecular) + Langevin (cavity)"
+echo "  - Same initial temperature: 300K"
+echo "  - Same runtime: $RUNTIME_PS ps"
+echo "  - Same timestep strategy: adaptive (error_tolerance=2.0)"
+echo "  - Same initial conditions: cooling-0.gsd"
+echo "  - Same output frequencies"
+echo "  - Same molecular temperature tracking"
+echo "  - Same controller time constant: 0.1 ps"
+echo ""
+echo "KEY DIFFERENCES:"
+echo "  Exponential Wave:"
+echo "    - Coupling: 3e-4 (exponential wave, period=50ps, tau=1.0ps)"
+echo "    - Controllers: DiffEq (${DIFFEQ_TURN_ON_PS}-${DIFFEQ_TURN_OFF_PS}ps) → Adaptive Bath (${ADAPTIVE_TURN_ON_PS}ps+)"
+echo "    - Final temperature reached: $FINAL_TEMP_K K"
+echo ""
+echo "  Zero Coupling:"
+echo "    - Coupling: 0.0 (NO cavity)"
+echo "    - Controller: GD feedback (kinetic temp, ON at ${GD_TURN_ON_PS}ps)"
+echo "    - Target temperature: $FINAL_TEMP_K K (same as exp wave final)"
+echo ""
+echo "QUESTION: Can GD controller reach the same temperature without cavity coupling?"
+echo "          Or does cavity provide unique heating/cooling effects?"
 echo ""
 echo "Output directories:"
-echo "  - Exponential Wave: $EXP_OUTPUT_DIR (contains data for all replicas)"
-echo "  - Zero Coupling: cavity_coupling_0eneg00/ (expected directory with replica data)"
+echo "  - Exponential Wave: $EXP_OUTPUT_DIR"
+echo "  - Zero Coupling: cavity_coupling_0eneg00/ (or similar)"
 echo ""
 echo "Key files to analyze:"
 echo "  - Temperature trackers: temperature_tracker_replica_*.csv"
+echo "  - Molecular temps: molecular_temperatures_replica_*.csv"
 echo "  - Energy trackers: prod-*_energy_comprehensive.txt"
-echo "  - Controller outputs: adaptive_bath_controller_replica_*.csv, gd_feedback_replica_*.csv"
+echo "  - Controller outputs:"
+echo "      Exp wave: diffeq_controller_*.csv, adaptive_bath_controller_*.csv"
+echo "      Zero coupling: gd_feedback_replica_*.csv"
 echo ""
-echo "Next steps:"
-echo "  1. Compare convergence times to $FINAL_TEMP_K K across $NUM_REPLICAS replicas"
-echo "  2. Analyze temperature stability and variance between protocols"
-echo "  3. Statistical analysis: which protocol shows better convergence?"
-echo "  4. Energy conservation and coupling effectiveness analysis"
+echo "Analysis questions:"
+echo "  1. Does GD controller reach $FINAL_TEMP_K K as effectively as cavity+controllers?"
+echo "  2. How do convergence rates compare?"
+echo "  3. How does molecular temp decomposition differ (T_trans, T_rot, T_vib)?"
+echo "  4. Are energy distributions statistically different?"
+echo "  5. Does cavity coupling cause unique molecular-level effects?"
 
 echo ""
 echo "Benchmark complete! 🎯"

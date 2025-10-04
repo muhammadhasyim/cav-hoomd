@@ -38,10 +38,10 @@ def analyze_extrapolation(empirical_data_file, energy_component='harmonic', outp
     """
     
     if not EMPIRICAL_DATA_AVAILABLE:
-        print("❌ EmpiricalTemperatureData not available. Cannot perform analysis.")
+        print(" EmpiricalTemperatureData not available. Cannot perform analysis.")
         return
     
-    print(f"🔬 Analyzing {energy_component} extrapolation...")
+    print(f" Analyzing {energy_component} extrapolation...")
     
     # Load empirical data
     try:
@@ -51,11 +51,11 @@ def analyze_extrapolation(empirical_data_file, energy_component='harmonic', outp
             use_direct_harmonic=False  # Use fitted Rosenfeld function
         )
     except Exception as e:
-        print(f"❌ Failed to load empirical data: {e}")
+        print(f" Failed to load empirical data: {e}")
         return
     
     if not empirical_data.is_fitted:
-        print("❌ Rosenfeld fitting failed. Cannot perform extrapolation analysis.")
+        print(" Rosenfeld fitting failed. Cannot perform extrapolation analysis.")
         return
     
     # Extract fit parameters
@@ -63,7 +63,7 @@ def analyze_extrapolation(empirical_data_file, energy_component='harmonic', outp
     A = empirical_data.fit_params['A']
     alpha = empirical_data.fit_params['alpha']
     
-    print(f"\n📊 Rosenfeld-Tarazona Fit Parameters ({energy_component}):")
+    print(f"\n Rosenfeld-Tarazona Fit Parameters ({energy_component}):")
     print(f"   E₀ = {E0:.6f} Ha (0K energy)")
     print(f"   A  = {A:.6e} Ha/K^α")
     print(f"   α  = {alpha:.3f}")
@@ -145,7 +145,7 @@ def analyze_extrapolation(empirical_data_file, energy_component='harmonic', outp
         ax3.set_xlim(65, 85)
         ax3.set_ylim(E_77K_predicted - 0.01, empirical_data.energies.min() + 0.01)
         
-        print(f"\n🎯 77K Extrapolation Validation:")
+        print(f"\n 77K Extrapolation Validation:")
         print(f"   Predicted Energy at 77K: {E_77K_predicted:.6f} Ha")
         print(f"   Round-trip Temperature: {T_77K_from_energy:.1f} K")
         print(f"   Error: {abs(T_77K_from_energy - T_77K):.2f} K")
@@ -175,41 +175,41 @@ def analyze_extrapolation(empirical_data_file, energy_component='harmonic', outp
     ax4.legend()
     ax4.grid(True, alpha=0.3)
     
-    print(f"\n📈 Fit Quality Statistics:")
+    print(f"\n Fit Quality Statistics:")
     print(f"   RMSE: {rmse:.6f} Ha")
     print(f"   Max Residual: {np.abs(residuals).max():.6f} Ha")
     print(f"   R²: {1 - np.var(residuals)/np.var(empirical_data.energies):.4f}")
     
     # Physical validation checks
-    print(f"\n🔍 Physical Validation:")
+    print(f"\n Physical Validation:")
     
     # Check if E0 is reasonable (should be the lowest energy)
     E_min_empirical = empirical_data.energies.min()
     print(f"   E₀ vs Min Data: {E0:.6f} vs {E_min_empirical:.6f} Ha")
     if E0 > E_min_empirical:
-        print("   ⚠️  Warning: E₀ > minimum data energy")
+        print("     Warning: E₀ > minimum data energy")
     else:
-        print("   ✅ E₀ < minimum data energy (good)")
+        print("    E₀ < minimum data energy (good)")
     
     # Check alpha value
     if 0.3 < alpha < 2.0:
-        print(f"   ✅ α = {alpha:.3f} in reasonable range (0.3-2.0)")
+        print(f"    α = {alpha:.3f} in reasonable range (0.3-2.0)")
     else:
-        print(f"   ⚠️  α = {alpha:.3f} outside typical range")
+        print(f"     α = {alpha:.3f} outside typical range")
     
     # Extrapolation range assessment
     extrap_range = T_min_empirical - 5  # 5K is your minimum simulation temperature
     print(f"   Extrapolation range: {extrap_range:.0f} K")
     if extrap_range > 50:
-        print("   ⚠️  Large extrapolation range (>50K)")
+        print("     Large extrapolation range (>50K)")
     else:
-        print("   ✅ Moderate extrapolation range")
+        print("    Moderate extrapolation range")
     
     plt.tight_layout()
     
     if output_file:
         plt.savefig(output_file, dpi=300, bbox_inches='tight')
-        print(f"\n💾 Plot saved to: {output_file}")
+        print(f"\n Plot saved to: {output_file}")
     
     plt.show()
     
@@ -224,7 +224,7 @@ def main():
     # Default empirical data file
     empirical_file = "final_nodiss_cavitymd/potential_energy_components_vs_temperature.txt"
     
-    print("🔬 ROSENFELD-TARAZONA EXTRAPOLATION ANALYSIS")
+    print(" ROSENFELD-TARAZONA EXTRAPOLATION ANALYSIS")
     print("=" * 60)
     
     # Analyze different energy components
@@ -239,7 +239,7 @@ def main():
                 output_file=f"extrapolation_analysis_{component}.png"
             )
         except Exception as e:
-            print(f"❌ Analysis failed for {component}: {e}")
+            print(f" Analysis failed for {component}: {e}")
         
         print("\n" + "-"*60)
 

@@ -58,7 +58,7 @@ def test_perturbation_timing_control():
             time_tracker=time_tracker
         )
         
-        print(f"✅ PerturbationForce created with timing control")
+        print(f" PerturbationForce created with timing control")
         print(f"   Start time: {pert_force.start_time_ps} ps")
         print(f"   Stop time: {pert_force.stop_time_ps} ps")
         print(f"   Timing enabled: {pert_force._timing_enabled}")
@@ -76,7 +76,7 @@ def test_perturbation_timing_control():
             actual = pert_force._is_active if hasattr(pert_force, '_is_active') else False
             print(f"   t = {t:4.1f} ps: expected {expected}, would be {actual}")
         
-        print("✅ Basic timing control test passed")
+        print(" Basic timing control test passed")
         
         # Test 2: Timing updater
         print("\n--- Test 2: PerturbationTimingUpdater ---")
@@ -88,20 +88,20 @@ def test_perturbation_timing_control():
         ]
         
         updater = PerturbationTimingUpdater(forces)
-        print(f"✅ PerturbationTimingUpdater created with {len(forces)} forces")
+        print(f" PerturbationTimingUpdater created with {len(forces)} forces")
         
         # Test updater functionality
         time_tracker.set_time(3.0)
         updater.act(100)  # timestep parameter (unused)
-        print(f"✅ Timing updater executed successfully")
+        print(f" Timing updater executed successfully")
         
-        print("✅ All PerturbationForce timing tests passed!")
+        print(" All PerturbationForce timing tests passed!")
         
     except ImportError as e:
-        print(f"⚠️  Skipping timing test - import error: {e}")
+        print(f"  Skipping timing test - import error: {e}")
         return False
     except Exception as e:
-        print(f"❌ Timing test failed: {e}")
+        print(f" Timing test failed: {e}")
         return False
         
     return True
@@ -154,7 +154,7 @@ def test_enhanced_finite_q_shift():
             last_value = current_value
         
         print(f"   Transitions detected: {transitions}")
-        print(f"✅ Step variant transitions compatible with finite-q shift")
+        print(f" Step variant transitions compatible with finite-q shift")
         
         # Test 2: Periodic variant compatibility  
         print("\n--- Test 2: Periodic variant transitions ---")
@@ -183,7 +183,7 @@ def test_enhanced_finite_q_shift():
         
         print(f"   Zero->nonzero transitions at times: {zero_to_nonzero_transitions[:5]}...")
         print(f"   Total transitions found: {len(zero_to_nonzero_transitions)}")
-        print(f"✅ Periodic variant generates multiple transitions for finite-q shift")
+        print(f" Periodic variant generates multiple transitions for finite-q shift")
         
         # Test 3: Square wave variant compatibility
         print("\n--- Test 3: Square wave variant transitions ---")
@@ -214,7 +214,7 @@ def test_enhanced_finite_q_shift():
             last_value = current_value
         
         print(f"   Square wave transitions: {sq_transitions[:8]}...")
-        print(f"✅ Square wave variant generates ON/OFF transitions")
+        print(f" Square wave variant generates ON/OFF transitions")
         
         # Test 4: Exponential decay compatibility
         print("\n--- Test 4: Exponential decay transitions ---")
@@ -237,15 +237,15 @@ def test_enhanced_finite_q_shift():
             exp_values.append((t, value))
             
         print(f"   Exponential values: {[(t, f'{v:.4f}') for t, v in exp_values]}")
-        print(f"✅ Exponential decay compatible with finite-q shift")
+        print(f" Exponential decay compatible with finite-q shift")
         
-        print("✅ All finite-q shift compatibility tests passed!")
+        print(" All finite-q shift compatibility tests passed!")
         
     except ImportError as e:
-        print(f"⚠️  Skipping finite-q test - import error: {e}")
+        print(f"  Skipping finite-q test - import error: {e}")
         return False
     except Exception as e:
-        print(f"❌ Finite-q test failed: {e}")
+        print(f" Finite-q test failed: {e}")
         return False
         
     return True
@@ -264,7 +264,7 @@ def test_module_integration():
         from cavitymd.fdr_forces import PerturbationForce, PerturbationTimingUpdater
         from cavitymd.analysis import PITemperatureFeedback
         
-        print("✅ All new modules import successfully")
+        print(" All new modules import successfully")
         
         # Test parameter compatibility
         print("\n--- Test 2: Parameter compatibility ---")
@@ -305,7 +305,7 @@ def test_module_integration():
             Ti=10.0
         )
         
-        print("✅ All modules created with compatible parameters")
+        print(" All modules created with compatible parameters")
         
         # Test timing coordination
         print("\n--- Test 3: Timing coordination ---")
@@ -321,15 +321,15 @@ def test_module_integration():
             
             print(f"   t={t:4.1f} ps: coupling={coupling_val:.4f}, laser_active={getattr(laser, '_is_active', 'N/A')}")
         
-        print("✅ Module timing coordination successful")
+        print(" Module timing coordination successful")
         
-        print("✅ All module integration tests passed!")
+        print(" All module integration tests passed!")
         
     except ImportError as e:
-        print(f"⚠️  Skipping integration test - import error: {e}")
+        print(f"  Skipping integration test - import error: {e}")
         return False
     except Exception as e:
-        print(f"❌ Integration test failed: {e}")
+        print(f" Integration test failed: {e}")
         return False
         
     return True
@@ -341,17 +341,17 @@ def test_gpu_cpu_consistency():
     print("=" * 60)
     
     print("\n--- GPU/CPU Consistency Notes ---")
-    print("✅ PerturbationForce timing: Pure Python logic, automatically consistent")
-    print("✅ Enhanced CavityParticleDisplacer: Uses existing GPU/CPU detection")
-    print("✅ All variant calculations: Pure Python, device-agnostic")
-    print("✅ PI feedback controller: Pure Python control logic")
+    print(" PerturbationForce timing: Pure Python logic, automatically consistent")
+    print(" Enhanced CavityParticleDisplacer: Uses existing GPU/CPU detection")
+    print(" All variant calculations: Pure Python, device-agnostic")
+    print(" PI feedback controller: Pure Python control logic")
     
-    print("\n✅ All implementations designed for automatic GPU/CPU consistency")
+    print("\n All implementations designed for automatic GPU/CPU consistency")
     return True
 
 def main():
     """Run all Phase 2 validation tests."""
-    print("🧪 Phase 2 GPU Enhancement Validation Tests")
+    print(" Phase 2 GPU Enhancement Validation Tests")
     print("=" * 70)
     
     start_time = time.time()
@@ -366,7 +366,7 @@ def main():
     results = []
     
     for test_name, test_func in tests:
-        print(f"\n🔬 Running: {test_name}")
+        print(f"\n Running: {test_name}")
         print("-" * 50)
         
         try:
@@ -374,12 +374,12 @@ def main():
             results.append((test_name, success))
             
             if success:
-                print(f"✅ {test_name}: PASSED")
+                print(f" {test_name}: PASSED")
             else:
-                print(f"❌ {test_name}: FAILED")
+                print(f" {test_name}: FAILED")
                 
         except Exception as e:
-            print(f"💥 {test_name}: CRASHED - {e}")
+            print(f" {test_name}: CRASHED - {e}")
             results.append((test_name, False))
     
     # Summary
@@ -388,18 +388,18 @@ def main():
     total = len(results)
     
     print("\n" + "=" * 70)
-    print("🏁 PHASE 2 VALIDATION RESULTS")
+    print(" PHASE 2 VALIDATION RESULTS")
     print("=" * 70)
     
     for test_name, success in results:
-        status = "✅ PASS" if success else "❌ FAIL"
+        status = " PASS" if success else " FAIL"
         print(f"{status}: {test_name}")
     
     print(f"\nSummary: {passed}/{total} tests passed ({passed/total*100:.1f}%)")
     print(f"Elapsed time: {elapsed:.2f} seconds")
     
     if passed == total:
-        print("\n🎉 ALL PHASE 2 ENHANCEMENTS VALIDATED SUCCESSFULLY!")
+        print("\n ALL PHASE 2 ENHANCEMENTS VALIDATED SUCCESSFULLY!")
         print("\nReady for production use with:")
         print("• Enhanced coupling variants (exponential, square wave)")
         print("• Laser timing control with start/stop")
@@ -408,7 +408,7 @@ def main():
         print("• GPU/CPU consistency guaranteed")
         return 0
     else:
-        print(f"\n⚠️  {total - passed} test(s) failed - review before production")
+        print(f"\n  {total - passed} test(s) failed - review before production")
         return 1
 
 if __name__ == "__main__":

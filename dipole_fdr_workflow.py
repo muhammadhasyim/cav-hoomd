@@ -7,7 +7,7 @@ fluctuation-dissipation relation (FDR). It:
 
 1. Runs two simulations: one with +E₀ and one with -E₀ perturbation
 2. Combines the dipole moment data from both clones
-3. Computes the linear response χ_μ(t) = (⟨μ⃗^(+)(t)⟩ - ⟨μ⃗^(-)(t)⟩) / (2E₀)
+3. Computes the linear response χ_μ(t) = (μ⃗^(+)(t) - μ⃗^(-)(t)) / (2E₀)
 4. Validates the FDR by comparing autocorrelation-predicted susceptibility with measured response
 
 Usage:
@@ -57,7 +57,7 @@ def run_simulation(args: List[str], clone_type: str, replica: int = 0) -> bool:
         f"--replica", str(replica)
     ]
     
-    logger.info(f"🚀 Starting {clone_type} clone (sign={sign}) for replica {replica}")
+    logger.info(f" Starting {clone_type} clone (sign={sign}) for replica {replica}")
     logger.info(f"Command: python 18_unified_cavity_dynamics.py {' '.join(clone_args)}")
     
     start_time = time.time()
@@ -70,7 +70,7 @@ def run_simulation(args: List[str], clone_type: str, replica: int = 0) -> bool:
         )
         
         elapsed = time.time() - start_time
-        logger.info(f"✅ {clone_type.capitalize()} clone completed successfully in {elapsed:.1f}s")
+        logger.info(f" {clone_type.capitalize()} clone completed successfully in {elapsed:.1f}s")
         logger.info(f"   STDOUT: {len(result.stdout.splitlines())} lines")
         if result.stderr:
             logger.warning(f"   STDERR: {result.stderr[:200]}...")
@@ -79,7 +79,7 @@ def run_simulation(args: List[str], clone_type: str, replica: int = 0) -> bool:
         
     except subprocess.CalledProcessError as e:
         elapsed = time.time() - start_time
-        logger.error(f"❌ {clone_type.capitalize()} clone failed after {elapsed:.1f}s")
+        logger.error(f" {clone_type.capitalize()} clone failed after {elapsed:.1f}s")
         logger.error(f"   Exit code: {e.returncode}")
         logger.error(f"   STDOUT: {e.stdout[:500]}...")
         logger.error(f"   STDERR: {e.stderr[:500]}...")
@@ -107,11 +107,11 @@ def find_output_files(replica: int = 0) -> Dict[str, Optional[Path]]:
     for key, filename in files.items():
         if filename and Path(filename).exists():
             found_files[key] = Path(filename)
-            logger.info(f"✅ Found {key}: {filename}")
+            logger.info(f" Found {key}: {filename}")
         else:
             found_files[key] = None
             if filename:
-                logger.warning(f"⚠️ Missing {key}: {filename}")
+                logger.warning(f" Missing {key}: {filename}")
     
     return found_files
 
@@ -130,7 +130,7 @@ def analyze_fdr_data(plus_file: Path, minus_file: Path, autocorr_file: Path,
     Returns:
         Dictionary with FDR analysis results
     """
-    logger.info("📊 Analyzing fork-and-clone FDR data...")
+    logger.info(" Analyzing fork-and-clone FDR data...")
     
     try:
         # Load dipole moment data
@@ -158,7 +158,7 @@ def analyze_fdr_data(plus_file: Path, minus_file: Path, autocorr_file: Path,
                     minus_data['dipole_y'].values * field_dir[1] + 
                     minus_data['dipole_z'].values * field_dir[2])
         
-        # Calculate linear response χ_μ(t) = (⟨μ^(+)(t)⟩ - ⟨μ^(-)(t)⟩) / (2E₀)
+        # Calculate linear response χ_μ(t) = (μ^(+)(t) - μ^(-)(t)) / (2E₀)
         response_susceptibility = (mu_plus - mu_minus) / (2.0 * field_strength)
         
         # Get autocorrelation-predicted susceptibility  
@@ -200,7 +200,7 @@ def analyze_fdr_data(plus_file: Path, minus_file: Path, autocorr_file: Path,
             'kT_au': kT_au
         }
         
-        logger.info(f"✅ FDR Analysis Results:")
+        logger.info(f" FDR Analysis Results:")
         logger.info(f"   Static χ (response): {static_response:.6e}")
         logger.info(f"   Static χ (autocorr): {static_autocorr:.6e}")
         logger.info(f"   FDR ratio: {results['fdr_ratio']:.3f} (should be ≈ 1.0)")
@@ -209,13 +209,13 @@ def analyze_fdr_data(plus_file: Path, minus_file: Path, autocorr_file: Path,
         return results
         
     except Exception as e:
-        logger.error(f"❌ FDR analysis failed: {e}")
+        logger.error(f" FDR analysis failed: {e}")
         return {}
 
 def save_fdr_results(results: Dict, output_file: str = "fdr_analysis.csv"):
     """Save FDR analysis results to CSV file."""
     if not results:
-        logger.warning("⚠️ No results to save")
+        logger.warning(" No results to save")
         return
         
     try:
@@ -249,18 +249,18 @@ def save_fdr_results(results: Dict, output_file: str = "fdr_analysis.csv"):
             f.write(f"Time correlation coefficient: {results['correlation_coefficient']:.3f}\n\n")
             f.write("FDR Validation:\n")
             if abs(results['fdr_ratio'] - 1.0) < 0.2:
-                f.write("✅ PASS: FDR ratio within 20% of theoretical value\n")
+                f.write(" PASS: FDR ratio within 20% of theoretical value\n")
             else:
-                f.write("❌ FAIL: FDR ratio deviates significantly from theory\n")
+                f.write(" FAIL: FDR ratio deviates significantly from theory\n")
             if results['correlation_coefficient'] > 0.8:
-                f.write("✅ PASS: Strong correlation between response and autocorr\n")
+                f.write(" PASS: Strong correlation between response and autocorr\n")
             else:
-                f.write("❌ FAIL: Weak correlation between response and autocorr\n")
+                f.write(" FAIL: Weak correlation between response and autocorr\n")
         
-        logger.info(f"✅ FDR results saved to {output_file} and {summary_file}")
+        logger.info(f" FDR results saved to {output_file} and {summary_file}")
         
     except Exception as e:
-        logger.error(f"❌ Failed to save FDR results: {e}")
+        logger.error(f" Failed to save FDR results: {e}")
 
 def main():
     """Main fork-and-clone FDR workflow."""
@@ -302,7 +302,7 @@ Examples:
     field_strength = known_args.dipole_fdr_field_strength
     field_direction = known_args.dipole_fdr_field_direction
     
-    logger.info("🔬 Dipole Moment FDR Fork-and-Clone Workflow")
+    logger.info(" Dipole Moment FDR Fork-and-Clone Workflow")
     logger.info(f"   Replica: {replica}")
     logger.info(f"   Field strength: {field_strength:.2e}")
     logger.info(f"   Field direction: {field_direction}")
@@ -312,7 +312,7 @@ Examples:
     
     # Phase 1: Run simulations (unless analysis-only)
     if not known_args.analysis_only:
-        logger.info("\n🚀 Phase 1: Running fork-and-clone simulations")
+        logger.info("\n Phase 1: Running fork-and-clone simulations")
         
         # Run plus clone
         plus_success = run_simulation(unknown_args, "plus", replica)
@@ -321,14 +321,14 @@ Examples:
         minus_success = run_simulation(unknown_args, "minus", replica)
         
         if not (plus_success and minus_success):
-            logger.error("❌ One or both simulations failed!")
+            logger.error(" One or both simulations failed!")
             success = False
         else:
-            logger.info("✅ Both clones completed successfully")
+            logger.info(" Both clones completed successfully")
     
     # Phase 2: Analyze results (unless skip-analysis or simulation failed)
     if not known_args.skip_analysis and success:
-        logger.info("\n📊 Phase 2: FDR Analysis")
+        logger.info("\n Phase 2: FDR Analysis")
         
         # Find output files
         files = find_output_files(replica)
@@ -350,18 +350,18 @@ Examples:
                 else:
                     success = False
             else:
-                logger.error("❌ Required data files not found")
+                logger.error(" Required data files not found")
                 success = False
         else:
-            logger.error("❌ No dipole FDR data files found")
+            logger.error(" No dipole FDR data files found")
             success = False
     
     # Summary
     if success:
-        logger.info("\n✅ Fork-and-clone FDR workflow completed successfully!")
+        logger.info("\n Fork-and-clone FDR workflow completed successfully!")
         logger.info("   Check the output files for detailed results.")
     else:
-        logger.error("\n❌ Fork-and-clone FDR workflow failed!")
+        logger.error("\n Fork-and-clone FDR workflow failed!")
         sys.exit(1)
 
 if __name__ == "__main__":

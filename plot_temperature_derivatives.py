@@ -246,7 +246,7 @@ def plot_derivatives(T_data, E_data, fitted_params, output_file=None, show_plot=
     
     if output_file:
         plt.savefig(output_file, dpi=300, bbox_inches='tight')
-        print(f"💾 Plot saved to: {output_file}")
+        print(f" Plot saved to: {output_file}")
     
     if show_plot:
         plt.show()
@@ -255,9 +255,9 @@ def plot_derivatives(T_data, E_data, fitted_params, output_file=None, show_plot=
 
 def analyze_low_temperature_behavior(fitted_params):
     """Analyze behavior at very low temperatures."""
-    print("\n🔍 LOW-TEMPERATURE DERIVATIVE ANALYSIS")
+    print("\n LOW-TEMPERATURE DERIVATIVE ANALYSIS")
     print("=" * 60)
-    print(f"🎯 Target: dE/dT|_{{T→0}} = {target_slope:.6f} Ha/K")
+    print(f" Target: dE/dT|_{{T→0}} = {target_slope:.6f} Ha/K")
     print()
     
     T_test = np.array([0.1, 1.0, 5.0, 10.0])  # Test temperatures
@@ -281,7 +281,7 @@ def analyze_low_temperature_behavior(fitted_params):
     ]
     
     for name, func, params, kwargs in models_data:
-        print(f"\n📊 {name}:")
+        print(f"\n {name}:")
         try:
             if kwargs:
                 derivatives = func(T_test, **kwargs)
@@ -290,7 +290,7 @@ def analyze_low_temperature_behavior(fitted_params):
             
             for i, T in enumerate(T_test):
                 ratio = (derivatives[i] / target_slope) * 100
-                status = "✅" if 80 <= ratio <= 120 else "⚠️" if 50 <= ratio <= 150 else "❌"
+                status = "" if 80 <= ratio <= 120 else "" if 50 <= ratio <= 150 else ""
                 print(f"   T={T:4.1f}K: dE/dT = {derivatives[i]:.6f} Ha/K ({ratio:5.1f}%) {status}")
             
             # Check limit behavior
@@ -314,17 +314,17 @@ def main():
     
     args = parser.parse_args()
     
-    print("🌡️ TEMPERATURE DERIVATIVE ANALYSIS")
+    print(" TEMPERATURE DERIVATIVE ANALYSIS")
     print("=" * 50)
     
     # Load data
     T_data, E_data = load_harmonic_data(args.data_file)
-    print(f"📊 Loaded {len(T_data)} data points")
+    print(f" Loaded {len(T_data)} data points")
     print(f"   Temperature range: {T_data.min():.1f} - {T_data.max():.1f} K")
-    print(f"🎯 Target slope: {target_slope:.6f} Ha/K")
+    print(f" Target slope: {target_slope:.6f} Ha/K")
     
     # Fit models
-    print("\n🔧 Fitting models...")
+    print("\n Fitting models...")
     fitted_params = fit_models(T_data, E_data)
     
     # Plot derivatives
@@ -334,7 +334,7 @@ def main():
     # Analyze low-temperature behavior
     analyze_low_temperature_behavior(fitted_params)
     
-    print("\n✅ Derivative analysis completed!")
+    print("\n Derivative analysis completed!")
 
 if __name__ == "__main__":
     main()

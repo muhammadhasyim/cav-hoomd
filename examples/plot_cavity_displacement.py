@@ -221,7 +221,7 @@ def main():
     if displacement_time is not None:
         print(f"  Actual displacement time: {displacement_time:.3f} ps")
         print(f"  Timing error: {abs(displacement_time - switch_time_ps):.3f} ps")
-        print(f"  Displacement successful: {'✓' if abs(displacement_time - switch_time_ps) < 0.1 else '✗'}")
+        print(f"  Displacement successful: {'' if abs(displacement_time - switch_time_ps) < 0.1 else ''}")
     else:
         print(f"  No displacement detected - check if simulation completed")
 

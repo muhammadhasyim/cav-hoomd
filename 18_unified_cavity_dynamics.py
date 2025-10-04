@@ -200,6 +200,8 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
                          # Temperature tracker parameters
                          enable_temp_tracker=False, temp_tracker_output_period_ps=0.1,
                          temp_tracker_empirical_data_file=None,
+                         # Molecular temperature decomposition parameters
+                         enable_molecular_temps=False, molecular_temps_output_period_ps=1.0,
                          # Dipole moment FDR parameters
                          enable_dipole_fdr=False, dipole_fdr_output_period_ps=0.1,
                          dipole_fdr_max_correlation_time_ps=100.0, dipole_fdr_field_direction=[0, 0, 1],
@@ -358,7 +360,8 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
                 print(f"  Formula: L(t) = L₀ + {mech_magnitude:.3e} * sin(2π × {mech_frequency_cm1:.1f} cm⁻¹ × t)")
                 print(f"  Effects: ω(t) ∝ 1/L(t) and g(t) ∝ 1/L(t)")
             
-            if not periodic_coupling and not laser_enabled and switch_time_ps is None:
+            # Display coupling type based on coupling_variant_type (not legacy flags)
+            if coupling_variant_type == 'constant' and not periodic_coupling and not laser_enabled and switch_time_ps is None:
                 print(f"  *** CONSTANT COUPLING ***")
                 print(f"  Coupling: {coupling:.6e} a.u. (constant)")
                 
@@ -611,6 +614,11 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
             enable_temp_tracker=enable_temp_tracker,
             temp_tracker_output_period_ps=temp_tracker_output_period_ps,
             temp_tracker_empirical_data_file=temp_tracker_empirical_data_file,
+            
+            # Molecular temperature decomposition parameters
+            enable_molecular_temps=enable_molecular_temps,
+            molecular_temps_output_period_ps=molecular_temps_output_period_ps,
+            
             # Dipole moment FDR parameters
             enable_dipole_fdr=enable_dipole_fdr,
             dipole_fdr_output_period_ps=dipole_fdr_output_period_ps,
@@ -758,6 +766,10 @@ Examples:
  COMPREHENSIVE TEMPERATURE TRACKER:
   --enable-temp-tracker      : Track all temperatures (kinetic, fictive, bath)
   --temp-tracker-empirical-data-file : Empirical data for LJ+Coul fictive temp
+
+ MOLECULAR TEMPERATURE DECOMPOSITION:
+  --enable-molecular-temps   : Decompose kinetic temperature into trans/rot/vib for dimers
+  --molecular-temps-output-period-ps : Output period in ps (default: 1.0)
 
  DIPOLE MOMENT FDR ANALYSIS:
   --enable-dipole-fdr        : Enable dipole moment autocorrelation tracking
@@ -1306,6 +1318,12 @@ Examples:
     parser.add_argument('--temp-tracker-empirical-data-file', type=str, default=None,
                        help='Empirical data file for LJ+Coul fictive temperature (default: None)')
     
+    # Molecular temperature decomposition parameters
+    parser.add_argument('--enable-molecular-temps', action='store_true',
+                       help='Enable molecular temperature decomposition (translational/rotational/vibrational)')
+    parser.add_argument('--molecular-temps-output-period-ps', type=float, default=1.0,
+                       help='Molecular temperature output period in ps (default: 1.0)')
+    
     # Dipole moment FDR parameters
     parser.add_argument('--enable-dipole-fdr', action='store_true',
                        help='Enable dipole moment FDR analysis (autocorrelation tracking)')
@@ -1601,6 +1619,12 @@ def main():
         else:
             print(f"      Empirical data: None (LJ+Coul fictive temp will be 0)")
     
+    # Molecular temperature decomposition information
+    if args.enable_molecular_temps:
+        print(f"     Molecular temperature decomposition:")
+        print(f"      Output period: {args.molecular_temps_output_period_ps:.1f} ps")
+        print(f"      Tracking: T_trans, T_rot, T_vib (for O-O and N-N dimers)")
+    
     # Dipole moment FDR information
     if args.enable_dipole_fdr:
         print(f"     Dipole moment FDR analysis:")
@@ -1818,6 +1842,9 @@ def main():
             enable_temp_tracker=args.enable_temp_tracker,
             temp_tracker_output_period_ps=args.temp_tracker_output_period_ps,
             temp_tracker_empirical_data_file=args.temp_tracker_empirical_data_file,
+            # Molecular temperature decomposition parameters
+            enable_molecular_temps=args.enable_molecular_temps,
+            molecular_temps_output_period_ps=args.molecular_temps_output_period_ps,
             # Dipole moment FDR parameters
             enable_dipole_fdr=args.enable_dipole_fdr,
             dipole_fdr_output_period_ps=args.dipole_fdr_output_period_ps,

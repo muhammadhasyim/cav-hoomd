@@ -156,7 +156,7 @@ def plot_harmonic_energy_fits(data_file, N_bonds=500, output_file=None, show_plo
         Whether to display the plot (default: True)
     """
     
-    print(f"🔬 HARMONIC ENERGY ANALYSIS: {N_bonds} bonds/modes")
+    print(f" HARMONIC ENERGY ANALYSIS: {N_bonds} bonds/modes")
     print("=" * 60)
     
     # Load data
@@ -165,12 +165,12 @@ def plot_harmonic_energy_fits(data_file, N_bonds=500, output_file=None, show_plo
         T = data['temperature'].values
         E_harmonic = data['harmonic_hartree'].values
         
-        print(f"📊 Loaded {len(T)} data points")
+        print(f" Loaded {len(T)} data points")
         print(f"   Temperature range: {T.min():.1f} - {T.max():.1f} K")
         print(f"   Energy range: {E_harmonic.min():.6f} - {E_harmonic.max():.6f} Ha")
         
     except Exception as e:
-        print(f"❌ Failed to load data: {e}")
+        print(f" Failed to load data: {e}")
         return
     
     # Define models to fit
@@ -261,7 +261,7 @@ def plot_harmonic_energy_fits(data_file, N_bonds=500, output_file=None, show_plo
     # Fit all models
     fit_results = {}
     
-    print(f"\n🔧 FITTING MODELS:")
+    print(f"\n FITTING MODELS:")
     print(f"Model           | RMSE (Ha)  | R²     | Parameters")
     print(f"----------------|------------|--------|----------------------------------")
     
@@ -401,7 +401,7 @@ def plot_harmonic_energy_fits(data_file, N_bonds=500, output_file=None, show_plo
     plt.tight_layout()
     
     # Physical analysis
-    print(f"\n🔍 PHYSICAL ANALYSIS:")
+    print(f"\n PHYSICAL ANALYSIS:")
     
     if 'Classical Linear' in fit_results and 'Power Law' in fit_results:
         classical_params = fit_results['Classical Linear']['params']
@@ -421,14 +421,14 @@ def plot_harmonic_energy_fits(data_file, N_bonds=500, output_file=None, show_plo
         print(f"   Mode utilization: {effective_N_at_200K/N_bonds:.1%}")
         
         if alpha < 0.9:
-            print(f"   ⚠️  Strong sublinear behavior suggests significant coupling/constraints")
+            print(f"     Strong sublinear behavior suggests significant coupling/constraints")
         elif alpha > 1.1:
-            print(f"   ⚠️  Superlinear behavior suggests anharmonic effects")
+            print(f"     Superlinear behavior suggests anharmonic effects")
         else:
-            print(f"   ✅ Nearly classical behavior")
+            print(f"    Nearly classical behavior")
     
     # Analyze low-temperature behavior for transition models
-    print(f"\n🌡️  LOW-TEMPERATURE BEHAVIOR ANALYSIS:")
+    print(f"\n  LOW-TEMPERATURE BEHAVIOR ANALYSIS:")
     
     T_test_low = np.array([1, 5, 10, 20])
     classical_slope = 0.25 * N_bonds * k_B_hartree_per_K
@@ -478,7 +478,7 @@ def plot_harmonic_energy_fits(data_file, N_bonds=500, output_file=None, show_plo
         print(f"   {T_test:4.0f} | {slope_strs[0]} | {slope_strs[1]} | {slope_strs[2]} | {slope_strs[3]}")
     
     # Check which models approach classical behavior at low T
-    print(f"\n   🎯 Models approaching classical slope at low T:")
+    print(f"\n    Models approaching classical slope at low T:")
     for model_name in ['Tanh Transition', 'Crossover']:
         if model_name in fit_results:
             # Calculate slope at T=1K
@@ -499,16 +499,16 @@ def plot_harmonic_energy_fits(data_file, N_bonds=500, output_file=None, show_plo
             print(f"     {model_name}: {ratio_1K:.1%} of classical at 1K")
             
             if ratio_1K > 0.8:
-                print(f"       ✅ Good low-T classical behavior")
+                print(f"        Good low-T classical behavior")
             elif ratio_1K > 0.5:
-                print(f"       ⚠️  Moderate approach to classical")
+                print(f"         Moderate approach to classical")
             else:
-                print(f"       ❌ Poor low-T classical behavior")
+                print(f"        Poor low-T classical behavior")
     
     # Best model recommendation
     if fit_results:
         best_model = min(fit_results.keys(), key=lambda k: fit_results[k]['rmse'])
-        print(f"\n🏆 BEST FIT: {best_model}")
+        print(f"\n BEST FIT: {best_model}")
         print(f"   RMSE: {fit_results[best_model]['rmse']:.6f} Ha")
         print(f"   R²: {fit_results[best_model]['r2']:.4f}")
         print(f"   Description: {fit_results[best_model]['model']['description']}")
@@ -516,7 +516,7 @@ def plot_harmonic_energy_fits(data_file, N_bonds=500, output_file=None, show_plo
     # Save plot
     if output_file:
         plt.savefig(output_file, dpi=300, bbox_inches='tight')
-        print(f"\n💾 Plot saved to: {output_file}")
+        print(f"\n Plot saved to: {output_file}")
     
     if show_plot:
         plt.show()
@@ -543,7 +543,7 @@ def main():
     
     # Check if file exists
     if not Path(args.data_file).exists():
-        print(f"❌ Data file not found: {args.data_file}")
+        print(f" Data file not found: {args.data_file}")
         return 1
     
     # Generate output filename if not provided
@@ -558,11 +558,11 @@ def main():
             output_file=args.output,
             show_plot=not args.no_show
         )
-        print("✅ Analysis completed successfully!")
+        print(" Analysis completed successfully!")
         return 0
         
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f" Error: {e}")
         import traceback
         traceback.print_exc()
         return 1

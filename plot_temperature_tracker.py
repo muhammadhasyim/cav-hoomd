@@ -167,24 +167,27 @@ def plot_temperature_tracker(csv_file, output_file=None, show_plot=True, label="
         harmonic_eq_mask = df['harmonic_equipartition_K'] > 0  # Only plot non-zero values
         if harmonic_eq_mask.any():
             ax1.plot(time[harmonic_eq_mask], df.loc[harmonic_eq_mask, 'harmonic_equipartition_K'], 
-                     color=colors['harmonic_equipartition'], linewidth=1.5, alpha=0.8, linestyle='--',
+                     color=colors['harmonic_equipartition'], linewidth=1.5, alpha=0.8, linestyle='-',
                      label=r'Harmonic Equipartition Temperature')
     
     # Plot bath temperatures (usually constant)
     ax1.plot(time, df['cavity_bath_K'], 
              color=colors['cavity_bath'], linewidth=2, alpha=0.7,
-             linestyle='--', label=r'Cavity Bath Temperature')
+             linestyle='-', label=r'Cavity Bath Temperature')
     
     ax1.plot(time, df['molecular_bath_K'], 
              color=colors['molecular_bath'], linewidth=2, alpha=0.7,
-             linestyle=':', label=r'Molecular Bath Temperature')
+             linestyle='-', label=r'Molecular Bath Temperature')
     
     # Configure first subplot
     ax1.set_ylabel(r'Temperature (K)')
     ax1.set_title(r'Comprehensive Temperature Tracking: ' + f'{dataset["csv_path"].stem}'.replace('_', r'\_'))
     ax1.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
     ax1.grid(True, alpha=0.3)
-    
+    ax1.set_ylim([0,400])
+    ax1.axhline(10)
+    #ax2.set_xlim([max(time)-400,max(time)])
+
     # Plot 2: Focus on fictive temperatures (excluding bath temperatures)
     ax2.plot(time, df['kinetic_temp_K'], 
              color=colors['kinetic'], linewidth=1.5, alpha=0.8,
@@ -200,12 +203,21 @@ def plot_temperature_tracker(csv_file, output_file=None, show_plot=True, label="
                  color=colors['lj_coul'], linewidth=1.5, alpha=0.8,
                  label=r'LJ+Coulombic Fictive Temperature')
     
+    # Plot bath temperatures (usually constant)
+    ax2.plot(time, df['cavity_bath_K'], 
+             color=colors['cavity_bath'], linewidth=2, alpha=0.7,
+             linestyle='-', label=r'Cavity Bath Temperature')
+    
+    ax2.plot(time, df['molecular_bath_K'], 
+             color=colors['molecular_bath'], linewidth=2, alpha=0.7,
+             linestyle='-', label=r'Molecular Bath Temperature')
+    
     # Plot harmonic equipartition temperature in detail view (if available)
     if 'harmonic_equipartition_K' in df.columns:
         harmonic_eq_mask = df['harmonic_equipartition_K'] > 0  # Only plot non-zero values
         if harmonic_eq_mask.any():
             ax2.plot(time[harmonic_eq_mask], df.loc[harmonic_eq_mask, 'harmonic_equipartition_K'], 
-                     color=colors['harmonic_equipartition'], linewidth=1.5, alpha=0.8, linestyle='--',
+                     color=colors['harmonic_equipartition'], linewidth=1.5, alpha=0.8, linestyle='-',
                      label=r'Harmonic Equipartition Temperature')
     
     # Configure second subplot
@@ -224,7 +236,7 @@ def plot_temperature_tracker(csv_file, output_file=None, show_plot=True, label="
         if diff[max_jump_idx] > 50:  # Threshold for significant temperature jump
             switch_time = df['time_ps'].iloc[max_jump_idx]
             for ax in [ax1, ax2]:
-                ax.axvline(switch_time, color='red', linestyle='--', alpha=0.5, 
+                ax.axvline(switch_time, color='red', linestyle='-', alpha=0.5, 
                           label=f'Coupling Switch ({switch_time:.1f} ps)')
             print(f"Detected coupling switch at t = {switch_time:.1f} ps")
     
@@ -336,7 +348,7 @@ def plot_multiple_temperature_trackers(csv_files, output_file=None, show_plot=Tr
             harmonic_eq_mask = df['harmonic_equipartition_K'] > 0
             if harmonic_eq_mask.any():
                 ax2.plot(time[harmonic_eq_mask], df.loc[harmonic_eq_mask, 'harmonic_equipartition_K'], 
-                        color=color, linewidth=1.5, alpha=0.8, linestyle='--', 
+                        color=color, linewidth=1.5, alpha=0.8, linestyle='-', 
                         label=f'{label} (Equipartition)')
         
         # Plot LJ+Coul fictive temperatures
@@ -353,6 +365,8 @@ def plot_multiple_temperature_trackers(csv_files, output_file=None, show_plot=Tr
     ax1.set_title(r'Kinetic Temperature Comparison')
     ax1.set_ylabel(r'Temperature (K)')
     ax1.legend()
+    ax1.set_ylim([0,400])
+    ax1.axhline(10)
     ax1.grid(True, alpha=0.3)
     
     ax2.set_title(r'Harmonic Temperature Comparison (Empirical vs Equipartition)')
@@ -363,6 +377,8 @@ def plot_multiple_temperature_trackers(csv_files, output_file=None, show_plot=Tr
     ax3.set_title(r'LJ+Coulombic Fictive Temperature Comparison')
     ax3.set_xlabel(r'Time (ps)')
     ax3.set_ylabel(r'Temperature (K)')
+    ax3.set_ylim([0,400])
+    ax3.axhline(10)
     ax3.legend()
     ax3.grid(True, alpha=0.3)
     
@@ -470,7 +486,7 @@ Examples:
                 output_file=args.output,
                 show_plot=not args.no_show
             )
-            print("✅ Temperature tracker comparison plot completed successfully!")
+            print(" Temperature tracker comparison plot completed successfully!")
         else:
             # Single plot mode
             plot_temperature_tracker(
@@ -478,11 +494,11 @@ Examples:
                 output_file=args.output,
                 show_plot=not args.no_show
             )
-            print("✅ Temperature tracker plot completed successfully!")
+            print(" Temperature tracker plot completed successfully!")
         return 0
         
     except Exception as e:
-        print(f"❌ Error creating plot: {e}")
+        print(f" Error creating plot: {e}")
         import traceback
         traceback.print_exc()
         return 1

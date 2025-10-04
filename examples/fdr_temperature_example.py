@@ -332,13 +332,13 @@ def create_analysis_plots(timesteps, T_eff_trajectory, dt, T_bath, fdr_monitor):
 if __name__ == "__main__":
     try:
         fdr_monitor, analyzer = run_fdr_temperature_example()
-        print("\n✅ FDR Temperature Example completed successfully!")
-        print("📁 Check output files:")
+        print("\n FDR Temperature Example completed successfully!")
+        print(" Check output files:")
         print("   - fdr_temperature_trajectory.dat")
         print("   - fdr_temperature_analysis.png")
         print("   - fdr_example.log")
         
     except Exception as e:
-        print(f"\n❌ Example failed with error: {e}")
+        print(f"\n Example failed with error: {e}")
         import traceback
         traceback.print_exc()

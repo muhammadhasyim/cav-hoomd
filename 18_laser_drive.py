@@ -253,7 +253,7 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
             if feedback_turn_off_time_ps is not None:
                 print(f"  Turn off time: {feedback_turn_off_time_ps} ps")
             if feedback_auto_stopping:
-                print(f"  🤖 Auto-stopping: Enabled (min time: {auto_stop_min_time_ps} ps, smoothing: {auto_stop_smoothing_window})")
+                print(f"   Auto-stopping: Enabled (min time: {auto_stop_min_time_ps} ps, smoothing: {auto_stop_smoothing_window})")
             print(f"  Temperature range: [{feedback_T_min:.1f}, {feedback_T_max:.1f}] K")
         
         print(f"  Replica: {replica}")
@@ -359,8 +359,8 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
         # Laser parameters are now directly passed to CavityMDSimulation and automatically
         # configured in the CavityForce during setup. No additional configuration needed!
         if laser_enabled and incavity:
-            print(f"  🚀 Laser drive parameters passed to CavityMDSimulation")
-            print(f"  ✓ Laser will be configured automatically during force setup")
+            print(f"   Laser drive parameters passed to CavityMDSimulation")
+            print(f"   Laser will be configured automatically during force setup")
         
         # Run the simulation
         return sim.run() == 0  # Return True for success (exit code 0)

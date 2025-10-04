@@ -32,12 +32,12 @@ def test_original_error_reproduction():
             break
     
     if test_gsd is None:
-        print("❌ No molecular GSD file found. Please ensure you have:")
+        print(" No molecular GSD file found. Please ensure you have:")
         for fname in possible_files:
             print(f"   - {fname}")
         return False
     
-    print(f"✅ Found GSD file: {test_gsd}")
+    print(f" Found GSD file: {test_gsd}")
     
     # First, let's examine this GSD file
     with gsd.hoomd.open(test_gsd, 'r') as f:
@@ -47,9 +47,9 @@ def test_original_error_reproduction():
         print(f"Maximum velocity magnitude in {test_gsd}: {max_vel:.2e}")
         
         if max_vel < 1e-12:
-            print("✅ File has zero velocities - perfect for testing!")
+            print(" File has zero velocities - perfect for testing!")
         else:
-            print("⚠️  File has non-zero velocities - let's zero them out for testing")
+            print("  File has non-zero velocities - let's zero them out for testing")
             
             # Create a modified version with zero velocities
             snapshot.particles.velocity = np.zeros_like(velocities)
@@ -94,15 +94,15 @@ def test_original_error_reproduction():
         exit_code = sim.run()
         
         if exit_code == 0:
-            print("\n🎉 SUCCESS! Simulation completed without Bussi thermostat error!")
+            print("\n SUCCESS! Simulation completed without Bussi thermostat error!")
             print("   The automatic velocity fix worked correctly.")
             print("   The fix detected zero velocities and force-thermalized the system.")
         else:
-            print(f"\n❌ FAILURE: Simulation failed with exit code: {exit_code}")
+            print(f"\n FAILURE: Simulation failed with exit code: {exit_code}")
             return False
             
     except Exception as e:
-        print(f"\n❌ ERROR during simulation: {e}")
+        print(f"\n ERROR during simulation: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -123,11 +123,11 @@ if __name__ == '__main__':
     
     if success:
         print("\n" + "=" * 60)
-        print("🎉 TEST PASSED! The Bussi thermostat fix is working!")
-        print("✅ The simulation can now handle zero velocities with Bussi thermostat")
-        print("✅ The fix automatically thermalizes when needed")
+        print(" TEST PASSED! The Bussi thermostat fix is working!")
+        print(" The simulation can now handle zero velocities with Bussi thermostat")
+        print(" The fix automatically thermalizes when needed")
         exit(0)
     else:
         print("\n" + "=" * 60) 
-        print("❌ TEST FAILED! The fix needs more work.")
+        print(" TEST FAILED! The fix needs more work.")
         exit(1) 

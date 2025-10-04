@@ -19,38 +19,38 @@ from pathlib import Path
 
 def test_imports():
     """Test that all required modules can be imported."""
-    print("🧪 Testing imports...")
+    print(" Testing imports...")
     
     try:
         from hoomd.cavitymd.fdr_forces import DipoleResponseForce
-        print("✅ DipoleResponseForce imported successfully")
+        print(" DipoleResponseForce imported successfully")
     except ImportError as e:
-        print(f"❌ Failed to import DipoleResponseForce: {e}")
+        print(f" Failed to import DipoleResponseForce: {e}")
         return False
         
     try:
         from hoomd.cavitymd.analysis import DipoleMomentFDRTracker
-        print("✅ DipoleMomentFDRTracker imported successfully")
+        print(" DipoleMomentFDRTracker imported successfully")
     except ImportError as e:
-        print(f"❌ Failed to import DipoleMomentFDRTracker: {e}")
+        print(f" Failed to import DipoleMomentFDRTracker: {e}")
         return False
         
     try:
         import hoomd.cavitymd._cavitymd as _cavitymd
         if hasattr(_cavitymd, 'DipoleResponseForceCompute'):
-            print("✅ DipoleResponseForceCompute backend available")
+            print(" DipoleResponseForceCompute backend available")
         else:
-            print("❌ DipoleResponseForceCompute backend missing")
+            print(" DipoleResponseForceCompute backend missing")
             return False
     except ImportError as e:
-        print(f"❌ Failed to import C++ backend: {e}")
+        print(f" Failed to import C++ backend: {e}")
         return False
         
     return True
 
 def test_dipole_response_force():
     """Test DipoleResponseForce functionality."""
-    print("\n🧪 Testing DipoleResponseForce...")
+    print("\n Testing DipoleResponseForce...")
     
     try:
         from hoomd.cavitymd.fdr_forces import DipoleResponseForce
@@ -63,7 +63,7 @@ def test_dipole_response_force():
             exclude_cavity=True
         )
         
-        print(f"✅ Force instantiated successfully")
+        print(f" Force instantiated successfully")
         print(f"   Field vector: {force.field_vector}")
         print(f"   Field strength: {force.field_strength}")
         print(f"   Sign: {force.sign}")
@@ -71,24 +71,24 @@ def test_dipole_response_force():
         
         # Test parameter updates
         force.setParams(field_strength=2e-5, sign=-1.0)
-        print(f"✅ Parameters updated successfully")
+        print(f" Parameters updated successfully")
         
         # Test enable/disable
         force.setEnabled(False)
         enabled = force.getEnabled()
-        print(f"✅ Enable/disable working: {enabled}")
+        print(f" Enable/disable working: {enabled}")
         
         return True
         
     except Exception as e:
-        print(f"❌ DipoleResponseForce test failed: {e}")
+        print(f" DipoleResponseForce test failed: {e}")
         import traceback
         traceback.print_exc()
         return False
 
 def test_dipole_fdr_tracker():
     """Test DipoleMomentFDRTracker functionality."""
-    print("\n🧪 Testing DipoleMomentFDRTracker...")
+    print("\n Testing DipoleMomentFDRTracker...")
     
     try:
         from hoomd.cavitymd.analysis import DipoleMomentFDRTracker
@@ -115,7 +115,7 @@ def test_dipole_fdr_tracker():
             enable_response_measurement=False
         )
         
-        print(f"✅ DipoleMomentFDRTracker instantiated successfully")
+        print(f" DipoleMomentFDRTracker instantiated successfully")
         print(f"   Output file: {tracker.output_file}")
         print(f"   Max correlation time: {tracker.max_correlation_time_ps} ps")
         print(f"   Field direction: {tracker.field_direction}")
@@ -123,22 +123,22 @@ def test_dipole_fdr_tracker():
         
         # Test file initialization
         if Path("test_dipole_fdr.csv").exists():
-            print("✅ Output file created successfully")
+            print(" Output file created successfully")
             Path("test_dipole_fdr.csv").unlink()  # Clean up
         else:
-            print("⚠️ Output file not created (expected for test)")
+            print(" Output file not created (expected for test)")
             
         return True
         
     except Exception as e:
-        print(f"❌ DipoleMomentFDRTracker test failed: {e}")
+        print(f" DipoleMomentFDRTracker test failed: {e}")
         import traceback
         traceback.print_exc()
         return False
 
 def test_synthetic_fdr():
     """Test FDR calculations with synthetic data."""
-    print("\n🧪 Testing synthetic FDR calculations...")
+    print("\n Testing synthetic FDR calculations...")
     
     try:
         # Generate synthetic dipole moment time series
@@ -182,7 +182,7 @@ def test_synthetic_fdr():
         # Check that it decays roughly exponentially
         tau_fitted = -dt / np.log(autocorr[int(1.0/dt)] / autocorr[0]) if autocorr[int(1.0/dt)] > 0 else float('inf')
         
-        print(f"✅ Synthetic autocorrelation calculated")
+        print(f" Synthetic autocorrelation calculated")
         print(f"   Input correlation time: {tau:.1f} ps")
         print(f"   Fitted correlation time: {tau_fitted:.1f} ps")
         print(f"   Autocorr[0]: {autocorr[0]:.3f} (should be 1.0)")
@@ -192,19 +192,19 @@ def test_synthetic_fdr():
         kT = 3.1668e-6 * 100  # 100K in a.u.
         static_chi = np.trapz(autocorr, dx=dt) / kT
         
-        print(f"✅ Static susceptibility: {static_chi:.2e}")
+        print(f" Static susceptibility: {static_chi:.2e}")
         
         return True
         
     except Exception as e:
-        print(f"❌ Synthetic FDR test failed: {e}")
+        print(f" Synthetic FDR test failed: {e}")
         import traceback
         traceback.print_exc()
         return False
 
 def test_cli_integration():
     """Test CLI argument integration."""
-    print("\n🧪 Testing CLI integration...")
+    print("\n Testing CLI integration...")
     
     try:
         # Test that the unified script accepts dipole FDR arguments
@@ -214,32 +214,32 @@ def test_cli_integration():
         ], capture_output=True, text=True, timeout=10)
         
         if "--enable-dipole-fdr" in result.stdout:
-            print("✅ --enable-dipole-fdr argument found in help")
+            print(" --enable-dipole-fdr argument found in help")
         else:
-            print("❌ --enable-dipole-fdr argument missing from help")
+            print(" --enable-dipole-fdr argument missing from help")
             return False
             
         if "--enable-dipole-response" in result.stdout:
-            print("✅ --enable-dipole-response argument found in help")
+            print(" --enable-dipole-response argument found in help")
         else:
-            print("❌ --enable-dipole-response argument missing from help")
+            print(" --enable-dipole-response argument missing from help")
             return False
             
         if "--dipole-fdr-field-direction" in result.stdout:
-            print("✅ --dipole-fdr-field-direction argument found in help")
+            print(" --dipole-fdr-field-direction argument found in help")
         else:
-            print("❌ --dipole-fdr-field-direction argument missing from help")
+            print(" --dipole-fdr-field-direction argument missing from help")
             return False
             
         return True
         
     except Exception as e:
-        print(f"❌ CLI integration test failed: {e}")
+        print(f" CLI integration test failed: {e}")
         return False
 
 def main():
     """Run all tests."""
-    print("🔬 Dipole Moment FDR Implementation Test Suite")
+    print(" Dipole Moment FDR Implementation Test Suite")
     print("=" * 50)
     
     tests = [
@@ -257,19 +257,19 @@ def main():
             success = test_func()
             results.append((test_name, success))
         except Exception as e:
-            print(f"❌ {test_name} crashed: {e}")
+            print(f" {test_name} crashed: {e}")
             results.append((test_name, False))
     
     # Summary
     print("\n" + "="*60)
-    print("🔬 TEST SUMMARY")
+    print(" TEST SUMMARY")
     print("="*60)
     
     passed = 0
     total = len(results)
     
     for test_name, success in results:
-        status = "✅ PASS" if success else "❌ FAIL"
+        status = " PASS" if success else " FAIL"
         print(f"{status}: {test_name}")
         if success:
             passed += 1
@@ -277,10 +277,10 @@ def main():
     print(f"\nOverall: {passed}/{total} tests passed")
     
     if passed == total:
-        print("🎉 All tests passed! Dipole FDR implementation looks good.")
+        print(" All tests passed! Dipole FDR implementation looks good.")
         return 0
     else:
-        print("⚠️ Some tests failed. Please check the implementation.")
+        print(" Some tests failed. Please check the implementation.")
         return 1
 
 if __name__ == "__main__":

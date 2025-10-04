@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 def test_coupling_variants():
     """Test all coupling variant types."""
-    print("🧪 Testing All Coupling Variants")
+    print(" Testing All Coupling Variants")
     print("-" * 50)
     
     # Mock time tracker for testing
@@ -43,7 +43,7 @@ def test_coupling_variants():
         time_tracker = MockTimeTracker()
         
         # Test 1: Step variant with turn-off
-        print("  ✓ Testing StepVariant with turn-off...")
+        print("   Testing StepVariant with turn-off...")
         step_variant = StepVariant(
             target_value=0.001,
             switch_time_ps=5.0,
@@ -61,7 +61,7 @@ def test_coupling_variants():
             assert abs(actual - expected) < 1e-6, f"Step variant failed at t={t}"
         
         # Test 2: Periodic variant
-        print("  ✓ Testing PeriodicVariant...")
+        print("   Testing PeriodicVariant...")
         periodic_variant = PeriodicVariant(
             amplitude=0.001,
             time_tracker=time_tracker,
@@ -78,7 +78,7 @@ def test_coupling_variants():
         assert periodic_variant(100) == 0.0, "Periodic should be 0 after stop"
         
         # Test 3: Exponential decay variant
-        print("  ✓ Testing ExponentialDecayVariant...")
+        print("   Testing ExponentialDecayVariant...")
         exp_variant = ExponentialDecayVariant(
             amplitude=0.002,
             time_tracker=time_tracker,
@@ -94,7 +94,7 @@ def test_coupling_variants():
         assert abs(initial_value - 0.002) < 1e-6, "Exponential should start at amplitude"
         
         # Test 4: Square wave variant
-        print("  ✓ Testing SquareWaveVariant...")
+        print("   Testing SquareWaveVariant...")
         square_variant = SquareWaveVariant(
             amplitude=0.001,
             period_ps=4.0,
@@ -108,7 +108,7 @@ def test_coupling_variants():
         assert square_variant(100) == 0.0, "Square wave should be 0 before start"
         
         # Test 5: CavityMDSimulation integration
-        print("  ✓ Testing CavityMDSimulation parameter integration...")
+        print("   Testing CavityMDSimulation parameter integration...")
         
         # Test that all parameters are properly stored
         sim_params = {
@@ -125,19 +125,19 @@ def test_coupling_variants():
         # This would normally run a simulation, but we just test parameter storage
         print("    Parameters validated for simulation integration")
         
-        print("✅ All coupling variants working correctly!")
+        print(" All coupling variants working correctly!")
         return True
         
     except ImportError as e:
-        print(f"⚠️  Skipping coupling test - import error: {e}")
+        print(f"  Skipping coupling test - import error: {e}")
         return False
     except Exception as e:
-        print(f"❌ Coupling variants test failed: {e}")
+        print(f" Coupling variants test failed: {e}")
         return False
 
 def test_laser_timing():
     """Test enhanced laser timing functionality."""
-    print("\n🔬 Testing Enhanced Laser Timing")
+    print("\n Testing Enhanced Laser Timing")
     print("-" * 50)
     
     try:
@@ -154,7 +154,7 @@ def test_laser_timing():
         time_tracker = MockTimeTracker()
         
         # Test 1: Laser with timing control
-        print("  ✓ Testing PerturbationForce with timing...")
+        print("   Testing PerturbationForce with timing...")
         laser = PerturbationForce(
             kvector=[1.0, 0.0, 0.0],
             amplitude=1e-6,
@@ -169,7 +169,7 @@ def test_laser_timing():
         assert laser._timing_enabled == True, "Timing should be enabled"
         
         # Test 2: Timing updater
-        print("  ✓ Testing PerturbationTimingUpdater...")
+        print("   Testing PerturbationTimingUpdater...")
         timing_updater = PerturbationTimingUpdater([laser])
         
         # Simulate timing updates
@@ -182,24 +182,24 @@ def test_laser_timing():
         time_tracker.set_time(20.0)
         timing_updater.act(300)  # After stop time
         
-        print("  ✓ Testing laser properties...")
+        print("   Testing laser properties...")
         assert hasattr(laser, 'has_started'), "Missing has_started property"
         assert hasattr(laser, 'has_stopped'), "Missing has_stopped property"
         assert hasattr(laser, 'is_active'), "Missing is_active property"
         
-        print("✅ Enhanced laser timing working correctly!")
+        print(" Enhanced laser timing working correctly!")
         return True
         
     except ImportError as e:
-        print(f"⚠️  Skipping laser test - import error: {e}")
+        print(f"  Skipping laser test - import error: {e}")
         return False
     except Exception as e:
-        print(f"❌ Laser timing test failed: {e}")
+        print(f" Laser timing test failed: {e}")
         return False
 
 def test_pi_feedback():
     """Test PI feedback controller functionality."""
-    print("\n🌡️  Testing PI Feedback Controller")
+    print("\n  Testing PI Feedback Controller")
     print("-" * 50)
     
     try:
@@ -219,7 +219,7 @@ def test_pi_feedback():
         cavity_thermostat = MockThermostat()
         
         # Test 1: PI controller creation
-        print("  ✓ Testing PITemperatureFeedback creation...")
+        print("   Testing PITemperatureFeedback creation...")
         pi_controller = PITemperatureFeedback(
             target_temperature=100.0,
             time_tracker=time_tracker,
@@ -239,7 +239,7 @@ def test_pi_feedback():
         assert pi_controller.temperature_method == 'kinetic', "Temperature method not set"
         
         # Test 2: Temperature method validation
-        print("  ✓ Testing temperature methods...")
+        print("   Testing temperature methods...")
         valid_methods = ['kinetic', 'lj_coulombic', 'harmonic']
         
         for method in valid_methods:
@@ -254,7 +254,7 @@ def test_pi_feedback():
             assert controller.temperature_method == method, f"Method {method} not set correctly"
         
         # Test 3: Auto-tuning (Kc=None, Ti=None)
-        print("  ✓ Testing IMC auto-tuning...")
+        print("   Testing IMC auto-tuning...")
         auto_controller = PITemperatureFeedback(
             target_temperature=100.0,
             time_tracker=time_tracker,
@@ -270,24 +270,24 @@ def test_pi_feedback():
         assert auto_controller.Kc > 0, "Auto-calculated Kc should be positive"
         assert auto_controller.Ti > 0, "Auto-calculated Ti should be positive"
         
-        print("✅ PI feedback controller working correctly!")
+        print(" PI feedback controller working correctly!")
         return True
         
     except ImportError as e:
-        print(f"⚠️  Skipping PI feedback test - import error: {e}")
+        print(f"  Skipping PI feedback test - import error: {e}")
         return False
     except Exception as e:
-        print(f"❌ PI feedback test failed: {e}")
+        print(f" PI feedback test failed: {e}")
         return False
 
 def test_integration():
     """Test integration between all modules."""
-    print("\n🔗 Testing Module Integration")
+    print("\n Testing Module Integration")
     print("-" * 50)
     
     try:
         # Test that all modules can be imported together
-        print("  ✓ Testing import compatibility...")
+        print("   Testing import compatibility...")
         from cavitymd.variants import ExponentialDecayVariant, SquareWaveVariant
         from cavitymd.fdr_forces import PerturbationForce
         from cavitymd.analysis import PITemperatureFeedback
@@ -301,7 +301,7 @@ def test_integration():
         time_tracker = MockTimeTracker()
         
         # Test 1: Multiple coupling variants can coexist
-        print("  ✓ Testing multiple variant creation...")
+        print("   Testing multiple variant creation...")
         exp_variant = ExponentialDecayVariant(
             amplitude=0.001,
             time_tracker=time_tracker,
@@ -315,7 +315,7 @@ def test_integration():
         )
         
         # Test 2: Laser force creation
-        print("  ✓ Testing laser force creation...")
+        print("   Testing laser force creation...")
         laser = PerturbationForce(
             kvector=[1.0, 0.0, 0.0],
             amplitude=1e-6,
@@ -323,7 +323,7 @@ def test_integration():
         )
         
         # Test 3: PI feedback creation
-        print("  ✓ Testing PI feedback creation...")
+        print("   Testing PI feedback creation...")
         class MockThermostat:
             def __init__(self):
                 self.kT = 1.0
@@ -337,7 +337,7 @@ def test_integration():
         )
         
         # Test 4: Parameter compatibility
-        print("  ✓ Testing parameter compatibility...")
+        print("   Testing parameter compatibility...")
         simulation_params = {
             # Enhanced coupling
             'coupling_variant_type': 'exponential',
@@ -358,24 +358,24 @@ def test_integration():
         
         # All parameters should be valid
         for key, value in simulation_params.items():
-            print(f"    {key}: {value} ✓")
+            print(f"    {key}: {value} ")
         
-        print("✅ All module integration tests passed!")
+        print(" All module integration tests passed!")
         return True
         
     except ImportError as e:
-        print(f"⚠️  Skipping integration test - import error: {e}")
+        print(f"  Skipping integration test - import error: {e}")
         return False
     except Exception as e:
-        print(f"❌ Integration test failed: {e}")
+        print(f" Integration test failed: {e}")
         return False
 
 def test_performance_expectations():
     """Test that performance meets expectations."""
-    print("\n⚡ Testing Performance Expectations")
+    print("\n Testing Performance Expectations")
     print("-" * 50)
     
-    print("  ✓ Performance characteristics validated:")
+    print("   Performance characteristics validated:")
     print("    • Coupling variants: Pure Python, negligible overhead")
     print("    • Laser timing: Zero-cost Python control logic")
     print("    • PI feedback: Minimal overhead (5-50 ps update intervals)")
@@ -383,7 +383,7 @@ def test_performance_expectations():
     print("    • Memory usage: No additional GPU memory required")
     
     # Test variant evaluation performance
-    print("  ✓ Testing variant evaluation speed...")
+    print("   Testing variant evaluation speed...")
     
     try:
         from cavitymd.variants import ExponentialDecayVariant
@@ -409,24 +409,24 @@ def test_performance_expectations():
         print(f"    1000 variant evaluations: {evaluation_time:.2f} ms")
         
         if evaluation_time < 10.0:  # Should be very fast
-            print("    ✅ Variant evaluation performance: EXCELLENT")
+            print("     Variant evaluation performance: EXCELLENT")
         elif evaluation_time < 50.0:
-            print("    ✅ Variant evaluation performance: GOOD")
+            print("     Variant evaluation performance: GOOD")
         else:
-            print("    ⚠️  Variant evaluation performance: ACCEPTABLE")
+            print("      Variant evaluation performance: ACCEPTABLE")
         
     except Exception as e:
-        print(f"    ⚠️  Could not test performance: {e}")
+        print(f"      Could not test performance: {e}")
     
-    print("✅ Performance expectations met!")
+    print(" Performance expectations met!")
     return True
 
 def test_backward_compatibility():
     """Test that old simulations still work."""
-    print("\n🔄 Testing Backward Compatibility")
+    print("\n Testing Backward Compatibility")
     print("-" * 50)
     
-    print("  ✓ Testing legacy parameter support...")
+    print("   Testing legacy parameter support...")
     
     # Old-style parameters should still work
     legacy_params = {
@@ -451,18 +451,18 @@ def test_backward_compatibility():
     
     print("    Legacy parameters validated:")
     for key, value in legacy_params.items():
-        print(f"      {key}: {value} ✓")
+        print(f"      {key}: {value} ")
     
     print("    Maps to enhanced system:")
     for key, value in expected_mapping.items():
-        print(f"      {key}: {value} ✓")
+        print(f"      {key}: {value} ")
     
-    print("✅ Backward compatibility maintained!")
+    print(" Backward compatibility maintained!")
     return True
 
 def main():
     """Run all final validation tests."""
-    print("🎯 PHASE 3 FINAL VALIDATION TESTS")
+    print(" PHASE 3 FINAL VALIDATION TESTS")
     print("=" * 70)
     print("Comprehensive testing of all enhanced cavity MD features")
     print("=" * 70)
@@ -486,7 +486,7 @@ def main():
             success = test_func()
             results.append((test_name, success))
         except Exception as e:
-            print(f"💥 {test_name} test crashed: {e}")
+            print(f" {test_name} test crashed: {e}")
             results.append((test_name, False))
     
     # Final summary
@@ -495,33 +495,33 @@ def main():
     total = len(results)
     
     print("\n" + "=" * 70)
-    print("🏁 FINAL VALIDATION RESULTS")
+    print(" FINAL VALIDATION RESULTS")
     print("=" * 70)
     
     for test_name, success in results:
-        status = "✅ PASS" if success else "❌ FAIL"
+        status = " PASS" if success else " FAIL"
         print(f"{status}: {test_name}")
     
     print(f"\nSummary: {passed}/{total} tests passed ({passed/total*100:.1f}%)")
     print(f"Validation time: {elapsed:.2f} seconds")
     
     if passed == total:
-        print("\n🎉 ALL VALIDATION TESTS PASSED!")
-        print("\n🚀 PHASE 3 COMPLETE - PRODUCTION READY!")
+        print("\n ALL VALIDATION TESTS PASSED!")
+        print("\n PHASE 3 COMPLETE - PRODUCTION READY!")
         print("\nKey achievements:")
-        print("✅ Enhanced coupling variants (4 types)")
-        print("✅ Laser drive with timing control")
-        print("✅ PI feedback controller (3 temperature methods)")
-        print("✅ Full CavityMDSimulation integration")
-        print("✅ GPU/CPU consistency guaranteed")
-        print("✅ Backward compatibility maintained")
-        print("✅ Performance optimizations validated")
-        print("✅ Comprehensive examples provided")
+        print(" Enhanced coupling variants (4 types)")
+        print(" Laser drive with timing control")
+        print(" PI feedback controller (3 temperature methods)")
+        print(" Full CavityMDSimulation integration")
+        print(" GPU/CPU consistency guaranteed")
+        print(" Backward compatibility maintained")
+        print(" Performance optimizations validated")
+        print(" Comprehensive examples provided")
         
-        print("\n🎯 Ready for scientific production use!")
+        print("\n Ready for scientific production use!")
         return 0
     else:
-        print(f"\n⚠️  {total - passed} test(s) failed - review before deployment")
+        print(f"\n  {total - passed} test(s) failed - review before deployment")
         return 1
 
 if __name__ == "__main__":

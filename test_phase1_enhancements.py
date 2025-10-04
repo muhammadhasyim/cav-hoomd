@@ -130,11 +130,11 @@ def test_coupling_variants():
             status_str = ", ".join(status) if status else "inactive"
             print(f"{t:<10.1f} {value:<12.6f} {status_str}")
         
-        print("\n✅ All coupling variants tested successfully!")
+        print("\n All coupling variants tested successfully!")
         return True
         
     except Exception as e:
-        print(f"❌ Error testing coupling variants: {e}")
+        print(f" Error testing coupling variants: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -185,7 +185,7 @@ def test_pi_feedback_controller():
             lambda_factor=3.0
         )
         
-        print(f"✅ Kinetic PI controller created successfully")
+        print(f" Kinetic PI controller created successfully")
         print(f"   Auto-tuned parameters:")
         print(f"   Kc = {pi_controller.Kc:.3f}")
         print(f"   Ti = {pi_controller.Ti:.1f} ps")
@@ -204,9 +204,9 @@ def test_pi_feedback_controller():
                 energy_tracker=energy_tracker,
                 molecular_thermostat=molecular_thermo
             )
-            print("❌ Should have raised ValueError for invalid temperature method")
+            print(" Should have raised ValueError for invalid temperature method")
         except ValueError as e:
-            print(f"✅ Correctly caught invalid temperature method: {str(e)[:50]}...")
+            print(f" Correctly caught invalid temperature method: {str(e)[:50]}...")
         
         # Test invalid beta value
         try:
@@ -218,9 +218,9 @@ def test_pi_feedback_controller():
                 molecular_thermostat=molecular_thermo,
                 beta=1.5  # Invalid: > 1.0
             )
-            print("❌ Should have raised ValueError for invalid beta")
+            print(" Should have raised ValueError for invalid beta")
         except ValueError as e:
-            print(f"✅ Correctly caught invalid beta: {str(e)[:50]}...")
+            print(f" Correctly caught invalid beta: {str(e)[:50]}...")
         
         # Test 3: Different lambda factors (tuning aggressiveness)
         print("\n3. Testing Different λ Factors:")
@@ -241,11 +241,11 @@ def test_pi_feedback_controller():
             aggressiveness = "Fast" if lambda_factor == 2.0 else "Balanced" if lambda_factor == 3.0 else "Conservative"
             print(f"   λ = {lambda_factor:.1f} ({aggressiveness:12}): Kc = {test_controller.Kc:.3f}")
         
-        print("\n✅ PI feedback controller tested successfully!")
+        print("\n PI feedback controller tested successfully!")
         return True
         
     except Exception as e:
-        print(f"❌ Error testing PI feedback controller: {e}")
+        print(f" Error testing PI feedback controller: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -271,12 +271,12 @@ def test_integration_readiness():
                 module = __import__(module_name, fromlist=classes)
                 for class_name in classes:
                     class_obj = getattr(module, class_name)
-                    print(f"✅ {module_name}.{class_name} available")
+                    print(f" {module_name}.{class_name} available")
             except ImportError as e:
-                print(f"❌ Import error for {module_name}: {e}")
+                print(f" Import error for {module_name}: {e}")
                 return False
             except AttributeError as e:
-                print(f"❌ Class not found: {e}")
+                print(f" Class not found: {e}")
                 return False
         
         print("\n2. Testing Compatibility:")
@@ -284,23 +284,23 @@ def test_integration_readiness():
         
         # All variants should inherit from hoomd.variant.Variant
         # PI controller should inherit from hoomd.custom.Action
-        print("✅ All classes use proper HOOMD base classes")
-        print("✅ All timing controls implemented consistently")
-        print("✅ All variants support turn on/off functionality")
-        print("✅ PI controller supports all three temperature methods")
+        print(" All classes use proper HOOMD base classes")
+        print(" All timing controls implemented consistently")
+        print(" All variants support turn on/off functionality")
+        print(" PI controller supports all three temperature methods")
         
-        print("\n✅ All components ready for integration!")
+        print("\n All components ready for integration!")
         return True
         
     except Exception as e:
-        print(f"❌ Error testing integration readiness: {e}")
+        print(f" Error testing integration readiness: {e}")
         import traceback
         traceback.print_exc()
         return False
 
 def main():
     """Run all Phase 1 enhancement tests."""
-    print("🧪 Phase 1 Cavity MD Enhancement Tests")
+    print(" Phase 1 Cavity MD Enhancement Tests")
     print("=" * 60)
     print("Testing new coupling variants and PI feedback controller")
     print("without requiring full simulation setup.")
@@ -316,11 +316,11 @@ def main():
     results = []
     for test_name, test_func in tests:
         try:
-            print(f"\n🔧 Running {test_name} tests...")
+            print(f"\n Running {test_name} tests...")
             success = test_func()
             results.append((test_name, success))
         except Exception as e:
-            print(f"❌ Unexpected error in {test_name}: {e}")
+            print(f" Unexpected error in {test_name}: {e}")
             results.append((test_name, False))
     
     # Summary
@@ -330,23 +330,23 @@ def main():
     
     all_passed = True
     for test_name, success in results:
-        status = "✅ PASSED" if success else "❌ FAILED"
+        status = " PASSED" if success else " FAILED"
         print(f"{test_name:<25} {status}")
         if not success:
             all_passed = False
     
     print("-" * 60)
-    overall_status = "✅ ALL TESTS PASSED" if all_passed else "❌ SOME TESTS FAILED"
+    overall_status = " ALL TESTS PASSED" if all_passed else " SOME TESTS FAILED"
     print(f"Overall Status: {overall_status}")
     
     if all_passed:
-        print("\n🎉 Phase 1 implementation is ready!")
-        print("✅ Enhanced coupling variants available")
-        print("✅ PI feedback controller ready")
-        print("✅ All components GPU-compatible (Python-based)")
-        print("✅ Ready for Phase 2 (minimal GPU enhancements)")
+        print("\n Phase 1 implementation is ready!")
+        print(" Enhanced coupling variants available")
+        print(" PI feedback controller ready")
+        print(" All components GPU-compatible (Python-based)")
+        print(" Ready for Phase 2 (minimal GPU enhancements)")
     else:
-        print("\n⚠️  Some tests failed. Please check the error messages above.")
+        print("\n  Some tests failed. Please check the error messages above.")
     
     return 0 if all_passed else 1
 

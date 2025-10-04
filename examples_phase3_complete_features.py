@@ -392,9 +392,9 @@ def example_4_combined_features():
         print(f"   )")
         print(f"   ")
         print(f"   # Run the simulation")
-        print(f"   print('🚀 Starting {example['name']} simulation...')")
+        print(f"   print(' Starting {example['name']} simulation...')")
         print(f"   exit_code = sim.run()")
-        print(f"   print(f'✅ Simulation completed with exit code {{exit_code}}')")
+        print(f"   print(f' Simulation completed with exit code {{exit_code}}')")
         print(f"   ```")
         print("-" * 50)
     
@@ -502,7 +502,7 @@ def example_5_gpu_performance():
 
 def main():
     """Run all Phase 3 examples."""
-    print("🧪 COMPREHENSIVE PHASE 3 CAVITY MD EXAMPLES")
+    print(" COMPREHENSIVE PHASE 3 CAVITY MD EXAMPLES")
     print("=" * 80)
     print("This script demonstrates all enhanced features from Phase 3 development:")
     print("• Enhanced coupling variants (step, periodic, exponential, square wave)")
@@ -524,7 +524,7 @@ def main():
     
     # Summary
     print("=" * 80)
-    print("📋 SUMMARY OF ALL EXAMPLES")
+    print(" SUMMARY OF ALL EXAMPLES")
     print("=" * 80)
     
     total_examples = sum(len(ex[1]) if isinstance(ex[1], list) else 1 for ex in examples)
@@ -539,7 +539,7 @@ def main():
             print(f"  • {category}: 1 comprehensive guide")
     
     print()
-    print("🎯 NEXT STEPS:")
+    print(" NEXT STEPS:")
     print("1. Choose an example that matches your research needs")
     print("2. Modify parameters for your specific system")
     print("3. Run simulations and analyze results")
@@ -547,7 +547,7 @@ def main():
     print("5. Use GPU acceleration for large-scale studies")
     
     print()
-    print("✨ All features are production-ready and GPU-optimized!")
+    print(" All features are production-ready and GPU-optimized!")
     print("   For questions, see documentation or example scripts.")
 
 if __name__ == "__main__":

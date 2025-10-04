@@ -63,7 +63,7 @@ def classical_plus_T32(T, A_T32):
     Satisfies: E(0) = 0 and correct initial slope
     T^(3/2) term for quantum/anharmonic corrections that preserve slope constraint
     
-    dE/dT = 0.25*N*k_B + (3/2)*A*T^(1/2) → 0.25*N*k_B as T→0 ✅
+    dE/dT = 0.25*N*k_B + (3/2)*A*T^(1/2) → 0.25*N*k_B as T→0 
     """
     N = 500  # Fixed
     return 0.25 * N * k_B_hartree_per_K * T + A_T32 * (T**(1.5))
@@ -99,7 +99,7 @@ def plot_constrained_fits(data_file, N_bonds=500, output_file=None, show_plot=Tr
     Plot harmonic energy with E(0)=0 constraint.
     """
     
-    print(f"🔬 CONSTRAINED HARMONIC ENERGY ANALYSIS: E(0)=0, dE/dT|₀=0.25×{N_bonds}×k_B")
+    print(f" CONSTRAINED HARMONIC ENERGY ANALYSIS: E(0)=0, dE/dT|₀=0.25×{N_bonds}×k_B")
     print("=" * 70)
     
     # Load data
@@ -108,17 +108,17 @@ def plot_constrained_fits(data_file, N_bonds=500, output_file=None, show_plot=Tr
         T = data['temperature'].values
         E_harmonic = data['harmonic_hartree'].values
         
-        print(f"📊 Loaded {len(T)} data points")
+        print(f" Loaded {len(T)} data points")
         print(f"   Temperature range: {T.min():.1f} - {T.max():.1f} K")
         print(f"   Energy range: {E_harmonic.min():.6f} - {E_harmonic.max():.6f} Ha")
         
     except Exception as e:
-        print(f"❌ Failed to load data: {e}")
+        print(f" Failed to load data: {e}")
         return
     
     # Target slope
     target_slope = 0.25 * N_bonds * k_B_hartree_per_K
-    print(f"🎯 Target slope: {target_slope:.6f} Ha/K")
+    print(f" Target slope: {target_slope:.6f} Ha/K")
     
     # Define constrained models
     models = {
@@ -195,7 +195,7 @@ def plot_constrained_fits(data_file, N_bonds=500, output_file=None, show_plot=Tr
     # Fit models
     fit_results = {}
     
-    print(f"\n🔧 FITTING CONSTRAINED MODELS:")
+    print(f"\n FITTING CONSTRAINED MODELS:")
     print(f"Model               | RMSE (Ha)  | R²     | Parameters")
     print(f"--------------------|------------|--------|----------------------------------")
     
@@ -358,8 +358,8 @@ def plot_constrained_fits(data_file, N_bonds=500, output_file=None, show_plot=Tr
     plt.tight_layout()
     
     # Analysis
-    print(f"\n🔍 CONSTRAINT VALIDATION:")
-    print(f"   All models: E(0) = 0 ✅")
+    print(f"\n CONSTRAINT VALIDATION:")
+    print(f"   All models: E(0) = 0 ")
     print(f"   Target slope: {target_slope:.6f} Ha/K")
     
     for name, result in fit_results.items():
@@ -379,14 +379,14 @@ def plot_constrained_fits(data_file, N_bonds=500, output_file=None, show_plot=Tr
     # Best model
     if fit_results:
         best_model = min(fit_results.keys(), key=lambda k: fit_results[k]['rmse'])
-        print(f"\n🏆 BEST FIT: {best_model}")
+        print(f"\n BEST FIT: {best_model}")
         print(f"   RMSE: {fit_results[best_model]['rmse']:.6f} Ha")
         print(f"   R²: {fit_results[best_model]['r2']:.4f}")
     
     # Save plot
     if output_file:
         plt.savefig(output_file, dpi=300, bbox_inches='tight')
-        print(f"\n💾 Plot saved to: {output_file}")
+        print(f"\n Plot saved to: {output_file}")
     
     if show_plot:
         plt.show()
@@ -408,7 +408,7 @@ def main():
     args = parser.parse_args()
     
     if not Path(args.data_file).exists():
-        print(f"❌ Data file not found: {args.data_file}")
+        print(f" Data file not found: {args.data_file}")
         return 1
     
     if not args.output:
@@ -421,10 +421,10 @@ def main():
             output_file=args.output,
             show_plot=not args.no_show
         )
-        print("✅ Constrained analysis completed!")
+        print(" Constrained analysis completed!")
         return 0
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f" Error: {e}")
         import traceback
         traceback.print_exc()
         return 1

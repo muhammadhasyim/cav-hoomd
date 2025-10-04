@@ -38,7 +38,7 @@ class DocumentationSetup:
         
     def setup_all(self):
         """Run complete documentation setup."""
-        print("🚀 Setting up Cavity HOOMD Documentation Website")
+        print(" Setting up Cavity HOOMD Documentation Website")
         print("=" * 60)
         
         # Check prerequisites
@@ -64,12 +64,12 @@ class DocumentationSetup:
         # Generate initial build
         self.build_documentation()
         
-        print("\n✅ Documentation setup complete!")
+        print("\n Documentation setup complete!")
         self.print_next_steps()
     
     def check_prerequisites(self):
         """Check that required tools are available."""
-        print("📋 Checking prerequisites...")
+        print(" Checking prerequisites...")
         
         # Check Python
         if sys.version_info < (3, 8):
@@ -79,17 +79,17 @@ class DocumentationSetup:
         try:
             subprocess.run(['git', '--version'], check=True, capture_output=True)
         except (subprocess.CalledProcessError, FileNotFoundError):
-            print("⚠️  Git not found - GitHub deployment will not work")
+            print("  Git not found - GitHub deployment will not work")
         
         # Check if we're in a git repository
         if not (self.project_root / '.git').exists():
-            print("⚠️  Not in a git repository - some features may not work")
+            print("  Not in a git repository - some features may not work")
         
-        print("✅ Prerequisites checked")
+        print(" Prerequisites checked")
     
     def create_directory_structure(self):
         """Create the basic directory structure."""
-        print("📁 Creating directory structure...")
+        print(" Creating directory structure...")
         
         # Create main directories
         directories = [
@@ -105,11 +105,11 @@ class DocumentationSetup:
         for directory in directories:
             Path(directory).mkdir(parents=True, exist_ok=True)
         
-        print("✅ Directory structure created")
+        print(" Directory structure created")
     
     def setup_github_pages(self):
         """Setup GitHub Pages deployment."""
-        print("🐙 Setting up GitHub Pages deployment...")
+        print(" Setting up GitHub Pages deployment...")
         
         # Create GitHub Actions workflow
         github_dir = Path('.github/workflows')
@@ -186,13 +186,13 @@ jobs:
         with open(github_dir / 'docs.yml', 'w') as f:
             f.write(workflow_content)
         
-        print(f"✅ GitHub Pages workflow created")
+        print(f" GitHub Pages workflow created")
         print(f"   Repository: {self.github_repo}")
         print(f"   Documentation will be available at: https://{self.github_repo.split('/')[0]}.github.io/{self.github_repo.split('/')[1]}/")
     
     def setup_readthedocs(self):
         """Setup ReadTheDocs deployment."""
-        print("📖 Setting up ReadTheDocs deployment...")
+        print(" Setting up ReadTheDocs deployment...")
         
         # Create .readthedocs.yaml
         rtd_config = f"""# .readthedocs.yaml
@@ -231,13 +231,13 @@ submodules:
         with open('.readthedocs.yaml', 'w') as f:
             f.write(rtd_config)
         
-        print(f"✅ ReadTheDocs configuration created")
+        print(f" ReadTheDocs configuration created")
         print(f"   Project: {self.rtd_project}")
         print(f"   Documentation will be available at: https://{self.rtd_project}.readthedocs.io/")
     
     def setup_netlify(self):
         """Setup Netlify deployment."""
-        print("🌐 Setting up Netlify deployment...")
+        print(" Setting up Netlify deployment...")
         
         # Create netlify.toml
         netlify_config = """[build]
@@ -264,12 +264,12 @@ submodules:
         with open('netlify.toml', 'w') as f:
             f.write(netlify_config)
         
-        print("✅ Netlify configuration created")
+        print(" Netlify configuration created")
         print("   Connect your repository to Netlify for automatic deployment")
     
     def create_additional_files(self):
         """Create additional supporting files."""
-        print("📝 Creating additional files...")
+        print(" Creating additional files...")
         
         # Create .gitignore for docs
         gitignore_content = """# Sphinx build files
@@ -337,25 +337,25 @@ venv/
         with open('docs/references.bib', 'w') as f:
             f.write(bibtex_content)
         
-        print("✅ Additional files created")
+        print(" Additional files created")
     
     def install_dependencies(self):
         """Install documentation dependencies."""
-        print("📦 Installing documentation dependencies...")
+        print(" Installing documentation dependencies...")
         
         try:
             subprocess.run([
                 sys.executable, '-m', 'pip', 'install', 
                 '-r', 'docs/requirements.txt'
             ], check=True)
-            print("✅ Dependencies installed")
+            print(" Dependencies installed")
         except subprocess.CalledProcessError:
-            print("⚠️  Failed to install dependencies automatically")
+            print("  Failed to install dependencies automatically")
             print("   Please run: pip install -r docs/requirements.txt")
     
     def build_documentation(self):
         """Build the documentation."""
-        print("🔨 Building initial documentation...")
+        print(" Building initial documentation...")
         
         try:
             # Change to docs directory
@@ -364,28 +364,28 @@ venv/
             # Run make html
             subprocess.run(['make', 'html'], check=True)
             
-            print("✅ Documentation built successfully")
+            print(" Documentation built successfully")
             print(f"   Open docs/_build/html/index.html to view")
             
         except subprocess.CalledProcessError:
-            print("⚠️  Failed to build documentation automatically")
+            print("  Failed to build documentation automatically")
             print("   Please run: cd docs && make html")
         except FileNotFoundError:
-            print("⚠️  Make not found, trying direct sphinx-build")
+            print("  Make not found, trying direct sphinx-build")
             try:
                 subprocess.run([
                     'sphinx-build', '-b', 'html', '.', '_build/html'
                 ], check=True)
-                print("✅ Documentation built with sphinx-build")
+                print(" Documentation built with sphinx-build")
             except subprocess.CalledProcessError:
-                print("⚠️  Failed to build with sphinx-build")
+                print("  Failed to build with sphinx-build")
         finally:
             # Return to original directory
             os.chdir('..')
     
     def print_next_steps(self):
         """Print next steps for the user."""
-        print("\n🎯 Next Steps:")
+        print("\n Next Steps:")
         print("=" * 30)
         
         if self.deploy_method == 'github-pages':
@@ -404,26 +404,26 @@ venv/
             print("2. Connect repository at https://netlify.com/")
             print("3. Netlify will auto-deploy on commits")
         
-        print("\n📚 Local Development:")
+        print("\n Local Development:")
         print("  cd docs")
         print("  make live      # Live reload server")
         print("  make html      # Build HTML")
         print("  make serve     # Serve built docs")
         
-        print("\n🛠️  Customization:")
+        print("\n  Customization:")
         print("  - Edit docs/conf.py for Sphinx settings")
         print("  - Modify docs/_static/custom.css for styling")
         print("  - Update docs/index.rst for homepage content")
         print("  - Add content to docs/user_guide/, docs/examples/, etc.")
         
-        print("\n📖 Documentation Structure:")
+        print("\n Documentation Structure:")
         print("  docs/")
-        print("  ├── index.rst          # Homepage")
-        print("  ├── quickstart.rst     # Quick start guide")
-        print("  ├── api/               # API reference") 
-        print("  ├── user_guide/        # User guides")
-        print("  ├── examples/          # Examples and tutorials")
-        print("  └── _static/           # Static files (CSS, images)")
+        print("   index.rst          # Homepage")
+        print("   quickstart.rst     # Quick start guide")
+        print("   api/               # API reference") 
+        print("   user_guide/        # User guides")
+        print("   examples/          # Examples and tutorials")
+        print("   _static/           # Static files (CSS, images)")
 
 
 def main():
@@ -463,10 +463,10 @@ def main():
     try:
         setup.setup_all()
     except KeyboardInterrupt:
-        print("\n❌ Setup interrupted by user")
+        print("\n Setup interrupted by user")
         sys.exit(1)
     except Exception as e:
-        print(f"\n❌ Setup failed: {e}")
+        print(f"\n Setup failed: {e}")
         sys.exit(1)
 
 

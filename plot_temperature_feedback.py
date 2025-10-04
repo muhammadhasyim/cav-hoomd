@@ -132,12 +132,12 @@ def calculate_empirical_harmonic_temperature(harmonic_energy_hartree, empirical_
         
         if n_extrapolated > 0:
             min_extrap_T = np.nanmin(T_empirical_clean[extrapolated_mask])
-            print(f"⚠️  EXTRAPOLATION: {n_extrapolated} points below {T_min_empirical:.1f}K (lowest: {min_extrap_T:.1f}K)")
+            print(f"  EXTRAPOLATION: {n_extrapolated} points below {T_min_empirical:.1f}K (lowest: {min_extrap_T:.1f}K)")
             print(f"   Extrapolation range: {T_min_empirical - min_extrap_T:.1f}K")
             if T_min_empirical - min_extrap_T > 40:
-                print(f"   ⚠️  Large extrapolation! Consider uncertainty analysis.")
+                print(f"     Large extrapolation! Consider uncertainty analysis.")
         else:
-            print("✅ All temperatures within empirical data range")
+            print(" All temperatures within empirical data range")
         
         return T_empirical_clean
         
@@ -266,7 +266,7 @@ def load_dataset(csv_file, empirical_data_file=None, replica_number=None, label=
     T_equipartition_harmonic = None
     
     if 'harmonic_T_fictive_K' in df.columns:
-        print("✅ Found harmonic_T_fictive_K column in CSV - using direct values from empirical feedback")
+        print(" Found harmonic_T_fictive_K column in CSV - using direct values from empirical feedback")
         T_empirical_harmonic = df['harmonic_T_fictive_K'].values
         print(f"Harmonic fictive temperature range: {np.nanmin(T_empirical_harmonic):.1f} - {np.nanmax(T_empirical_harmonic):.1f} K")
         
@@ -274,7 +274,7 @@ def load_dataset(csv_file, empirical_data_file=None, replica_number=None, label=
         T_equipartition_harmonic = T_empirical_harmonic.copy()
         
     else:
-        print("📊 harmonic_T_fictive_K column not found - calculating from energy tracker data")
+        print(" harmonic_T_fictive_K column not found - calculating from energy tracker data")
         
         # Calculate empirical harmonic temperature if empirical data file is provided
         if empirical_data_file and EMPIRICAL_DATA_AVAILABLE and energy_df is not None:
@@ -324,7 +324,7 @@ def load_dataset(csv_file, empirical_data_file=None, replica_number=None, label=
         if 'harmonic_T_fictive_K' in df.columns:
             # Data is already at CSV time points - no interpolation needed
             T_empirical_interp = T_empirical_harmonic
-            print("✅ Using harmonic fictive temperature directly from CSV (no interpolation needed)")
+            print(" Using harmonic fictive temperature directly from CSV (no interpolation needed)")
         elif energy_df is not None:
             # Need to interpolate from energy tracker time points to CSV time points
             energy_time = energy_df['time(ps)'].values
@@ -672,7 +672,7 @@ def main():
                 label_1=args.label_1,
                 label_2=args.label_2
             )
-            print("✅ Temperature feedback overlay plot completed successfully!")
+            print(" Temperature feedback overlay plot completed successfully!")
         else:
             # Single plot mode
             plot_temperature_feedback_single(
@@ -683,11 +683,11 @@ def main():
                 replica_number=args.replica_number,
                 label=args.label_1
             )
-            print("✅ Temperature feedback plot completed successfully!")
+            print(" Temperature feedback plot completed successfully!")
         return 0
         
     except Exception as e:
-        print(f"❌ Error creating plot: {e}")
+        print(f" Error creating plot: {e}")
         import traceback
         traceback.print_exc()
         return 1

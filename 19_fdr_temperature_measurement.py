@@ -6,19 +6,19 @@ This script integrates the fluctuation-dissipation ratio (FDR) based effective
 temperature estimator with cavity-coupled molecular dynamics. It provides
 physics-based, mode-specific temperature measurement without empirical calibration.
 
-🔬 SCIENTIFIC FEATURES:
+ SCIENTIFIC FEATURES:
 - Real-time FDR effective temperature: T_eff(ω₀,t) = (ω₀/2k_B) × S_AA/χ''
 - Mode-specific temperature measurement at target frequency
 - Violation of fluctuation-dissipation theorem quantification
 - Non-equilibrium thermalization dynamics analysis
 
-🎯 TARGET PARAMETERS:
+ TARGET PARAMETERS:
 - Coupling strength: 7e-4 (moderate cavity coupling)  
 - Target frequency: 1560 cm⁻¹ (molecular vibrational mode)
 - Observable: Total dipole moment projection (z-axis)
 - Integration with existing cavity MD framework
 
-💡 USAGE EXAMPLES:
+ USAGE EXAMPLES:
 
   # Basic FDR measurement
   python 19_fdr_temperature_measurement.py --coupling 7e-4 --frequency 1560 --runtime 100.0
@@ -91,12 +91,12 @@ def run_fdr_cavity_experiment(coupling=7e-4, temperature=100.0, frequency=1560.0
     Run cavity MD experiment with integrated FDR temperature measurement.
     
     This function provides:
-    🔬 FDR Temperature Measurement:
+     FDR Temperature Measurement:
     - Real-time effective temperature at specified frequency
     - Physics-based approach without empirical calibration
     - Mode-specific thermalization dynamics
     
-    🎯 Scientific Observables:
+     Scientific Observables:
     - T_eff(ω₀,t): Effective temperature from FDR violations
     - S_AA(ω₀,t): Power spectral density at target frequency
     - χ''(ω₀,t): Imaginary susceptibility 
@@ -140,7 +140,7 @@ def run_fdr_cavity_experiment(coupling=7e-4, temperature=100.0, frequency=1560.0
         )
         logger = logging.getLogger(__name__)
         
-        logger.info("🔬 Starting FDR Temperature Measurement Experiment")
+        logger.info(" Starting FDR Temperature Measurement Experiment")
         logger.info(f"   Coupling: {coupling:.2e}")
         logger.info(f"   Cavity frequency: {frequency:.1f} cm⁻¹")
         logger.info(f"   FDR target frequency: {fdr_target_frequency_cm:.1f} cm⁻¹")
@@ -181,7 +181,7 @@ def run_fdr_cavity_experiment(coupling=7e-4, temperature=100.0, frequency=1560.0
             logger.info(f"   Constant coupling: {coupling:.2e}")
             
         # Setup FDR temperature monitor
-        logger.info("🔬 Initializing FDR temperature monitor...")
+        logger.info(" Initializing FDR temperature monitor...")
         
         # Create output file path
         if fdr_output_file is None:
@@ -212,11 +212,11 @@ def run_fdr_cavity_experiment(coupling=7e-4, temperature=100.0, frequency=1560.0
         
         # Setup optional temperature tracker
         if enable_temp_tracker:
-            logger.info("📊 Enabling temperature tracker...")
+            logger.info(" Enabling temperature tracker...")
             # CavityMDSimulation will handle this internally
             
         # Initialize the simulation (this sets up everything)
-        logger.info("⚡ Initializing simulation...")
+        logger.info(" Initializing simulation...")
         
         # Use the complete workflow to ensure everything is set up
         # We need to set the coupling to 0 for calibration before running
@@ -253,7 +253,7 @@ def run_fdr_cavity_experiment(coupling=7e-4, temperature=100.0, frequency=1560.0
         # EQUILIBRATION AND FDR CALIBRATION (BEFORE COUPLING TURNS ON)
         # =========================================================================
         
-        logger.info("🔥 Starting equilibration for FDR calibration...")
+        logger.info(" Starting equilibration for FDR calibration...")
         logger.info("   Calibrating FDR estimator at equilibrium BEFORE cavity coupling turns on")
             
         equilibration_steps = fdr_calibration_steps
@@ -276,7 +276,7 @@ def run_fdr_cavity_experiment(coupling=7e-4, temperature=100.0, frequency=1560.0
                 logger.info(f"   Equilibration progress: {progress:.1f}% (t = {current_time:.2f} ps)")
         
         # Calibrate FDR estimator using equilibrium data
-        logger.info("🎯 Calibrating FDR temperature estimator...")
+        logger.info(" Calibrating FDR temperature estimator...")
         fdr_monitor.fdr_estimator.calibrate(temperature, np.array(equilibrium_data))
         
         logger.info(f"   FDR calibration complete at T = {temperature:.1f} K")
@@ -298,12 +298,12 @@ def run_fdr_cavity_experiment(coupling=7e-4, temperature=100.0, frequency=1560.0
         # For step coupling, verify switch time is in the future
         if switch_time_ps is not None:
             if switch_time_ps <= equilibration_end_time:
-                logger.warning(f"⚠️ Switch time ({switch_time_ps:.2f} ps) is before/during equilibration!")
+                logger.warning(f" Switch time ({switch_time_ps:.2f} ps) is before/during equilibration!")
                 logger.warning(f"    Consider setting switch-time > {equilibration_end_time:.2f} ps")
             else:
                 logger.info(f"   Step coupling will activate at t = {switch_time_ps:.2f} ps")
         
-        logger.info("✅ FDR calibration complete - ready to start measurements with coupling")
+        logger.info(" FDR calibration complete - ready to start measurements with coupling")
         
         # Determine when FDR measurements should start
         if fdr_start_time_ps is None:
@@ -322,7 +322,7 @@ def run_fdr_cavity_experiment(coupling=7e-4, temperature=100.0, frequency=1560.0
         # PRODUCTION RUN WITH FDR MONITORING 
         # =========================================================================
         
-        logger.info("🚀 Starting production run with FDR monitoring...")
+        logger.info(" Starting production run with FDR monitoring...")
         
         # Calculate number of steps
         current_dt = md_sim.sim.operations.integrator.dt if hasattr(md_sim.sim.operations.integrator, 'dt') else dt_ps
@@ -358,7 +358,7 @@ def run_fdr_cavity_experiment(coupling=7e-4, temperature=100.0, frequency=1560.0
             current_time_ps = current_simulation_step * current_dt
             
             if current_simulation_step >= fdr_start_step and not fdr_measurements_started:
-                logger.info(f"🔬 Starting FDR measurements at t = {current_time_ps:.2f} ps (step {current_simulation_step})")
+                logger.info(f" Starting FDR measurements at t = {current_time_ps:.2f} ps (step {current_simulation_step})")
                 fdr_measurements_started = True
             
             # Update FDR temperature estimate (only after start time)
@@ -412,12 +412,12 @@ def run_fdr_cavity_experiment(coupling=7e-4, temperature=100.0, frequency=1560.0
         # FINAL ANALYSIS AND REPORTING
         # =========================================================================
         
-        logger.info("📊 Performing final FDR analysis...")
+        logger.info(" Performing final FDR analysis...")
         
         # Temperature statistics
         temp_stats = fdr_monitor.get_temperature_statistics()
         if temp_stats:
-            logger.info("📈 FDR Temperature Statistics:")
+            logger.info(" FDR Temperature Statistics:")
             logger.info(f"   Mean T_eff: {temp_stats.get('mean', 0):.2f} ± {temp_stats.get('std', 0):.2f} K")
             logger.info(f"   Range: {temp_stats.get('min', 0):.1f} - {temp_stats.get('max', 0):.1f} K")
             logger.info(f"   Data points: {temp_stats.get('n_points', 0)}")
@@ -431,7 +431,7 @@ def run_fdr_cavity_experiment(coupling=7e-4, temperature=100.0, frequency=1560.0
         try:
             therm_results = fdr_analyzer.analyze_thermalization_dynamics()
             if therm_results:
-                logger.info("⏱️ Thermalization Analysis:")
+                logger.info(" Thermalization Analysis:")
                 logger.info(f"   Equilibrium T_eff: {therm_results.get('equilibrium_temperature', 0):.2f} K")
                 logger.info(f"   Relaxation time: {therm_results.get('relaxation_time', 0):.2f} ps")
                 logger.info(f"   Fit quality (R²): {therm_results.get('fit_quality', 0):.3f}")
@@ -441,15 +441,15 @@ def run_fdr_cavity_experiment(coupling=7e-4, temperature=100.0, frequency=1560.0
         # Comparison with bath temperature
         comparison = fdr_analyzer.compare_with_equipartition(temperature)
         if comparison:
-            logger.info("⚖️ FDR vs Equipartition Comparison:")
+            logger.info(" FDR vs Equipartition Comparison:")
             logger.info(f"   FDR T_eff: {comparison['fdr_temperature']:.2f} K")
             logger.info(f"   Bath T: {comparison['bath_temperature']:.2f} K")
             logger.info(f"   Deviation: {comparison['relative_deviation']*100:.2f}%")
             
             if comparison['is_non_equilibrium']:
-                logger.warning(f"🔥 Non-equilibrium detected! T_eff ≠ T_bath")
+                logger.warning(f" Non-equilibrium detected! T_eff ≠ T_bath")
             else:
-                logger.info(f"✅ System appears to be in thermal equilibrium")
+                logger.info(f" System appears to be in thermal equilibrium")
                 
         # Final FDR diagnostics summary
         if len(diagnostics_trajectory) > 0:
@@ -457,7 +457,7 @@ def run_fdr_cavity_experiment(coupling=7e-4, temperature=100.0, frequency=1560.0
             avg_snr = np.mean([d.snr for d in recent_diagnostics if not np.isnan(d.snr)])
             avg_gamma = np.mean([d.gamma for d in recent_diagnostics if not np.isnan(d.gamma)])
             
-            logger.info("🔬 Final FDR Diagnostics:")
+            logger.info(" Final FDR Diagnostics:")
             logger.info(f"   Average SNR: {avg_snr:.2f}")
             logger.info(f"   Average damping γ: {avg_gamma:.4f} ps⁻¹") 
             logger.info(f"   Target frequency: {fdr_target_frequency_cm:.1f} cm⁻¹")
@@ -486,14 +486,14 @@ def run_fdr_cavity_experiment(coupling=7e-4, temperature=100.0, frequency=1560.0
                 f.write(f"  Deviation: {comparison['relative_deviation']*100:.2f}%\n")
                 f.write(f"  Non-equilibrium: {comparison['is_non_equilibrium']}\n\n")
                 
-        logger.info(f"💾 Analysis summary saved to: {summary_file}")
-        logger.info(f"💾 FDR trajectory saved to: {fdr_output_file}")
-        logger.info("✅ FDR temperature measurement experiment completed successfully!")
+        logger.info(f" Analysis summary saved to: {summary_file}")
+        logger.info(f" FDR trajectory saved to: {fdr_output_file}")
+        logger.info(" FDR temperature measurement experiment completed successfully!")
         
         return True
         
     except Exception as e:
-        logger.error(f"❌ Experiment failed: {e}")
+        logger.error(f" Experiment failed: {e}")
         import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")
         return False
@@ -616,9 +616,9 @@ Examples:
     
     # Display experiment summary
     print("\n" + "="*60)
-    print("🔬 FDR TEMPERATURE MEASUREMENT EXPERIMENT")
+    print(" FDR TEMPERATURE MEASUREMENT EXPERIMENT")
     print("="*60)
-    print(f"📊 Parameters:")
+    print(f" Parameters:")
     print(f"   Coupling strength: {args.coupling:.2e}")
     print(f"   Cavity frequency: {args.frequency:.1f} cm⁻¹")
     print(f"   FDR frequency: {args.fdr_frequency:.1f} cm⁻¹")
@@ -639,7 +639,7 @@ Examples:
     success_count = 0
     
     for replica in range(args.replicas):
-        print(f"\n🚀 Starting replica {replica + 1}/{args.replicas}...")
+        print(f"\n Starting replica {replica + 1}/{args.replicas}...")
         
         # Calculate replica-specific seed
         replica_seed = (args.seed + replica) if args.seed is not None else None
@@ -686,17 +686,17 @@ Examples:
         
         if success:
             success_count += 1
-            print(f"✅ Replica {replica + 1} completed successfully")
+            print(f" Replica {replica + 1} completed successfully")
         else:
-            print(f"❌ Replica {replica + 1} failed")
+            print(f" Replica {replica + 1} failed")
     
     # Final summary
     print("\n" + "="*60)
-    print("📊 EXPERIMENT SUMMARY")
+    print(" EXPERIMENT SUMMARY")
     print("="*60)
-    print(f"✅ Successful replicas: {success_count}/{args.replicas}")
+    print(f" Successful replicas: {success_count}/{args.replicas}")
     if success_count > 0:
-        print("📁 Output files generated:")
+        print(" Output files generated:")
         print("   - fdr_temperature_replica_*.dat (FDR trajectories)")
         print("   - fdr_analysis_summary_replica_*.txt (analysis summaries)")
         print("   - trajectory_replica_*.gsd (simulation trajectories)")
@@ -704,10 +704,10 @@ Examples:
     print("="*60)
     
     if success_count == args.replicas:
-        print("🎉 All experiments completed successfully!")
+        print(" All experiments completed successfully!")
         return 0
     else:
-        print(f"⚠️ {args.replicas - success_count} experiments failed")
+        print(f" {args.replicas - success_count} experiments failed")
         return 1
 
 
