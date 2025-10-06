@@ -180,10 +180,11 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
                          adaptive_bath_update_interval_ps=0.1,
                          adaptive_bath_apply_to='both',
                          adaptive_bath_T_min=0.1,
-                         adaptive_bath_T_max=None,
-                         adaptive_bath_empirical_data_file=None,
-                         adaptive_bath_signal_temperature_method='harmonic_equipartition',
-                         # Quench controller parameters
+                        adaptive_bath_T_max=None,
+                        adaptive_bath_empirical_data_file=None,
+                        adaptive_bath_signal_temperature_method='harmonic_equipartition',
+                        adaptive_bath_dynamic_target_temperature_method=None,
+                        # Quench controller parameters
                          enable_quench_controller=False, quench_initial_temperature=100.0,
                          quench_target_temperature=50.0, quench_time_ps=50.0, quench_apply_to='both',
                          # Offset temperature controller parameters
@@ -195,9 +196,31 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
                          enable_diffeq_controller=False, diffeq_temperature_method='kinetic',
                          diffeq_time_constant_ps=5.0, diffeq_turn_on_time_ps=0.0,
                          diffeq_turn_off_time_ps=None, diffeq_update_interval_ps=0.1,
-                         diffeq_apply_to='both', diffeq_T_min=0.0, diffeq_T_max=None,
-                         diffeq_rate_limit_K_per_ps=None,
-                         # Temperature tracker parameters
+                        diffeq_apply_to='both', diffeq_T_min=0.0, diffeq_T_max=None,
+                        diffeq_rate_limit_K_per_ps=None,
+                        # LQR controller parameters
+                        enable_lqr_controller=False, lqr_signal_method='lj_coulombic',
+                        lqr_hot_method='harmonic_equipartition', lqr_target_temperature=300.0,
+                        lqr_dynamic_target=False, lqr_dynamic_target_method=None,
+                        lqr_weight_signal=100.0, lqr_weight_hot=1.0, lqr_weight_bath=0.1,
+                        lqr_weight_integral=10.0, lqr_control_effort=1.0,
+                        lqr_process_noise_signal=0.1, lqr_process_noise_hot=0.1,
+                        lqr_measurement_noise_signal=0.5, lqr_measurement_noise_hot=0.5,
+                        lqr_system_id_mode='step', lqr_system_id_temp_K=5.0,
+                        lqr_system_id_duration_ps=50.0, lqr_system_id_file='lqr_system_params.json',
+                        lqr_periodic_system_id=False, lqr_periodic_system_id_interval_ps=1000.0,
+                        lqr_turn_on_time_ps=0.0, lqr_turn_off_time_ps=None,
+                        lqr_update_interval_ps=0.1, lqr_T_min=0.1, lqr_T_max=None,
+                        lqr_apply_to='both', lqr_output_file='lqr_controller.csv',
+                        lqr_empirical_data_file=None,
+                        # Adaptive LQI controller parameters
+                        lqr_controller_type='standard', lqr_tau_L_initial=200.0, lqr_tau_H_initial=30.0,
+                        lqr_k_initial=0.01, lqr_tau_b=1.0, lqr_q_common=1000.0, lqr_q_diff=100.0,
+                        lqr_q_eta_common=1e6, lqr_q_eta_diff=10.0, lqr_process_noise_drift=0.01,
+                        lqr_rls_forgetting=0.998, lqr_rls_regularization=1e-6, lqr_rls_update_interval=50,
+                        lqr_max_control_rate=10.0, lqr_integral_max_common=1000.0, lqr_integral_max_diff=100.0,
+                        lqr_theta_change_threshold=0.05,
+                        # Temperature tracker parameters
                          enable_temp_tracker=False, temp_tracker_output_period_ps=0.1,
                          temp_tracker_empirical_data_file=None,
                          # Molecular temperature decomposition parameters
@@ -581,6 +604,7 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
             adaptive_bath_T_max=adaptive_bath_T_max,
             adaptive_bath_empirical_data_file=adaptive_bath_empirical_data_file,
             adaptive_bath_signal_temperature_method=adaptive_bath_signal_temperature_method,
+            adaptive_bath_dynamic_target_temperature_method=adaptive_bath_dynamic_target_temperature_method,
             
             # Quench controller parameters
             enable_quench_controller=enable_quench_controller,
@@ -609,6 +633,55 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
             diffeq_T_min=diffeq_T_min,
             diffeq_T_max=diffeq_T_max,
             diffeq_rate_limit_K_per_ps=diffeq_rate_limit_K_per_ps,
+            
+            # LQR controller parameters
+            enable_lqr_controller=enable_lqr_controller,
+            lqr_signal_method=lqr_signal_method,
+            lqr_hot_method=lqr_hot_method,
+            lqr_target_temperature=lqr_target_temperature,
+            lqr_dynamic_target=lqr_dynamic_target,
+            lqr_dynamic_target_method=lqr_dynamic_target_method,
+            lqr_weight_signal=lqr_weight_signal,
+            lqr_weight_hot=lqr_weight_hot,
+            lqr_weight_bath=lqr_weight_bath,
+            lqr_weight_integral=lqr_weight_integral,
+            lqr_control_effort=lqr_control_effort,
+            lqr_process_noise_signal=lqr_process_noise_signal,
+            lqr_process_noise_hot=lqr_process_noise_hot,
+            lqr_measurement_noise_signal=lqr_measurement_noise_signal,
+            lqr_measurement_noise_hot=lqr_measurement_noise_hot,
+            lqr_system_id_mode=lqr_system_id_mode,
+            lqr_system_id_temp_K=lqr_system_id_temp_K,
+            lqr_system_id_duration_ps=lqr_system_id_duration_ps,
+            lqr_system_id_file=lqr_system_id_file,
+            lqr_periodic_system_id=lqr_periodic_system_id,
+            lqr_periodic_system_id_interval_ps=lqr_periodic_system_id_interval_ps,
+            lqr_turn_on_time_ps=lqr_turn_on_time_ps,
+            lqr_turn_off_time_ps=lqr_turn_off_time_ps,
+            lqr_update_interval_ps=lqr_update_interval_ps,
+            lqr_T_min=lqr_T_min,
+            lqr_T_max=lqr_T_max,
+            lqr_apply_to=lqr_apply_to,
+            lqr_output_file=lqr_output_file,
+            lqr_empirical_data_file=lqr_empirical_data_file,
+            # Adaptive LQI controller parameters
+            lqr_controller_type=lqr_controller_type,
+            lqr_tau_L_initial=lqr_tau_L_initial,
+            lqr_tau_H_initial=lqr_tau_H_initial,
+            lqr_k_initial=lqr_k_initial,
+            lqr_tau_b=lqr_tau_b,
+            lqr_q_common=lqr_q_common,
+            lqr_q_diff=lqr_q_diff,
+            lqr_q_eta_common=lqr_q_eta_common,
+            lqr_q_eta_diff=lqr_q_eta_diff,
+            lqr_process_noise_drift=lqr_process_noise_drift,
+            lqr_rls_forgetting=lqr_rls_forgetting,
+            lqr_rls_regularization=lqr_rls_regularization,
+            lqr_rls_update_interval=lqr_rls_update_interval,
+            lqr_max_control_rate=lqr_max_control_rate,
+            lqr_integral_max_common=lqr_integral_max_common,
+            lqr_integral_max_diff=lqr_integral_max_diff,
+            lqr_theta_change_threshold=lqr_theta_change_threshold,
             
             # Temperature tracker parameters
             enable_temp_tracker=enable_temp_tracker,
@@ -1081,7 +1154,11 @@ Examples:
     parser.add_argument('--adaptive-bath-signal-temperature-method', 
                        choices=['harmonic_equipartition', 'kinetic', 'lj_coulombic', 'harmonic'], 
                        default='harmonic_equipartition',
-                       help='Temperature method for signal calculation (default: harmonic_equipartition)')
+                       help='Temperature method for control signal (default: harmonic_equipartition)')
+    parser.add_argument('--adaptive-bath-dynamic-target-temperature-method', 
+                       choices=['harmonic_equipartition', 'kinetic', 'lj_coulombic', 'harmonic'], 
+                       default=None,
+                       help='Temperature method for setting dynamic target (default: same as signal method)')
     
     # Quench controller parameters
     parser.add_argument('--enable-quench-controller', action='store_true',
@@ -1142,6 +1219,112 @@ Examples:
                        help='Maximum allowed bath temperature in K (default: None)')
     parser.add_argument('--diffeq-rate-limit', type=float, default=None,
                        help='Maximum rate of temperature change in K/ps (default: None, no limit)')
+    
+    # LQR temperature controller parameters
+    parser.add_argument('--enable-lqr-controller', action='store_true',
+                       help='Enable LQR optimal temperature controller with Kalman filter (default: False)')
+    parser.add_argument('--lqr-signal-method', 
+                       choices=['kinetic', 'lj_coulombic', 'harmonic', 'harmonic_equipartition'], 
+                       default='lj_coulombic',
+                       help='Temperature method for regulated signal (default: lj_coulombic)')
+    parser.add_argument('--lqr-hot-method', 
+                       choices=['kinetic', 'lj_coulombic', 'harmonic', 'harmonic_equipartition'], 
+                       default='harmonic_equipartition',
+                       help='Temperature method for disturbance signal (default: harmonic_equipartition)')
+    parser.add_argument('--lqr-target-temperature', type=float, default=300.0,
+                       help='Fixed target temperature in K (used if not dynamic) (default: 300.0)')
+    parser.add_argument('--lqr-dynamic-target', action='store_true',
+                       help='Set target temperature dynamically from signal at turn-on (default: False)')
+    parser.add_argument('--lqr-dynamic-target-method', 
+                       choices=['kinetic', 'lj_coulombic', 'harmonic', 'harmonic_equipartition'], 
+                       default=None,
+                       help='Temperature method for dynamic target (default: same as signal method)')
+    parser.add_argument('--lqr-weight-signal', type=float, default=100.0,
+                       help='LQR weight for signal regulation (higher = tighter) (default: 100.0)')
+    parser.add_argument('--lqr-weight-hot', type=float, default=1.0,
+                       help='LQR weight for hot temperature (lower = allow more variation) (default: 1.0)')
+    parser.add_argument('--lqr-weight-bath', type=float, default=0.1,
+                       help='LQR weight for bath temperature (default: 0.1)')
+    parser.add_argument('--lqr-weight-integral', type=float, default=10.0,
+                       help='LQR weight for integral action (default: 10.0)')
+    parser.add_argument('--lqr-control-effort', type=float, default=1.0,
+                       help='LQR penalty on control effort (higher = gentler) (default: 1.0)')
+    parser.add_argument('--lqr-process-noise-signal', type=float, default=0.1,
+                       help='Process noise std dev for signal (K) (default: 0.1)')
+    parser.add_argument('--lqr-process-noise-hot', type=float, default=0.1,
+                       help='Process noise std dev for hot (K) (default: 0.1)')
+    parser.add_argument('--lqr-measurement-noise-signal', type=float, default=0.5,
+                       help='Measurement noise std dev for signal (K) (default: 0.5)')
+    parser.add_argument('--lqr-measurement-noise-hot', type=float, default=0.5,
+                       help='Measurement noise std dev for hot (K) (default: 0.5)')
+    parser.add_argument('--lqr-system-id-mode', 
+                       choices=['step', 'multi_step', 'load', 'skip', 'none'], 
+                       default='step',
+                       help='System ID mode: step (single quench), multi_step (4 sequential excitations), load (from file), skip (manual), none (adaptive no-quench) (default: step)')
+    parser.add_argument('--lqr-system-id-temp', type=float, default=5.0,
+                       help='Quench temperature for system ID (K) (default: 5.0)')
+    parser.add_argument('--lqr-system-id-duration', type=float, default=50.0,
+                       help='Duration of system ID cold quench (ps) (default: 50.0)')
+    parser.add_argument('--lqr-system-id-file', type=str, default='lqr_system_params.json',
+                       help='File to save/load system parameters (default: lqr_system_params.json)')
+    parser.add_argument('--lqr-periodic-system-id', action='store_true',
+                       help='Enable periodic re-identification of system parameters')
+    parser.add_argument('--lqr-periodic-system-id-interval', type=float, default=1000.0,
+                       help='Time interval between periodic system IDs (ps) (default: 1000.0)')
+
+    # Adaptive LQI Controller parameters
+    parser.add_argument('--lqr-controller-type', type=str, choices=['standard', 'adaptive_lqi'], default='standard',
+                       help='Controller type: standard (basic LQR) or adaptive_lqi (full mode-based) (default: standard)')
+    parser.add_argument('--lqr-tau-L-initial', type=float, default=200.0,
+                       help='Initial guess for signal time constant (ps) for adaptive_lqi (default: 200.0)')
+    parser.add_argument('--lqr-tau-H-initial', type=float, default=30.0,
+                       help='Initial guess for hot time constant (ps) for adaptive_lqi (default: 30.0)')
+    parser.add_argument('--lqr-k-initial', type=float, default=0.01,
+                       help='Initial guess for coupling coefficient for adaptive_lqi (default: 0.01)')
+    parser.add_argument('--lqr-tau-b', type=float, default=1.0,
+                       help='Bath actuator time constant (ps) for adaptive_lqi (default: 1.0)')
+    parser.add_argument('--lqr-q-common', type=float, default=1000.0,
+                       help='Common mode state weight for adaptive_lqi (default: 1000.0)')
+    parser.add_argument('--lqr-q-diff', type=float, default=100.0,
+                       help='Difference mode state weight for adaptive_lqi (default: 100.0)')
+    parser.add_argument('--lqr-q-eta-common', type=float, default=1e6,
+                       help='Common mode integral weight for adaptive_lqi (default: 1e6)')
+    parser.add_argument('--lqr-q-eta-diff', type=float, default=10.0,
+                       help='Difference mode integral weight for adaptive_lqi (default: 10.0)')
+    parser.add_argument('--lqr-process-noise-drift', type=float, default=0.01,
+                       help='Drift process noise for adaptive_lqi (default: 0.01)')
+    parser.add_argument('--lqr-rls-forgetting', type=float, default=0.998,
+                       help='RLS forgetting factor for adaptive_lqi (default: 0.998)')
+    parser.add_argument('--lqr-rls-regularization', type=float, default=1e-6,
+                       help='RLS regularization for adaptive_lqi (default: 1e-6)')
+    parser.add_argument('--lqr-rls-update-interval', type=int, default=50,
+                       help='RLS update interval (samples) for adaptive_lqi (default: 50)')
+    parser.add_argument('--lqr-max-control-rate', type=float, default=10.0,
+                       help='Maximum control rate (K/ps) for adaptive_lqi (default: 10.0)')
+    parser.add_argument('--lqr-integral-max-common', type=float, default=1000.0,
+                       help='Maximum common mode integral for adaptive_lqi (default: 1000.0)')
+    parser.add_argument('--lqr-integral-max-diff', type=float, default=100.0,
+                       help='Maximum difference mode integral for adaptive_lqi (default: 100.0)')
+    parser.add_argument('--lqr-theta-change-threshold', type=float, default=0.05,
+                       help='Parameter change threshold for relinearization for adaptive_lqi (default: 0.05)')
+    
+    parser.add_argument('--lqr-turn-on-time', type=float, default=0.0,
+                       help='Turn-on time for LQR controller in ps (default: 0.0)')
+    parser.add_argument('--lqr-turn-off-time', type=float, default=None,
+                       help='Turn-off time for LQR controller in ps (default: None, never turn off)')
+    parser.add_argument('--lqr-update-interval', type=float, default=0.1,
+                       help='Control update interval in ps (default: 0.1)')
+    parser.add_argument('--lqr-T-min', type=float, default=0.1,
+                       help='Minimum allowed bath temperature in K (default: 0.1)')
+    parser.add_argument('--lqr-T-max', type=float, default=None,
+                       help='Maximum allowed bath temperature in K (default: None)')
+    parser.add_argument('--lqr-apply-to',
+                       choices=['molecular', 'cavity', 'both'], default='both',
+                       help='Apply LQR control to molecular, cavity, or both thermostats (default: both)')
+    parser.add_argument('--lqr-output-file', type=str, default='lqr_controller.csv',
+                       help='Output file for LQR control data (default: lqr_controller.csv)')
+    parser.add_argument('--lqr-empirical-data-file', type=str, default=None,
+                       help='Path to empirical data file for LJ+Coulombic temperature calculation')
     
     # Legacy periodic coupling parameters (for backward compatibility)
     parser.add_argument('--periodic', action='store_true',
@@ -1811,6 +1994,7 @@ def main():
             adaptive_bath_T_max=args.adaptive_bath_T_max,
             adaptive_bath_empirical_data_file=args.adaptive_bath_empirical_data_file,
             adaptive_bath_signal_temperature_method=args.adaptive_bath_signal_temperature_method,
+            adaptive_bath_dynamic_target_temperature_method=args.adaptive_bath_dynamic_target_temperature_method,
             # Quench controller parameters
             enable_quench_controller=args.enable_quench_controller,
             quench_initial_temperature=args.quench_initial_temperature,
@@ -1838,6 +2022,54 @@ def main():
             diffeq_T_min=args.diffeq_T_min,
             diffeq_T_max=args.diffeq_T_max,
             diffeq_rate_limit_K_per_ps=args.diffeq_rate_limit,
+            # LQR controller parameters
+            enable_lqr_controller=args.enable_lqr_controller,
+            lqr_signal_method=args.lqr_signal_method,
+            lqr_hot_method=args.lqr_hot_method,
+            lqr_target_temperature=args.lqr_target_temperature,
+            lqr_dynamic_target=args.lqr_dynamic_target,
+            lqr_dynamic_target_method=args.lqr_dynamic_target_method,
+            lqr_weight_signal=args.lqr_weight_signal,
+            lqr_weight_hot=args.lqr_weight_hot,
+            lqr_weight_bath=args.lqr_weight_bath,
+            lqr_weight_integral=args.lqr_weight_integral,
+            lqr_control_effort=args.lqr_control_effort,
+            lqr_process_noise_signal=args.lqr_process_noise_signal,
+            lqr_process_noise_hot=args.lqr_process_noise_hot,
+            lqr_measurement_noise_signal=args.lqr_measurement_noise_signal,
+            lqr_measurement_noise_hot=args.lqr_measurement_noise_hot,
+            lqr_system_id_mode=args.lqr_system_id_mode,
+            lqr_system_id_temp_K=args.lqr_system_id_temp,
+            lqr_system_id_duration_ps=args.lqr_system_id_duration,
+            lqr_system_id_file=args.lqr_system_id_file,
+            lqr_periodic_system_id=args.lqr_periodic_system_id,
+            lqr_periodic_system_id_interval_ps=args.lqr_periodic_system_id_interval,
+            lqr_turn_on_time_ps=args.lqr_turn_on_time,
+            lqr_turn_off_time_ps=args.lqr_turn_off_time,
+            lqr_update_interval_ps=args.lqr_update_interval,
+            lqr_T_min=args.lqr_T_min,
+            lqr_T_max=args.lqr_T_max,
+            lqr_apply_to=args.lqr_apply_to,
+            lqr_output_file=args.lqr_output_file,
+            lqr_empirical_data_file=args.lqr_empirical_data_file,
+            # Adaptive LQI controller parameters
+            lqr_controller_type=args.lqr_controller_type,
+            lqr_tau_L_initial=args.lqr_tau_L_initial,
+            lqr_tau_H_initial=args.lqr_tau_H_initial,
+            lqr_k_initial=args.lqr_k_initial,
+            lqr_tau_b=args.lqr_tau_b,
+            lqr_q_common=args.lqr_q_common,
+            lqr_q_diff=args.lqr_q_diff,
+            lqr_q_eta_common=args.lqr_q_eta_common,
+            lqr_q_eta_diff=args.lqr_q_eta_diff,
+            lqr_process_noise_drift=args.lqr_process_noise_drift,
+            lqr_rls_forgetting=args.lqr_rls_forgetting,
+            lqr_rls_regularization=args.lqr_rls_regularization,
+            lqr_rls_update_interval=args.lqr_rls_update_interval,
+            lqr_max_control_rate=args.lqr_max_control_rate,
+            lqr_integral_max_common=args.lqr_integral_max_common,
+            lqr_integral_max_diff=args.lqr_integral_max_diff,
+            lqr_theta_change_threshold=args.lqr_theta_change_threshold,
             # Temperature tracker parameters
             enable_temp_tracker=args.enable_temp_tracker,
             temp_tracker_output_period_ps=args.temp_tracker_output_period_ps,

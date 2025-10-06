@@ -9,6 +9,7 @@ To use the components, import from the specific submodules:
 - cavitymd.forces: Force implementations
 - cavitymd.utils: Utility functions and constants
 - cavitymd.analysis: Analysis and tracking tools
+- cavitymd.controller: Advanced control systems (LQR, MPC)
 - cavitymd.simulation: Simulation framework components
 - cavitymd.updaters: Particle updaters
 - cavitymd.variants: Parameter variants
@@ -17,6 +18,7 @@ Example:
     from cavitymd.forces import CavityForce
     from cavitymd.utils import PhysicalConstants
     from cavitymd.analysis import EnergyTracker
+    from cavitymd.controller import LQRTemperatureController
 """
 
 # Version compatibility check

@@ -549,10 +549,11 @@ class CavityMDSimulation:
                  adaptive_bath_update_interval_ps: float = 0.1,
                  adaptive_bath_apply_to: str = 'both',
                  adaptive_bath_T_min: float = 0.1,
-                 adaptive_bath_T_max: Optional[float] = None,
-                 adaptive_bath_empirical_data_file: Optional[str] = None,
-                 adaptive_bath_signal_temperature_method: str = 'harmonic_equipartition',
-                 # Quench controller parameters
+                adaptive_bath_T_max: Optional[float] = None,
+                adaptive_bath_empirical_data_file: Optional[str] = None,
+                adaptive_bath_signal_temperature_method: str = 'harmonic_equipartition',
+                adaptive_bath_dynamic_target_temperature_method: Optional[str] = None,
+                # Quench controller parameters
                  enable_quench_controller: bool = False,
                  quench_initial_temperature: float = 100.0,
                  quench_target_temperature: float = 50.0,
@@ -579,6 +580,54 @@ class CavityMDSimulation:
                  diffeq_T_min: float = 0.0,
                  diffeq_T_max: Optional[float] = None,
                  diffeq_rate_limit_K_per_ps: Optional[float] = None,
+                 # LQR controller parameters
+                 enable_lqr_controller: bool = False,
+                 lqr_signal_method: str = 'lj_coulombic',
+                 lqr_hot_method: str = 'harmonic_equipartition',
+                 lqr_target_temperature: float = 300.0,
+                 lqr_dynamic_target: bool = False,
+                 lqr_dynamic_target_method: Optional[str] = None,
+                 lqr_weight_signal: float = 100.0,
+                 lqr_weight_hot: float = 1.0,
+                 lqr_weight_bath: float = 0.1,
+                 lqr_weight_integral: float = 10.0,
+                 lqr_control_effort: float = 1.0,
+                 lqr_process_noise_signal: float = 0.1,
+                 lqr_process_noise_hot: float = 0.1,
+                 lqr_measurement_noise_signal: float = 0.5,
+                 lqr_measurement_noise_hot: float = 0.5,
+                 lqr_system_id_mode: str = 'step',
+                 lqr_system_id_temp_K: float = 5.0,
+                 lqr_system_id_duration_ps: float = 50.0,
+                 lqr_system_id_file: str = 'lqr_system_params.json',
+                 lqr_periodic_system_id: bool = False,
+                 lqr_periodic_system_id_interval_ps: float = 1000.0,
+                 lqr_turn_on_time_ps: float = 0.0,
+                 lqr_turn_off_time_ps: Optional[float] = None,
+                 lqr_update_interval_ps: float = 0.1,
+                 lqr_T_min: float = 0.1,
+                 lqr_T_max: Optional[float] = None,
+                 lqr_apply_to: str = 'both',
+                 lqr_output_file: str = 'lqr_controller.csv',
+                 lqr_empirical_data_file: Optional[str] = None,
+                 # Adaptive LQI controller parameters
+                 lqr_controller_type: str = 'standard',
+                 lqr_tau_L_initial: float = 200.0,
+                 lqr_tau_H_initial: float = 30.0,
+                 lqr_k_initial: float = 0.01,
+                 lqr_tau_b: float = 1.0,
+                 lqr_q_common: float = 1000.0,
+                 lqr_q_diff: float = 100.0,
+                 lqr_q_eta_common: float = 1e6,
+                 lqr_q_eta_diff: float = 10.0,
+                 lqr_process_noise_drift: float = 0.01,
+                 lqr_rls_forgetting: float = 0.998,
+                 lqr_rls_regularization: float = 1e-6,
+                 lqr_rls_update_interval: int = 50,
+                 lqr_max_control_rate: float = 10.0,
+                 lqr_integral_max_common: float = 1000.0,
+                 lqr_integral_max_diff: float = 100.0,
+                 lqr_theta_change_threshold: float = 0.05,
                  # Temperature tracker parameters
                  enable_temp_tracker: bool = False,
                  temp_tracker_output_period_ps: float = 0.1,
@@ -812,6 +861,7 @@ class CavityMDSimulation:
         self.adaptive_bath_apply_to = adaptive_bath_apply_to
         self.adaptive_bath_empirical_data_file = adaptive_bath_empirical_data_file
         self.adaptive_bath_signal_temperature_method = adaptive_bath_signal_temperature_method
+        self.adaptive_bath_dynamic_target_temperature_method = adaptive_bath_dynamic_target_temperature_method
         
         # Quench controller parameters
         self.enable_quench_controller = enable_quench_controller
@@ -842,6 +892,55 @@ class CavityMDSimulation:
         self.diffeq_T_min = diffeq_T_min
         self.diffeq_T_max = diffeq_T_max
         self.diffeq_rate_limit_K_per_ps = diffeq_rate_limit_K_per_ps
+        
+        # LQR controller parameters
+        self.enable_lqr_controller = enable_lqr_controller
+        self.lqr_signal_method = lqr_signal_method
+        self.lqr_hot_method = lqr_hot_method
+        self.lqr_target_temperature = lqr_target_temperature
+        self.lqr_dynamic_target = lqr_dynamic_target
+        self.lqr_dynamic_target_method = lqr_dynamic_target_method
+        self.lqr_weight_signal = lqr_weight_signal
+        self.lqr_weight_hot = lqr_weight_hot
+        self.lqr_weight_bath = lqr_weight_bath
+        self.lqr_weight_integral = lqr_weight_integral
+        self.lqr_control_effort = lqr_control_effort
+        self.lqr_process_noise_signal = lqr_process_noise_signal
+        self.lqr_process_noise_hot = lqr_process_noise_hot
+        self.lqr_measurement_noise_signal = lqr_measurement_noise_signal
+        self.lqr_measurement_noise_hot = lqr_measurement_noise_hot
+        self.lqr_system_id_mode = lqr_system_id_mode
+        self.lqr_system_id_temp_K = lqr_system_id_temp_K
+        self.lqr_system_id_duration_ps = lqr_system_id_duration_ps
+        self.lqr_system_id_file = lqr_system_id_file
+        self.lqr_periodic_system_id = lqr_periodic_system_id
+        self.lqr_periodic_system_id_interval_ps = lqr_periodic_system_id_interval_ps
+        self.lqr_turn_on_time_ps = lqr_turn_on_time_ps
+        self.lqr_turn_off_time_ps = lqr_turn_off_time_ps
+        self.lqr_update_interval_ps = lqr_update_interval_ps
+        self.lqr_T_min = lqr_T_min
+        self.lqr_T_max = lqr_T_max
+        self.lqr_apply_to = lqr_apply_to
+        self.lqr_output_file = lqr_output_file
+        self.lqr_empirical_data_file = lqr_empirical_data_file
+        # Adaptive LQI controller parameters
+        self.lqr_controller_type = lqr_controller_type
+        self.lqr_tau_L_initial = lqr_tau_L_initial
+        self.lqr_tau_H_initial = lqr_tau_H_initial
+        self.lqr_k_initial = lqr_k_initial
+        self.lqr_tau_b = lqr_tau_b
+        self.lqr_q_common = lqr_q_common
+        self.lqr_q_diff = lqr_q_diff
+        self.lqr_q_eta_common = lqr_q_eta_common
+        self.lqr_q_eta_diff = lqr_q_eta_diff
+        self.lqr_process_noise_drift = lqr_process_noise_drift
+        self.lqr_rls_forgetting = lqr_rls_forgetting
+        self.lqr_rls_regularization = lqr_rls_regularization
+        self.lqr_rls_update_interval = lqr_rls_update_interval
+        self.lqr_max_control_rate = lqr_max_control_rate
+        self.lqr_integral_max_common = lqr_integral_max_common
+        self.lqr_integral_max_diff = lqr_integral_max_diff
+        self.lqr_theta_change_threshold = lqr_theta_change_threshold
         
         # Temperature tracker parameters
         self.enable_temp_tracker = enable_temp_tracker
@@ -2663,15 +2762,22 @@ class CavityMDSimulation:
                 self.log_info(f"  WARNING: DiffEq controller conflicts with immediate controllers: {', '.join(immediate_conflicts)} - disabling diffeq")
                 self.diffeq_controller = None
         
+        # Set up comprehensive temperature tracker if enabled
+        # IMPORTANT: Must be set up BEFORE LQR controller (which needs temperature measurements)
+        if getattr(self, 'enable_temp_tracker', False):
+            self._setup_temperature_tracker()
+            enabled_features.append(f"comprehensive temperature tracker ({self.temp_tracker_output_period_ps:.1f} ps)")
+        
+        # Set up LQR optimal temperature controller if enabled
+        if getattr(self, 'enable_lqr_controller', False):
+            self._setup_lqr_controller()
+            if self.lqr_controller is not None:
+                enabled_features.append(f"LQR optimal controller (signal={self.lqr_signal_method}, hot={self.lqr_hot_method})")
+        
         # Note: Quench controller setup moved to after thermostat creation
         # to ensure proper thermostat object references
         if getattr(self, 'enable_quench_controller', False):
             enabled_features.append(f"quench controller ({self.quench_initial_temperature:.1f}K→{self.quench_target_temperature:.1f}K at {self.quench_time_ps:.1f}ps)")
-        
-        # Set up comprehensive temperature tracker if enabled
-        if getattr(self, 'enable_temp_tracker', False):
-            self._setup_temperature_tracker()
-            enabled_features.append(f"comprehensive temperature tracker ({self.temp_tracker_output_period_ps:.1f} ps)")
         
         # Set up molecular temperature decomposition if enabled
         if getattr(self, 'enable_molecular_temps', False):
@@ -2942,7 +3048,8 @@ class CavityMDSimulation:
                 output_file=output_file,
                 empirical_data_file=self.adaptive_bath_empirical_data_file,
                 console_output_period_ps=self.console_output_period_ps,
-                signal_temperature_method=self.adaptive_bath_signal_temperature_method
+                signal_temperature_method=self.adaptive_bath_signal_temperature_method,
+                dynamic_target_temperature_method=self.adaptive_bath_dynamic_target_temperature_method
             )
             
             print(f"Adaptive bath temperature controller enabled (GD Framework):")
@@ -3145,6 +3252,164 @@ class CavityMDSimulation:
             self.log_error(f"Failed to setup differential equation controller: {e}")
             self.log_error(f"Full traceback: {traceback.format_exc()}")
             self.diffeq_controller = None
+    
+    def _setup_lqr_controller(self):
+        """Set up LQR optimal temperature controller."""
+        if not self.enable_lqr_controller:
+            self.lqr_controller = None
+            return
+        
+        try:
+            # Choose controller type
+            controller_type = getattr(self, 'lqr_controller_type', 'standard')
+            
+            if controller_type == 'adaptive_lqi':
+                from .controller import AdaptiveLQIController
+                
+                # Create output file path
+                output_file = f"adaptive_lqi_control_replica_{self.replica}.csv"
+                params_file = f"adaptive_lqi_params_replica_{self.replica}.json"
+                
+                # Create Adaptive LQI controller
+                self.lqr_controller = AdaptiveLQIController(
+                    signal_temperature_method=self.lqr_signal_method,
+                    hot_temperature_method=self.lqr_hot_method,
+                    time_tracker=self.time_tracker,
+                    energy_tracker=getattr(self, 'energy_tracker', None),
+                    simulation=self.sim,
+                    molecular_thermostat=getattr(self, 'molecular_thermostat_obj', None),
+                    cavity_thermostat=getattr(self, 'cavity_thermostat_obj', None),
+                    temperature_tracker=getattr(self, 'temperature_tracker', None),
+                    target_temperature=self.lqr_target_temperature,
+                    dynamic_target=self.lqr_dynamic_target,
+                    dynamic_target_method=self.lqr_dynamic_target_method,
+                    tau_L_initial=getattr(self, 'lqr_tau_L_initial', 200.0),
+                    tau_H_initial=getattr(self, 'lqr_tau_H_initial', 30.0),
+                    k_initial=getattr(self, 'lqr_k_initial', 0.01),
+                    tau_b=getattr(self, 'lqr_tau_b', 1.0),
+                    q_common=getattr(self, 'lqr_q_common', 1000.0),
+                    q_diff=getattr(self, 'lqr_q_diff', 100.0),
+                    q_bath=self.lqr_weight_bath,
+                    q_eta_common=getattr(self, 'lqr_q_eta_common', 1e6),
+                    q_eta_diff=getattr(self, 'lqr_q_eta_diff', 10.0),
+                    control_effort=self.lqr_control_effort,
+                    process_noise_signal=self.lqr_process_noise_signal,
+                    process_noise_hot=self.lqr_process_noise_hot,
+                    process_noise_drift=getattr(self, 'lqr_process_noise_drift', 0.01),
+                    measurement_noise_signal=self.lqr_measurement_noise_signal,
+                    measurement_noise_hot=self.lqr_measurement_noise_hot,
+                    rls_forgetting_factor=getattr(self, 'lqr_rls_forgetting', 0.998),
+                    rls_regularization=getattr(self, 'lqr_rls_regularization', 1e-6),
+                    rls_update_interval=getattr(self, 'lqr_rls_update_interval', 50),
+                    max_control_rate=getattr(self, 'lqr_max_control_rate', 10.0),
+                    integral_max_common=getattr(self, 'lqr_integral_max_common', 1000.0),
+                    integral_max_diff=getattr(self, 'lqr_integral_max_diff', 100.0),
+                    T_min=self.lqr_T_min,
+                    T_max=self.lqr_T_max,
+                    theta_change_threshold=getattr(self, 'lqr_theta_change_threshold', 0.05),
+                    turn_on_time_ps=self.lqr_turn_on_time_ps,
+                    turn_off_time_ps=self.lqr_turn_off_time_ps,
+                    update_interval_ps=self.lqr_update_interval_ps,
+                    apply_to=self.lqr_apply_to,
+                    output_file=output_file,
+                    params_file=params_file,
+                    empirical_data_file=self.lqr_empirical_data_file or getattr(self, 'temp_tracker_empirical_data_file', None),
+                    console_output_period_ps=self.console_output_period_ps
+                )
+            else:
+                from .controller import LQRTemperatureController
+                
+                # Create output file path
+                output_file = f"lqr_control_replica_{self.replica}.csv"
+                system_id_file = f"lqr_system_params_replica_{self.replica}.json"
+                
+                # Create standard LQR controller
+                self.lqr_controller = LQRTemperatureController(
+                signal_temperature_method=self.lqr_signal_method,
+                hot_temperature_method=self.lqr_hot_method,
+                time_tracker=self.time_tracker,
+                energy_tracker=getattr(self, 'energy_tracker', None),
+                simulation=self.sim,
+                molecular_thermostat=getattr(self, 'molecular_thermostat_obj', None),
+                cavity_thermostat=getattr(self, 'cavity_thermostat_obj', None),
+                temperature_tracker=getattr(self, 'temperature_tracker', None),
+                target_temperature=self.lqr_target_temperature,
+                dynamic_target=self.lqr_dynamic_target,
+                dynamic_target_method=self.lqr_dynamic_target_method,
+                lqr_weight_signal=self.lqr_weight_signal,
+                lqr_weight_hot=self.lqr_weight_hot,
+                lqr_weight_bath=self.lqr_weight_bath,
+                lqr_weight_integral=self.lqr_weight_integral,
+                lqr_control_effort=self.lqr_control_effort,
+                process_noise_signal=self.lqr_process_noise_signal,
+                process_noise_hot=self.lqr_process_noise_hot,
+                measurement_noise_signal=self.lqr_measurement_noise_signal,
+                measurement_noise_hot=self.lqr_measurement_noise_hot,
+                system_id_mode=self.lqr_system_id_mode,
+                system_id_temp_K=self.lqr_system_id_temp_K,
+                system_id_duration_ps=self.lqr_system_id_duration_ps,
+                system_id_file=system_id_file if self.lqr_system_id_file == 'lqr_system_params.json' else self.lqr_system_id_file,
+                periodic_system_id=self.lqr_periodic_system_id,
+                periodic_system_id_interval_ps=self.lqr_periodic_system_id_interval_ps,
+                turn_on_time_ps=self.lqr_turn_on_time_ps,
+                turn_off_time_ps=self.lqr_turn_off_time_ps,
+                update_interval_ps=self.lqr_update_interval_ps,
+                T_min=self.lqr_T_min,
+                T_max=self.lqr_T_max,
+                apply_to=self.lqr_apply_to,
+                output_file=output_file if self.lqr_output_file == 'lqr_controller.csv' else self.lqr_output_file,
+                empirical_data_file=self.lqr_empirical_data_file or getattr(self, 'temp_tracker_empirical_data_file', None),
+                console_output_period_ps=self.console_output_period_ps
+            )
+            
+            # Add to simulation with appropriate trigger frequency
+            # CRITICAL: With adaptive timestep, dt changes during run!
+            # Use MINIMUM expected dt to ensure frequent enough sampling
+            dt_ps = PhysicalConstants.atomic_units_to_ps(self.sim.operations.integrator.dt)
+            steps_per_ps = 1.0 / dt_ps
+            
+            # For adaptive timestep, assume dt can be up to 50x larger than initial
+            # So divide trigger_steps by 50 to ensure we're called frequently enough
+            # This ensures we get called at least as often as requested
+            nominal_trigger_steps = max(1, int(self.lqr_update_interval_ps * steps_per_ps))
+            adaptive_safety_factor = 50  # Compensate for adaptive timestep growth (conservative)
+            trigger_steps = max(1, nominal_trigger_steps // adaptive_safety_factor)
+            
+            lqr_updater = hoomd.update.CustomUpdater(
+                action=self.lqr_controller,
+                trigger=hoomd.trigger.Periodic(trigger_steps)
+            )
+            self.sim.operations.updaters.append(lqr_updater)
+            
+            self.log_info(f"  Trigger: every {trigger_steps} steps (~{trigger_steps * dt_ps:.4f} ps at current dt)")
+            self.log_info(f"  (Adaptive timestep safety factor: {adaptive_safety_factor}x)")
+            
+            # Log controller type
+            if controller_type == 'adaptive_lqi':
+                self.log_info(f"✓ Adaptive LQI temperature controller enabled (mode-based two-output regulation)")
+            else:
+                self.log_info(f"✓ LQR optimal temperature controller enabled (standard)")
+            
+            self.log_info(f"  Controller type: {controller_type}")
+            self.log_info(f"  Signal method: {self.lqr_signal_method}")
+            self.log_info(f"  Hot method: {self.lqr_hot_method}")
+            self.log_info(f"  Target temperature: {self.lqr_target_temperature:.1f} K (dynamic={self.lqr_dynamic_target})")
+            if controller_type == 'standard':
+                self.log_info(f"  System ID mode: {self.lqr_system_id_mode}")
+            if self.lqr_system_id_mode == 'step':
+                self.log_info(f"  System ID: quench to {self.lqr_system_id_temp_K:.1f} K for {self.lqr_system_id_duration_ps:.1f} ps")
+            self.log_info(f"  LQR weights: signal={self.lqr_weight_signal:.1f}, hot={self.lqr_weight_hot:.1f}, integral={self.lqr_weight_integral:.1f}")
+            self.log_info(f"  Turn on time: {self.lqr_turn_on_time_ps:.1f} ps")
+            self.log_info(f"  Update interval: {self.lqr_update_interval_ps:.3f} ps")
+            self.log_info(f"  Apply to: {self.lqr_apply_to}")
+            if self.lqr_turn_off_time_ps is not None:
+                self.log_info(f"  Turn off time: {self.lqr_turn_off_time_ps:.1f} ps")
+            
+        except Exception as e:
+            import traceback
+            self.log_error(f"Failed to setup LQR controller: {e}")
+            self.log_error(f"Full traceback: {traceback.format_exc()}")
+            self.lqr_controller = None
     
     def _setup_temperature_tracker(self):
         """Set up comprehensive temperature tracker."""
@@ -3852,9 +4117,16 @@ class CavityMDSimulation:
             forces = self.setup_force_parameters(self.dt)
             molecular_method, cavity_method, thermostat_refs = self.setup_thermostat_parameters(self.dt)
             
-            # Store thermostat objects for empirical feedback
-            self.molecular_thermostat_obj = molecular_method
-            self.cavity_thermostat_obj = cavity_method
+            # Store thermostat objects (extract actual thermostats from methods or refs)
+            # For controllers, we need the actual thermostat objects, not the integration methods
+            self.molecular_thermostat_obj = (thermostat_refs.get('molecular_bussi') or 
+                                              thermostat_refs.get('molecular_langevin') or 
+                                              thermostat_refs.get('molecular_mttk') or 
+                                              molecular_method)
+            self.cavity_thermostat_obj = (thermostat_refs.get('cavity_bussi') or 
+                                           thermostat_refs.get('cavity_langevin') or 
+                                           thermostat_refs.get('cavity_mttk') or 
+                                           cavity_method)
             self.thermostat_refs = thermostat_refs
             
             # Set up quench controller now that thermostat objects exist

@@ -5741,8 +5741,12 @@ class AdaptiveBathTemperatureController(hoomd.custom.Action):
     console_output_period_ps : float, optional
         Console output period in picoseconds. Default: 1.0
     signal_temperature_method : str, optional
-        Temperature method for signal calculation. Options: 'harmonic_equipartition', 
+        Temperature method for control signal calculation. Options: 'harmonic_equipartition', 
         'kinetic', 'lj_coulombic', 'harmonic'. Default: 'harmonic_equipartition'
+    dynamic_target_temperature_method : str, optional
+        Temperature method for setting the dynamic target at turn-on. 
+        If None, uses signal_temperature_method. Options: 'harmonic_equipartition', 
+        'kinetic', 'lj_coulombic', 'harmonic'. Default: None (same as signal_temperature_method)
     """
     
     def __init__(self,
@@ -5764,7 +5768,8 @@ class AdaptiveBathTemperatureController(hoomd.custom.Action):
                  output_file: str = 'adaptive_bath_controller.csv',
                  empirical_data_file: Optional[str] = None,
                  console_output_period_ps: float = 1.0,
-                 signal_temperature_method: str = 'harmonic_equipartition'):
+                 signal_temperature_method: str = 'harmonic_equipartition',
+                 dynamic_target_temperature_method: Optional[str] = None):
         
         # Store configuration
         self.amplitude_scale = amplitude_scale
@@ -5786,6 +5791,8 @@ class AdaptiveBathTemperatureController(hoomd.custom.Action):
         self.empirical_data_file = empirical_data_file
         self.console_output_period_ps = console_output_period_ps
         self.signal_temperature_method = signal_temperature_method
+        # Default dynamic target method to signal method if not specified
+        self.dynamic_target_temperature_method = dynamic_target_temperature_method if dynamic_target_temperature_method is not None else signal_temperature_method
         
         # Initialize state
         self.is_active = False
@@ -5794,14 +5801,23 @@ class AdaptiveBathTemperatureController(hoomd.custom.Action):
         self.last_console_output_time = -1.0
         self.current_bath_temperature = None  # Will be initialized at turn-on
         
-        # Load empirical data if needed
-        self.empirical_data = None
-        if empirical_data_file and signal_temperature_method in ['lj_coulombic', 'harmonic']:
+        # Load empirical data if needed (for either control signal or dynamic target)
+        # Need separate empirical data objects for different energy components
+        self.empirical_data = None  # For lj_coulombic (backward compatibility)
+        self.empirical_data_harmonic = None  # For harmonic
+        
+        if empirical_data_file:
             try:
-                # EmpiricalTemperatureData is defined in this same module
-                # Use direct reference since we're in the same file
-                self.empirical_data = EmpiricalTemperatureData(empirical_data_file)
-                print(f"Loaded empirical data for {signal_temperature_method} signal temperature calculation")
+                # Load LJ+Coulombic empirical data if needed
+                if signal_temperature_method == 'lj_coulombic' or self.dynamic_target_temperature_method == 'lj_coulombic':
+                    self.empirical_data = EmpiricalTemperatureData(empirical_data_file, energy_component='lj_coulombic')
+                    print(f"Loaded LJ+Coulombic empirical data")
+                
+                # Load harmonic empirical data if needed
+                if signal_temperature_method == 'harmonic' or self.dynamic_target_temperature_method == 'harmonic':
+                    self.empirical_data_harmonic = EmpiricalTemperatureData(empirical_data_file, energy_component='harmonic')
+                    print(f"Loaded harmonic empirical data")
+                    
             except Exception as e:
                 print(f"Warning: Failed to load empirical data from {empirical_data_file}: {e}")
         
@@ -5826,16 +5842,17 @@ class AdaptiveBathTemperatureController(hoomd.custom.Action):
             print(f"Warning: Failed to initialize adaptive bath controller output file: {e}")
     
     def _set_dynamic_target(self, current_time_ps: float):
-        """Set dynamic target temperature based on current signal temperature."""
+        """Set dynamic target temperature based on current signal temperature at turn-on time."""
         if not self.dynamic_target or self.dynamic_target_set:
             return
         
-        # Calculate signal temperature at turn-on time
-        signal_temp = self._calculate_signal_temperature()
-        if signal_temp is not None and signal_temp > self.T_min:
-            self.target_temperature = signal_temp
+        # Calculate signal temperature at turn-on time using the dynamic target method
+        target_signal_temp = self._calculate_signal_temperature_with_method(self.dynamic_target_temperature_method)
+        if target_signal_temp is not None and target_signal_temp > self.T_min:
+            self.target_temperature = target_signal_temp
             self.dynamic_target_set = True
-            print(f"Adaptive bath controller: Dynamic target set to {self.target_temperature:.2f} K (signal temperature) at t = {current_time_ps:.2f} ps")
+            print(f"Adaptive bath controller: Dynamic target set to {self.target_temperature:.2f} K")
+            print(f"  Target method: {self.dynamic_target_temperature_method} at t = {current_time_ps:.2f} ps")
         else:
             # Fallback: try to get current bath temperature
             bath_temp = self._get_current_bath_temperature()
@@ -5847,22 +5864,47 @@ class AdaptiveBathTemperatureController(hoomd.custom.Action):
             self.dynamic_target_set = True
     
     def _calculate_signal_temperature(self):
-        """Calculate signal temperature using the specified method."""
-        print(f"DEBUG: AdaptiveBathController calculating signal temperature using method: {self.signal_temperature_method}")
+        """Calculate control signal temperature using the specified method."""
+        return self._calculate_signal_temperature_with_method(self.signal_temperature_method)
+    
+    def _calculate_signal_temperature_with_method(self, method: str):
+        """Calculate signal temperature using a specific method.
         
-        if self.signal_temperature_method == 'kinetic':
+        Parameters
+        ----------
+        method : str
+            Temperature calculation method: 'kinetic', 'harmonic_equipartition', 
+            'lj_coulombic', or 'harmonic'
+        
+        Returns
+        -------
+        float or None
+            Calculated temperature in Kelvin, or None if calculation fails
+        """
+        # Only print DEBUG every 100 calls to reduce output spam
+        if not hasattr(self, '_debug_counter'):
+            self._debug_counter = 0
+        self._debug_counter += 1
+        
+        debug_print = (self._debug_counter % 100 == 1)  # Print 1st, 101st, 201st, etc.
+        
+        if debug_print:
+            print(f"DEBUG: AdaptiveBathController calculating signal temperature using method: {method}")
+        
+        if method == 'kinetic':
             temp = self._calculate_kinetic_temperature()
-        elif self.signal_temperature_method == 'harmonic_equipartition':
+        elif method == 'harmonic_equipartition':
             temp = self._calculate_harmonic_equipartition_temperature()
-        elif self.signal_temperature_method == 'lj_coulombic':
+        elif method == 'lj_coulombic':
             temp = self._calculate_lj_coulombic_temperature()
-        elif self.signal_temperature_method == 'harmonic':
+        elif method == 'harmonic':
             temp = self._calculate_harmonic_fictive_temperature()
         else:
-            print(f"Warning: Unknown signal temperature method: {self.signal_temperature_method}")
+            print(f"Warning: Unknown signal temperature method: {method}")
             return None
         
-        print(f"DEBUG: Signal temperature calculated: {temp} K using method {self.signal_temperature_method}")
+        if debug_print:
+            print(f"DEBUG: Signal temperature calculated: {temp} K using method {method}")
         return temp
     
     def _calculate_kinetic_temperature(self):
@@ -5942,7 +5984,7 @@ class AdaptiveBathTemperatureController(hoomd.custom.Action):
     def _calculate_harmonic_fictive_temperature(self):
         """Calculate harmonic fictive temperature using empirical data."""
         try:
-            if not self.empirical_data or not self.energy_tracker:
+            if not self.empirical_data_harmonic or not self.energy_tracker:
                 return None
             
             energy_data = self.energy_tracker.get_instantaneous_energy()
@@ -5950,7 +5992,7 @@ class AdaptiveBathTemperatureController(hoomd.custom.Action):
             if harmonic_energy is None:
                 return None
             
-            return self.empirical_data.calculate_systemic_temperature(harmonic_energy)
+            return self.empirical_data_harmonic.calculate_systemic_temperature(harmonic_energy)
             
         except Exception as e:
             print(f"Warning: Failed to calculate harmonic fictive temperature: {e}")
