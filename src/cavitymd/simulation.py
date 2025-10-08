@@ -600,9 +600,35 @@ class CavityMDSimulation:
                  lqr_system_id_temp_K: float = 5.0,
                  lqr_system_id_duration_ps: float = 50.0,
                  lqr_system_id_file: str = 'lqr_system_params.json',
-                 lqr_periodic_system_id: bool = False,
-                 lqr_periodic_system_id_interval_ps: float = 1000.0,
-                 lqr_turn_on_time_ps: float = 0.0,
+                lqr_periodic_system_id: bool = False,
+                lqr_periodic_system_id_interval_ps: float = 1000.0,
+                # EKF-based adaptation parameters
+                lqr_use_ekf_adaptation: bool = True,
+                lqr_ekf_update_interval: int = 50,
+                lqr_ekf_process_noise_param: float = 0.001,
+                lqr_ekf_initial_covariance_param: float = 0.1,
+                lqr_adaptive_lqr_threshold: float = 0.05,
+                # Gain scheduling parameters
+                lqr_enable_gain_scheduling: bool = True,
+                lqr_gain_schedule_far_threshold: float = 20.0,
+                lqr_gain_schedule_near_threshold: float = 10.0,
+                # T_h low-pass filter parameters
+                lqr_th_filter_enabled: bool = True,
+                lqr_th_filter_time_constant: float = 20.0,
+                # Gentle startup parameters
+                lqr_gentle_startup_steps: int = 10,
+                lqr_gentle_startup_min_authority: float = 0.1,
+                # Kinetic temperature tracking (3D state augmentation)
+                lqr_track_kinetic_temp: bool = False,
+                lqr_weight_kinetic: float = 100.0,
+                lqr_process_noise_kinetic: float = 2.0,
+                lqr_measurement_noise_kinetic: float = 2.0,
+                # Cross-coupling weights for thermal equilibration (penalize temperature differences)
+                lqr_cross_coupling_signal_kinetic: float = 0.0,
+                lqr_cross_coupling_signal_hot: float = 0.0,
+                lqr_cross_coupling_hot_kinetic: float = 0.0,
+                # Timing and limits
+                lqr_turn_on_time_ps: float = 0.0,
                  lqr_turn_off_time_ps: Optional[float] = None,
                  lqr_update_interval_ps: float = 0.1,
                  lqr_T_min: float = 0.1,
@@ -915,6 +941,32 @@ class CavityMDSimulation:
         self.lqr_system_id_file = lqr_system_id_file
         self.lqr_periodic_system_id = lqr_periodic_system_id
         self.lqr_periodic_system_id_interval_ps = lqr_periodic_system_id_interval_ps
+        # EKF-based adaptation parameters
+        self.lqr_use_ekf_adaptation = lqr_use_ekf_adaptation
+        self.lqr_ekf_update_interval = lqr_ekf_update_interval
+        self.lqr_ekf_process_noise_param = lqr_ekf_process_noise_param
+        self.lqr_ekf_initial_covariance_param = lqr_ekf_initial_covariance_param
+        self.lqr_adaptive_lqr_threshold = lqr_adaptive_lqr_threshold
+        # Gain scheduling parameters
+        self.lqr_enable_gain_scheduling = lqr_enable_gain_scheduling
+        self.lqr_gain_schedule_far_threshold = lqr_gain_schedule_far_threshold
+        self.lqr_gain_schedule_near_threshold = lqr_gain_schedule_near_threshold
+        # T_h low-pass filter parameters
+        self.lqr_th_filter_enabled = lqr_th_filter_enabled
+        self.lqr_th_filter_time_constant = lqr_th_filter_time_constant
+        # Gentle startup parameters
+        self.lqr_gentle_startup_steps = lqr_gentle_startup_steps
+        self.lqr_gentle_startup_min_authority = lqr_gentle_startup_min_authority
+        # Kinetic temperature tracking (3D state augmentation)
+        self.lqr_track_kinetic_temp = lqr_track_kinetic_temp
+        self.lqr_weight_kinetic = lqr_weight_kinetic
+        self.lqr_process_noise_kinetic = lqr_process_noise_kinetic
+        self.lqr_measurement_noise_kinetic = lqr_measurement_noise_kinetic
+        # Cross-coupling weights
+        self.lqr_cross_coupling_signal_kinetic = lqr_cross_coupling_signal_kinetic
+        self.lqr_cross_coupling_signal_hot = lqr_cross_coupling_signal_hot
+        self.lqr_cross_coupling_hot_kinetic = lqr_cross_coupling_hot_kinetic
+        # Timing and limits
         self.lqr_turn_on_time_ps = lqr_turn_on_time_ps
         self.lqr_turn_off_time_ps = lqr_turn_off_time_ps
         self.lqr_update_interval_ps = lqr_update_interval_ps
@@ -3351,6 +3403,32 @@ class CavityMDSimulation:
                 system_id_file=system_id_file if self.lqr_system_id_file == 'lqr_system_params.json' else self.lqr_system_id_file,
                 periodic_system_id=self.lqr_periodic_system_id,
                 periodic_system_id_interval_ps=self.lqr_periodic_system_id_interval_ps,
+                # EKF-based adaptation
+                use_ekf_adaptation=self.lqr_use_ekf_adaptation,
+                ekf_update_interval=self.lqr_ekf_update_interval,
+                ekf_process_noise_param=self.lqr_ekf_process_noise_param,
+                ekf_initial_covariance_param=self.lqr_ekf_initial_covariance_param,
+                adaptive_lqr_threshold=self.lqr_adaptive_lqr_threshold,
+                # Gain scheduling
+                enable_gain_scheduling=self.lqr_enable_gain_scheduling,
+                gain_schedule_far_threshold=self.lqr_gain_schedule_far_threshold,
+                gain_schedule_near_threshold=self.lqr_gain_schedule_near_threshold,
+                # T_h low-pass filter
+                th_filter_enabled=self.lqr_th_filter_enabled,
+                th_filter_time_constant=self.lqr_th_filter_time_constant,
+                # Gentle startup
+                gentle_startup_steps=self.lqr_gentle_startup_steps,
+                gentle_startup_min_authority=self.lqr_gentle_startup_min_authority,
+                # Kinetic temperature tracking (3D state)
+                track_kinetic_temp=self.lqr_track_kinetic_temp,
+                weight_kinetic=self.lqr_weight_kinetic,
+                process_noise_kinetic=self.lqr_process_noise_kinetic,
+                measurement_noise_kinetic=self.lqr_measurement_noise_kinetic,
+                # Cross-coupling weights for thermal equilibration
+                cross_coupling_signal_kinetic=self.lqr_cross_coupling_signal_kinetic,
+                cross_coupling_signal_hot=self.lqr_cross_coupling_signal_hot,
+                cross_coupling_hot_kinetic=self.lqr_cross_coupling_hot_kinetic,
+                # Timing and limits
                 turn_on_time_ps=self.lqr_turn_on_time_ps,
                 turn_off_time_ps=self.lqr_turn_off_time_ps,
                 update_interval_ps=self.lqr_update_interval_ps,
@@ -3398,7 +3476,11 @@ class CavityMDSimulation:
                 self.log_info(f"  System ID mode: {self.lqr_system_id_mode}")
             if self.lqr_system_id_mode == 'step':
                 self.log_info(f"  System ID: quench to {self.lqr_system_id_temp_K:.1f} K for {self.lqr_system_id_duration_ps:.1f} ps")
-            self.log_info(f"  LQR weights: signal={self.lqr_weight_signal:.1f}, hot={self.lqr_weight_hot:.1f}, integral={self.lqr_weight_integral:.1f}")
+            if self.lqr_track_kinetic_temp:
+                self.log_info(f"  LQR weights: signal={self.lqr_weight_signal:.1f}, hot={self.lqr_weight_hot:.1f}, kinetic={self.lqr_weight_kinetic:.1f}, integral={self.lqr_weight_integral:.1f}")
+                self.log_info(f"  3D State Augmentation: ENABLED (tracking kinetic temperature)")
+            else:
+                self.log_info(f"  LQR weights: signal={self.lqr_weight_signal:.1f}, hot={self.lqr_weight_hot:.1f}, integral={self.lqr_weight_integral:.1f}")
             self.log_info(f"  Turn on time: {self.lqr_turn_on_time_ps:.1f} ps")
             self.log_info(f"  Update interval: {self.lqr_update_interval_ps:.3f} ps")
             self.log_info(f"  Apply to: {self.lqr_apply_to}")

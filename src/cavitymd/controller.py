@@ -25,6 +25,297 @@ except ImportError:
 from .utils import PhysicalConstants
 
 
+class ParameterEKF:
+    """
+    Extended Kalman Filter for online system parameter estimation.
+    
+    This class implements an EKF that treats system parameters as augmented states,
+    allowing for robust online identification of time-varying dynamics.
+    
+    Augmented State Vector:
+    -----------------------
+    z = [x_s, x_h, a11, a12, a21, a22, b1, b2]^T  (8-dimensional)
+    
+    Where:
+    - x_s, x_h: Physical states (signal and hot temperatures)
+    - a11, a12, a21, a22: Elements of discrete-time A matrix (2x2)
+    - b1, b2: Elements of discrete-time B vector (2x1)
+    
+    Dynamics:
+    ---------
+    Physical states evolve according to identified parameters:
+        x[k+1] = A(θ[k]) @ x[k] + B(θ[k]) @ u[k] + w_x
+    
+    Parameters drift slowly (random walk model):
+        θ[k+1] = θ[k] + w_θ
+    
+    Measurement model (only physical states are measured):
+        y[k] = C @ x[k] + v
+        where C = [I_2×2 | 0_2×6] extracts [x_s, x_h] from augmented state
+    
+    Parameters
+    ----------
+    dt : float
+        Sampling time (ps)
+    process_noise_state : float
+        Process noise std for physical states (K)
+    process_noise_param : float
+        Process noise std for parameters (unitless)
+    measurement_noise : float
+        Measurement noise std (K)
+    initial_covariance_state : float
+        Initial uncertainty in states (K²)
+    initial_covariance_param : float
+        Initial uncertainty in parameters (unitless²)
+    """
+    
+    def __init__(
+        self,
+        dt: float,
+        process_noise_state: float = 0.1,
+        process_noise_param: float = 0.01,
+        measurement_noise_signal: float = 0.5,
+        measurement_noise_hot: float = 0.5,
+        initial_covariance_state: float = 1.0,
+        initial_covariance_param: float = 0.1
+    ):
+        """Initialize EKF for parameter estimation."""
+        self.dt = dt
+        
+        # Augmented state: z = [x_s, x_h, a11, a12, a21, a22, b1, b2]
+        self.z_hat = np.zeros((8, 1))  # State estimate
+        
+        # Covariance matrix P (8x8)
+        self.P = np.eye(8)
+        self.P[:2, :2] *= initial_covariance_state  # State uncertainty
+        self.P[2:, 2:] *= initial_covariance_param  # Parameter uncertainty
+        
+        # Process noise covariance Q (8x8)
+        self.Q = np.eye(8)
+        self.Q[:2, :2] *= process_noise_state**2  # State process noise
+        self.Q[2:, 2:] *= process_noise_param**2  # Parameter drift noise
+        
+        # Measurement noise covariance R (2x2)
+        self.R = np.diag([measurement_noise_signal**2, measurement_noise_hot**2])
+        
+        # Measurement matrix H (2x8): extracts [x_s, x_h] from augmented state
+        self.H = np.zeros((2, 8))
+        self.H[0, 0] = 1.0  # Measure x_s
+        self.H[1, 1] = 1.0  # Measure x_h
+        
+        # Statistics
+        self.num_updates = 0
+        self.innovation_history = []
+    
+    def initialize(self, x_initial: np.ndarray, A_initial: np.ndarray, B_initial: np.ndarray):
+        """
+        Initialize the augmented state with initial estimates.
+        
+        Parameters
+        ----------
+        x_initial : np.ndarray, shape (2, 1)
+            Initial state [x_s, x_h]
+        A_initial : np.ndarray, shape (2, 2)
+            Initial A matrix estimate
+        B_initial : np.ndarray, shape (2, 1)
+            Initial B vector estimate
+        """
+        self.z_hat[0:2, 0] = x_initial.flatten()
+        self.z_hat[2:6, 0] = A_initial.flatten()  # [a11, a12, a21, a22]
+        self.z_hat[6:8, 0] = B_initial.flatten()  # [b1, b2]
+    
+    def predict(self, u_current: float):
+        """
+        EKF prediction step: propagate state and covariance forward.
+        
+        Nonlinear state dynamics:
+            x[k+1] = A(θ[k]) @ x[k] + B(θ[k]) @ u[k]
+            θ[k+1] = θ[k]  (parameters constant between measurements)
+        
+        Parameters
+        ----------
+        u_current : float
+            Current control input (bath temperature deviation)
+        """
+        # Extract current estimates
+        x_hat = self.z_hat[0:2, 0].reshape(2, 1)
+        A_hat = self.z_hat[2:6, 0].reshape(2, 2)
+        B_hat = self.z_hat[6:8, 0].reshape(2, 1)
+        
+        # Predict next physical state (nonlinear!)
+        x_hat_next = A_hat @ x_hat + B_hat * u_current
+        
+        # Parameters remain constant (random walk)
+        # z_hat_next = [x_hat_next; A_hat; B_hat]
+        self.z_hat[0:2, 0] = x_hat_next.flatten()
+        # Parameters unchanged: z_hat[2:8] stays same
+        
+        # Compute Jacobian F of state transition w.r.t. augmented state
+        F = self._compute_jacobian(x_hat, A_hat, B_hat, u_current)
+        
+        # Propagate covariance: P[k+1|k] = F @ P @ F^T + Q
+        self.P = F @ self.P @ F.T + self.Q
+    
+    def update(self, y_measured: np.ndarray):
+        """
+        EKF measurement update step: correct state estimate with measurement.
+        
+        Parameters
+        ----------
+        y_measured : np.ndarray, shape (2, 1)
+            Measured physical states [x_s_meas, x_h_meas]
+        """
+        # Innovation: e = y - H @ z_hat
+        y_pred = self.H @ self.z_hat
+        innovation = y_measured - y_pred
+        
+        # Innovation covariance: S = H @ P @ H^T + R
+        S = self.H @ self.P @ self.H.T + self.R
+        
+        # Kalman gain: K = P @ H^T @ S^{-1}
+        K_gain = self.P @ self.H.T @ np.linalg.inv(S)
+        
+        # State update: z_hat = z_hat + K @ e
+        self.z_hat = self.z_hat + K_gain @ innovation
+        
+        # Covariance update: P = (I - K @ H) @ P
+        I = np.eye(8)
+        self.P = (I - K_gain @ self.H) @ self.P
+        
+        # Track innovation for diagnostics
+        self.innovation_history.append(np.linalg.norm(innovation))
+        if len(self.innovation_history) > 100:
+            self.innovation_history.pop(0)
+        
+        self.num_updates += 1
+    
+    def _compute_jacobian(
+        self,
+        x: np.ndarray,
+        A: np.ndarray,
+        B: np.ndarray,
+        u: float
+    ) -> np.ndarray:
+        """
+        Compute Jacobian F of augmented state dynamics.
+        
+        F = ∂f/∂z where f(z, u) is the nonlinear state transition function.
+        
+        Structure (8x8):
+            ┌────────────┬─────────────────────────────┬──────────┐
+            │  ∂x'/∂x    │         ∂x'/∂A             │  ∂x'/∂B  │
+            │   (2x2)    │         (2x4)               │  (2x2)   │
+            ├────────────┼─────────────────────────────┼──────────┤
+            │   0        │          I_4                │    0     │
+            │  (4x2)     │         (4x4)               │  (4x2)   │
+            ├────────────┼─────────────────────────────┼──────────┤
+            │   0        │           0                 │   I_2    │
+            │  (2x2)     │         (2x4)               │  (2x2)   │
+            └────────────┴─────────────────────────────┴──────────┘
+        
+        Returns
+        -------
+        F : np.ndarray, shape (8, 8)
+            Jacobian matrix
+        """
+        F = np.eye(8)  # Start with identity (parameters don't change)
+        
+        # Top-left block: ∂x'/∂x = A
+        F[0:2, 0:2] = A
+        
+        # Top-middle block: ∂x'/∂A = [x^T ⊗ I_2]
+        # For x' = A @ x + B @ u, we have ∂x'/∂A = [x^T, 0; 0, x^T]
+        x_flat = x.flatten()
+        F[0, 2:4] = x_flat  # ∂x'_s/∂[a11, a12]
+        F[1, 4:6] = x_flat  # ∂x'_h/∂[a21, a22]
+        
+        # Top-right block: ∂x'/∂B = u * I_2
+        F[0:2, 6:8] = u * np.eye(2)
+        
+        # Lower blocks remain identity (parameters unchanged)
+        
+        return F
+    
+    def get_state_estimate(self) -> np.ndarray:
+        """
+        Get estimated physical states [x_s, x_h].
+        
+        Returns
+        -------
+        x_hat : np.ndarray, shape (2, 1)
+            State estimate
+        """
+        return self.z_hat[0:2, :].copy()
+    
+    def get_parameter_estimates(self) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Get estimated system matrices A and B.
+        
+        Returns
+        -------
+        A_hat : np.ndarray, shape (2, 2)
+            Estimated A matrix
+        B_hat : np.ndarray, shape (2, 1)
+            Estimated B vector
+        """
+        A_hat = self.z_hat[2:6, 0].reshape(2, 2)
+        B_hat = self.z_hat[6:8, 0].reshape(2, 1)
+        return A_hat.copy(), B_hat.copy()
+    
+    def get_parameter_uncertainty(self) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Get parameter uncertainties (standard deviations).
+        
+        Returns
+        -------
+        A_std : np.ndarray, shape (2, 2)
+            Standard deviations of A elements
+        B_std : np.ndarray, shape (2, 1)
+            Standard deviations of B elements
+        """
+        A_var = np.diag(self.P[2:6, 2:6])
+        B_var = np.diag(self.P[6:8, 6:8])
+        
+        A_std = np.sqrt(np.maximum(A_var, 0)).reshape(2, 2)
+        B_std = np.sqrt(np.maximum(B_var, 0)).reshape(2, 1)
+        
+        return A_std, B_std
+    
+    def is_stable(self) -> bool:
+        """
+        Check if estimated A matrix is stable (eigenvalues < 1).
+        
+        Returns
+        -------
+        stable : bool
+            True if all eigenvalues have magnitude < 0.99
+        """
+        A_hat, _ = self.get_parameter_estimates()
+        try:
+            eigs = np.linalg.eigvals(A_hat)
+            return np.max(np.abs(eigs)) < 0.99
+        except:
+            return False
+    
+    def get_innovation_statistics(self) -> Dict[str, float]:
+        """
+        Get statistics on innovation magnitude for diagnostics.
+        
+        Returns
+        -------
+        stats : dict
+            Dictionary with 'mean' and 'std' of recent innovations
+        """
+        if len(self.innovation_history) < 5:
+            return {'mean': 0.0, 'std': 0.0}
+        
+        innovations = np.array(self.innovation_history)
+        return {
+            'mean': float(np.mean(innovations)),
+            'std': float(np.std(innovations))
+        }
+
+
 class LQRTemperatureController(hoomd.custom.Action):
     """
     LQR-based optimal temperature controller with Kalman filter and integral action.
@@ -220,7 +511,29 @@ class LQRTemperatureController(hoomd.custom.Action):
                  apply_to: str = 'both',
                  output_file: str = 'lqr_controller.csv',
                  empirical_data_file: Optional[str] = None,
-                 console_output_period_ps: float = 1.0):
+                 console_output_period_ps: float = 1.0,
+                 use_ekf_adaptation: bool = True,
+                 ekf_update_interval: int = 50,
+                 ekf_process_noise_param: float = 0.001,
+                 ekf_initial_covariance_param: float = 0.1,
+                 adaptive_lqr_threshold: float = 0.05,
+                 enable_gain_scheduling: bool = True,
+                 gain_schedule_far_threshold: float = 20.0,
+                 gain_schedule_near_threshold: float = 10.0,
+                 th_filter_enabled: bool = True,
+                 th_filter_time_constant: float = 20.0,
+                 # Gentle startup parameters
+                 gentle_startup_steps: int = 10,
+                 gentle_startup_min_authority: float = 0.1,
+                # Kinetic temperature tracking (3D state augmentation)
+                track_kinetic_temp: bool = False,
+                weight_kinetic: float = 100.0,
+                process_noise_kinetic: float = 2.0,
+                measurement_noise_kinetic: float = 2.0,
+                # Cross-coupling weights for thermal equilibration
+                cross_coupling_signal_kinetic: float = 0.0,
+                cross_coupling_signal_hot: float = 0.0,
+                cross_coupling_hot_kinetic: float = 0.0):
         
         if not HAS_SCIPY:
             raise ImportError("LQR controller requires scipy. Please install: pip install scipy")
@@ -241,12 +554,18 @@ class LQRTemperatureController(hoomd.custom.Action):
         self.dynamic_target_method = dynamic_target_method or signal_temperature_method
         self.target_set = False
         
-        # LQR weights
+        # LQR weights (LQG formulation: 2D state [x_s, x_h], 1D control [u_bath])
         self.lqr_weight_signal = lqr_weight_signal
         self.lqr_weight_hot = lqr_weight_hot
-        self.lqr_weight_bath = lqr_weight_bath
+        self.lqr_weight_bath = lqr_weight_bath  # DEPRECATED: not used in LQG 2D formulation
         self.lqr_weight_integral = lqr_weight_integral
         self.lqr_control_effort = lqr_control_effort
+        
+        # Warn if deprecated parameter is being used
+        if lqr_weight_bath != 0.1:  # Check if user changed from default
+            print(f"⚠ WARNING: lqr_weight_bath={lqr_weight_bath} is DEPRECATED in LQG 2D formulation")
+            print(f"  Bath temperature is now the control input, not a state variable.")
+            print(f"  This parameter is ignored. Use lqr_control_effort to penalize control action.")
         
         # Kalman filter noise parameters
         self.process_noise_signal = process_noise_signal
@@ -304,36 +623,92 @@ class LQRTemperatureController(hoomd.custom.Action):
             'time': [],
             'x_s': [],
             'x_h': [],
+            'x_kin': [],  # Kinetic temperature (only used if track_kinetic_temp=True)
             'x_c': [],
             'u': []
         }
         
         # System matrices (to be identified or loaded)
-        self.A_d = None  # Discrete-time state matrix (3x3)
-        self.B_d = None  # Discrete-time input matrix (3x1)
-        self.C = np.array([[1.0, 0.0, 0.0],  # Measure x_s
-                          [0.0, 1.0, 0.0]])  # Measure x_h
+        # LQG formulation: x = [x_s, x_h] (2D state), u = x_c (1D control input)
+        self.A_d = None  # Discrete-time state matrix (state_dim x state_dim)
+        self.B_d = None  # Discrete-time input matrix (state_dim x 1)
+        self.C = None  # Measurement matrix (state_dim x state_dim) - will be set after track_kinetic_temp is known
         
         # Control gains (to be computed)
-        self.K = None  # LQR state feedback gain
-        self.k_I = None  # Integral gain
-        self.L = None  # Kalman filter gain
+        self.K = None  # LQR state feedback gain (1 x state_dim+1): acts on [x_s, x_h, ξ] or [x_s, x_h, x_kin, ξ]
+        self.L = None  # Kalman filter gain (state_dim x state_dim): estimates [x_s, x_h] or [x_s, x_h, x_kin]
         
-        # State estimates
-        self.x_hat = np.zeros((3, 1))  # [x_s, x_h, x_c]
-        self.xi_hat = np.zeros((1, 1))  # Integral state
+        # Kinetic temperature tracking (3D state augmentation) - must be set before state init
+        self.track_kinetic_temp = track_kinetic_temp  # Enable kinetic temp as 3rd state
+        self.weight_kinetic = weight_kinetic  # LQR weight for kinetic temperature
+        self.process_noise_kinetic = process_noise_kinetic  # Kalman process noise for T_kin
+        self.measurement_noise_kinetic = measurement_noise_kinetic  # Kalman measurement noise for T_kin
+        self.T_kin_filtered = None  # Low-pass filtered kinetic temperature
         
-        # Adaptive control: online parameter estimation with RLS
+        # Cross-coupling weights for thermal equilibration
+        # Penalties on pairwise temperature differences (T_i - T_j)²
+        self.cross_coupling_signal_kinetic = cross_coupling_signal_kinetic
+        self.cross_coupling_signal_hot = cross_coupling_signal_hot
+        self.cross_coupling_hot_kinetic = cross_coupling_hot_kinetic
+        
+        # Determine state dimension based on tracking options
+        # 2D: [x_s, x_h], 3D: [x_s, x_h, x_kin]
+        if track_kinetic_temp:
+            self.state_dim = 3  # 3D: [x_s, x_h, x_kin]
+        else:
+            self.state_dim = 2  # 2D: [x_s, x_h]
+        
+        # Set measurement matrix based on state dimension
+        if self.state_dim == 2:
+            self.C = np.array([[1.0, 0.0],  # Measure x_s
+                              [0.0, 1.0]])  # Measure x_h
+        else:  # 3D state
+            self.C = np.array([[1.0, 0.0, 0.0],  # Measure x_s
+                              [0.0, 1.0, 0.0],  # Measure x_h
+                              [0.0, 0.0, 1.0]])  # Measure x_kin
+        
+        # State estimates (size depends on state_dim)
+        self.x_hat = np.zeros((self.state_dim, 1))  # [x_s, x_h] or [x_s, x_h, x_kin]
+        self.xi_hat = np.zeros((1, 1))  # Integral state: ξ = ∫(x_s)dt
+        
+        # Low-pass filter for T_h measurement noise suppression
+        self.T_h_filtered = None  # Exponential moving average of hot temperature
+        self.T_h_filter_enabled = th_filter_enabled  # Enable low-pass filtering on T_h
+        self.T_h_filter_time_constant = th_filter_time_constant  # ps (filters out oscillations faster than ~20ps)
+        
+        # Adaptive control: online parameter estimation with EKF or RLS
+        self.use_ekf_adaptation = use_ekf_adaptation  # Use EKF (True) or RLS (False)
         self.enable_adaptation = True  # Enable adaptive LQR
         self.adaptation_window = 200  # Number of samples for RLS window
         self.adaptation_interval = 50  # Update parameters every N samples
         self.adaptation_counter = 0
         self.rls_data_buffer = {
-            'x': [],  # State vectors [x_s, x_h, x_c]
+            'x': [],  # State vectors [x_s, x_h]
             'u': [],  # Control inputs
             'x_next': []  # Next states
         }
         self.rls_regularization = 1e-6  # Ridge regression for numerical stability
+        
+        # EKF-based adaptation parameters
+        self.ekf_update_interval = ekf_update_interval  # Update EKF every N control steps
+        self.ekf_process_noise_param = ekf_process_noise_param  # Parameter drift noise
+        self.ekf_initial_covariance_param = ekf_initial_covariance_param  # Initial parameter uncertainty
+        self.parameter_ekf = None  # Will be initialized after system ID
+        
+        # Adaptive LQR redesign
+        self.adaptive_lqr_threshold = adaptive_lqr_threshold  # Re-design LQR if ||θ_new - θ_old||/||θ_old|| > threshold
+        self.last_lqr_redesign_params = None  # Track when LQR was last re-designed
+        self.num_lqr_redesigns = 0  # Counter for LQR redesigns
+        
+        # Gain scheduling
+        self.enable_gain_scheduling = enable_gain_scheduling  # Enable gain scheduling
+        self.gain_schedule_far_threshold = gain_schedule_far_threshold  # |T_h - T_s| > this → full gain
+        self.gain_schedule_near_threshold = gain_schedule_near_threshold  # |T_h - T_s| < this → reduced gain
+        self.gain_schedule_alpha = 1.0  # Current gain scheduling factor
+        
+        # Gentle startup parameters
+        self.gentle_startup_steps = gentle_startup_steps  # Number of steps to ramp up (default: 10)
+        self.gentle_startup_min_authority = gentle_startup_min_authority  # Starting authority fraction (default: 0.1 = 10%)
         
         # Adaptive noise estimation
         self.noise_estimation_window = 100  # Samples for variance estimation
@@ -351,7 +726,7 @@ class LQRTemperatureController(hoomd.custom.Action):
         
         # Adaptation statistics
         self.num_adaptations = 0
-        self.last_r_squared = [0.0, 0.0, 1.0]  # Track model quality
+        self.last_r_squared = [0.0, 0.0]  # Track model quality (2D state system)
         
         # Control rate limiting
         self.max_control_rate = 10.0  # Maximum K/ps change (safety)
@@ -484,10 +859,19 @@ class LQRTemperatureController(hoomd.custom.Action):
             self.system_id_sample_count = 0
             self.system_id_current_step = 0  # Track which excitation step we're on
             
+            # SAVE current bath temperature before system ID
+            # Excitations will be relative to THIS, not the target
+            current_bath_temp = self._get_current_bath_temperature()
+            if current_bath_temp is None:
+                print(f"⚠ WARNING: Could not read current bath temperature, using target")
+                current_bath_temp = self.target_temperature
+            self.bath_temp_before_system_id = current_bath_temp
+            
             print(f"\n{'='*70}")
             print(f"System Identification Phase Started")
             print(f"{'='*70}")
-            print(f"Target temperature: {self.target_temperature:.1f} K")
+            print(f"True target temperature: {self.target_temperature:.1f} K (will be restored later)")
+            print(f"Current bath temperature: {current_bath_temp:.1f} K (excitations relative to this)")
             print(f"Mode: {self.system_id_mode}")
             print(f"Duration: {self.system_id_duration_ps} ps")
             print(f"NOTE: Using adaptive timestep - collecting ALL samples regardless of dt")
@@ -498,16 +882,16 @@ class LQRTemperatureController(hoomd.custom.Action):
                 # Each step is 1/4 of total duration
                 step_duration = self.system_id_duration_ps / 4.0
                 
-                # Define 4 excitation levels (relative to target):
+                # Define 4 excitation levels (relative to CURRENT bath temp):
                 # Step 1: Down (cooling)
-                # Step 2: Up (heating above target)  
+                # Step 2: Up (heating)  
                 # Step 3: Down again (different magnitude)
-                # Step 4: Return to target
+                # Step 4: Return to current
                 excitation_magnitudes = [
-                    -self.system_id_temp_K,      # -10K: cool down
-                    +self.system_id_temp_K * 0.7, # +7K: heat up
-                    -self.system_id_temp_K * 0.5, # -5K: cool slightly
-                    0.0                           # 0K: return to target
+                    -self.system_id_temp_K,      # -5K: cool down
+                    +self.system_id_temp_K * 0.7, # +3.5K: heat up
+                    -self.system_id_temp_K * 0.5, # -2.5K: cool slightly
+                    0.0                           # 0K: return to current
                 ]
                 
                 self.system_id_steps = [
@@ -515,41 +899,41 @@ class LQRTemperatureController(hoomd.custom.Action):
                         'start_time': 0.0,
                         'duration': step_duration,
                         'excitation': excitation_magnitudes[0],
-                        'temperature': self.target_temperature + excitation_magnitudes[0]
+                        'temperature': current_bath_temp + excitation_magnitudes[0]
                     },
                     {
                         'start_time': step_duration,
                         'duration': step_duration,
                         'excitation': excitation_magnitudes[1],
-                        'temperature': self.target_temperature + excitation_magnitudes[1]
+                        'temperature': current_bath_temp + excitation_magnitudes[1]
                     },
                     {
                         'start_time': 2 * step_duration,
                         'duration': step_duration,
                         'excitation': excitation_magnitudes[2],
-                        'temperature': self.target_temperature + excitation_magnitudes[2]
+                        'temperature': current_bath_temp + excitation_magnitudes[2]
                     },
                     {
                         'start_time': 3 * step_duration,
                         'duration': step_duration,
                         'excitation': excitation_magnitudes[3],
-                        'temperature': self.target_temperature + excitation_magnitudes[3]
+                        'temperature': current_bath_temp + excitation_magnitudes[3]
                     }
                 ]
                 
-                print(f"\nMulti-Step Excitation Sequence:")
+                print(f"\nMulti-Step Excitation Sequence (relative to current bath {current_bath_temp:.1f}K):")
                 print(f"  Step 1 (0-{step_duration:.1f}ps):     T = {self.system_id_steps[0]['temperature']:.1f}K (Δ={excitation_magnitudes[0]:+.1f}K)")
                 print(f"  Step 2 ({step_duration:.1f}-{2*step_duration:.1f}ps): T = {self.system_id_steps[1]['temperature']:.1f}K (Δ={excitation_magnitudes[1]:+.1f}K)")
                 print(f"  Step 3 ({2*step_duration:.1f}-{3*step_duration:.1f}ps): T = {self.system_id_steps[2]['temperature']:.1f}K (Δ={excitation_magnitudes[2]:+.1f}K)")
                 print(f"  Step 4 ({3*step_duration:.1f}-{self.system_id_duration_ps:.1f}ps): T = {self.system_id_steps[3]['temperature']:.1f}K (Δ={excitation_magnitudes[3]:+.1f}K)")
-                print(f"  → 4 excitations, both heating & cooling, multiple magnitudes")
+                print(f"  → 4 excitations, both heating & cooling, returning to current bath temp")
                 
             else:  # 'step' mode (traditional single quench)
-                desired_quench_temp = self.target_temperature - self.system_id_temp_K
+                desired_quench_temp = current_bath_temp - self.system_id_temp_K
                 actual_quench_temp = max(self.T_min * 2.0, desired_quench_temp)
-                actual_quench_magnitude = self.target_temperature - actual_quench_temp
+                actual_quench_magnitude = current_bath_temp - actual_quench_temp
                 
-                print(f"Requested quench magnitude: {self.system_id_temp_K:.1f} K")
+                print(f"Requested quench magnitude: {self.system_id_temp_K:.1f} K (relative to current)")
                 if actual_quench_temp != desired_quench_temp:
                     print(f"⚠ WARNING: Quench limited to prevent negative temperature!")
                     print(f"  Desired: {desired_quench_temp:.1f} K → Limited to: {actual_quench_temp:.1f} K")
@@ -586,12 +970,22 @@ class LQRTemperatureController(hoomd.custom.Action):
         # Measure temperatures (raw)
         signal_temp_raw = self._measure_temperature(self.signal_temperature_method, current_time_ps)
         hot_temp_raw = self._measure_temperature(self.hot_temperature_method, current_time_ps)
+        kinetic_temp_raw = self._measure_temperature('kinetic', current_time_ps) if self.track_kinetic_temp else None
         bath_temp = self._get_current_bath_temperature()
         
-        if signal_temp_raw is not None and hot_temp_raw is not None and bath_temp is not None:
+        # Check if we have all required measurements
+        required_temps_valid = (signal_temp_raw is not None and hot_temp_raw is not None and bath_temp is not None)
+        if self.track_kinetic_temp:
+            required_temps_valid = required_temps_valid and (kinetic_temp_raw is not None)
+        
+        if required_temps_valid:
             # Apply median filter for outlier rejection during system ID
             signal_temp = self._apply_median_filter(signal_temp_raw, self.temp_buffer_signal, self.median_filter_window)
             hot_temp = self._apply_median_filter(hot_temp_raw, self.temp_buffer_hot, self.median_filter_window)
+            if self.track_kinetic_temp:
+                kinetic_temp = self._apply_median_filter(kinetic_temp_raw, self.temp_buffer_signal, self.median_filter_window)
+            else:
+                kinetic_temp = None
             
             # Store deviations from target
             # Get current excitation magnitude
@@ -601,6 +995,10 @@ class LQRTemperatureController(hoomd.custom.Action):
             self.system_id_data['time'].append(elapsed_time)
             self.system_id_data['x_s'].append(signal_temp - self.target_temperature)
             self.system_id_data['x_h'].append(hot_temp - self.target_temperature)
+            if self.track_kinetic_temp:
+                self.system_id_data['x_kin'].append(kinetic_temp - self.target_temperature)
+            else:
+                self.system_id_data['x_kin'].append(0.0)  # Placeholder for 2D mode
             self.system_id_data['x_c'].append(bath_temp - self.target_temperature)
             self.system_id_data['u'].append(control_deviation)
             self.system_id_sample_count += 1
@@ -643,62 +1041,202 @@ class LQRTemperatureController(hoomd.custom.Action):
             self.last_system_id_completion_time = current_time_ps
             self.system_id_count += 1
             
+            # RESTORE bath temperature to pre-system-ID value
+            # This ensures smooth transition back to control from wherever we left off
+            if hasattr(self, 'bath_temp_before_system_id'):
+                restore_temp = self.bath_temp_before_system_id
+                print(f"\n{'='*70}")
+                print(f"Restoring Bath Temperature")
+                print(f"{'='*70}")
+                print(f"Restoring bath to pre-system-ID value: {restore_temp:.1f} K")
+                print(f"True target temperature (unchanged): {self.target_temperature:.1f} K")
+                print(f"Controller will regulate toward target from this starting point.")
+                self._update_thermostats(restore_temp)
+            
             # Transition to control phase
             self.phase = 'control'
             self.num_updates = 0  # Reset gentle startup counter
             
-            # CRITICAL: Reset state estimates to prevent aggressive control with new gains
-            # The new K and k_I gains should be applied to fresh state estimates
-            self.x_hat = np.zeros((3, 1))  # Reset state estimate [x_s, x_h, x_c]
-            self.xi_hat = np.zeros((1, 1))  # Reset integral state
-            self.u_prev_temp = None  # Reset rate limiter memory
+            # Initialize state estimates from CURRENT measurements for smooth handoff
+            # This prevents aggressive control from assuming we're at target when we're not
+            signal_temp_now = self._measure_temperature(self.signal_temperature_method, current_time_ps)
+            hot_temp_now = self._measure_temperature(self.hot_temperature_method, current_time_ps)
+            kinetic_temp_now = self._measure_temperature('kinetic', current_time_ps) if self.track_kinetic_temp else None
             
-            print(f"\n{'='*70}")
+            # Check if we have all required measurements
+            required_temps_valid = (signal_temp_now is not None and hot_temp_now is not None)
+            if self.track_kinetic_temp:
+                required_temps_valid = required_temps_valid and (kinetic_temp_now is not None)
+            
+            if required_temps_valid:
+                # Initialize state estimates as deviations from target
+                x_s_init = signal_temp_now - self.target_temperature
+                x_h_init = hot_temp_now - self.target_temperature
+                
+                if self.track_kinetic_temp:
+                    x_kin_init = kinetic_temp_now - self.target_temperature
+                    self.x_hat = np.array([[x_s_init], [x_h_init], [x_kin_init]])
+                else:
+                    self.x_hat = np.array([[x_s_init], [x_h_init]])
+                
+                # RESET INTEGRAL STATE: Simple and robust approach
+                # After system ID, we have new system matrices and gains.
+                # Reset integral to zero and let the controller naturally settle.
+                # Gentle startup (10% → 100% ramp) provides damping to prevent aggressive transients.
+                if hasattr(self, 'bath_temp_before_system_id'):
+                    T_bath_current = self.bath_temp_before_system_id
+                    
+                    # Reset integral state to zero (fresh start with new controller)
+                    self.xi_hat = np.zeros((1, 1))
+                    
+                    # Reset gain scheduling to initial state
+                    self.gain_schedule_alpha = 1.0
+                    
+                    print(f"\n{'='*70}")
+                    print(f"Controller Re-initialization After System ID")
+                    print(f"{'='*70}")
+                    print(f"Signal temp: {signal_temp_now:.2f}K → x_s = {x_s_init:+.2f}K")
+                    print(f"Hot temp: {hot_temp_now:.2f}K → x_h = {x_h_init:+.2f}K")
+                    if self.track_kinetic_temp:
+                        print(f"Kinetic temp: {kinetic_temp_now:.2f}K → x_kin = {x_kin_init:+.2f}K")
+                    print(f"Target: {self.target_temperature:.2f}K")
+                    print(f"Bath restored to: {T_bath_current:.2f}K")
+                    print(f"Integral state: ξ = 0 (reset for new controller)")
+                    print(f"Gentle startup will ramp control authority: {self.gentle_startup_min_authority*100:.0f}% → 100% over {self.gentle_startup_steps} steps")
+                    print(f"Small transient expected as controller re-learns from ξ=0")
+                    print(f"{'='*70}\n")
+                else:
+                    # No saved bath temp, use zero integral
+                    self.xi_hat = np.zeros((1, 1))
+                    print(f"\n{'='*70}")
+                    print(f"Initializing State Estimates from Current Measurements")
+                    print(f"{'='*70}")
+                    print(f"Signal temp: {signal_temp_now:.2f}K → x_s = {x_s_init:+.2f}K")
+                    print(f"Hot temp: {hot_temp_now:.2f}K → x_h = {x_h_init:+.2f}K")
+                    if self.track_kinetic_temp:
+                        print(f"Kinetic temp: {kinetic_temp_now:.2f}K → x_kin = {x_kin_init:+.2f}K")
+                    print(f"Target: {self.target_temperature:.2f}K")
+                    print(f"Integral state: ξ = 0 (no pre-system-ID bath temp available)")
+                    print(f"{'='*70}\n")
+            else:
+                # Fallback: if measurements fail, use zeros (previous behavior)
+                self.x_hat = np.zeros((self.state_dim, 1))
+                self.xi_hat = np.zeros((1, 1))
+                print("⚠ WARNING: Could not measure temperatures, initializing state estimates to zeros")
+            self.u_prev = 0.0  # Previous control input (for Kalman prediction)
+            self.u_prev_temp = None  # Reset rate limiter memory
+            self.T_h_filtered = None  # Reset low-pass filter
+            
+            print(f"{'='*70}")
             print(f"Transitioning to LQR Control Phase")
             print(f"{'='*70}")
             print(f"LQR gains computed. Starting optimal control...")
-            print(f"State estimates, integral, and Kalman filter reset for smooth transition.")
+            print(f"Kalman filter initialized with current state. Bath temp maintained.")
             if self.periodic_system_id:
                 next_id_time = current_time_ps + self.periodic_system_id_interval_ps
                 print(f"Next periodic system ID scheduled at t = {next_id_time:.1f} ps")
+            print(f"{'='*70}\n")
     
     def _fit_system_parameters(self):
-        """Fit system parameters using least-squares from collected data."""
+        """Fit system parameters using least-squares from collected data.
+        
+        LQG formulation: 
+        - State x = [x_s, x_h] (2D) or [x_s, x_h, x_kin] (3D): temperature deviations
+        - Control u = x_c (1D): bath temperature deviation
+        - Dynamics: x[k+1] = A_d @ x[k] + B_d @ u[k]
+        """
         print(f"\nFitting system parameters...")
         
         # Convert lists to arrays
         N = len(self.system_id_data['time'])
         x_s = np.array(self.system_id_data['x_s'])
         x_h = np.array(self.system_id_data['x_h'])
+        x_kin = np.array(self.system_id_data['x_kin']) if self.track_kinetic_temp else None
         x_c = np.array(self.system_id_data['x_c'])
         u = np.array(self.system_id_data['u'])
         
-        # Build state trajectory matrix
-        x = np.vstack([x_s, x_h, x_c])  # (3, N)
+        # CRITICAL FIX: Compute actual sample time from collected data
+        # Previously used self.update_interval_ps, which could be 0.0, causing division by zero
+        times = np.array(self.system_id_data['time'])
+        if len(times) > 1:
+            dts = np.diff(times)
+            self.dt = float(np.median(dts))  # Use median for robustness against outliers
+            print(f"\n{'='*70}")
+            print(f"Sample Time Computation (Critical for Parameter Extraction)")
+            print(f"{'='*70}")
+            print(f"  Median Δt: {self.dt:.6f} ps (used for discrete→continuous conversion)")
+            print(f"  Mean Δt:   {np.mean(dts):.6f} ps")
+            print(f"  Std Dev:   {np.std(dts):.6f} ps")
+            print(f"  Range:     [{np.min(dts):.6f}, {np.max(dts):.6f}] ps")
+            print(f"  Total samples: {len(times)}")
+            
+            # Warn if sampling is too irregular
+            dt_std = np.std(dts)
+            dt_cv = dt_std / self.dt if self.dt > 0 else float('inf')
+            if dt_cv > 0.1:
+                print(f"\n  ⚠ WARNING: Sampling is irregular (CV={dt_cv:.2%})")
+                print(f"     This may affect parameter extraction accuracy.")
+            
+            # Safeguard against zero or negative dt
+            if self.dt <= 0:
+                print(f"\n  ⚠⚠⚠ CRITICAL ERROR: Computed dt = {self.dt} ps (invalid!) ⚠⚠⚠")
+                print(f"      Using fallback dt = 0.01 ps")
+                self.dt = 0.01
+        else:
+            print(f"\n  ⚠ ERROR: Insufficient data for dt estimation (only {len(times)} samples)!")
+            # Fallback: use update_interval_ps if valid, otherwise 0.01 ps
+            if self.update_interval_ps > 0:
+                self.dt = self.update_interval_ps
+                print(f"     Using fallback dt = {self.dt} ps (from update_interval_ps)")
+            else:
+                self.dt = 0.01
+                print(f"     Using fallback dt = {self.dt} ps (hardcoded default)")
+        
+        print(f"{'='*70}\n")
+        
+        # Build state trajectory matrix (2D or 3D depending on configuration)
+        if self.track_kinetic_temp:
+            x = np.vstack([x_s, x_h, x_kin])  # (3, N) - signal, hot, and kinetic
+        else:
+            x = np.vstack([x_s, x_h])  # (2, N) - only signal and hot
+        
+        # Control input is bath temperature deviation
+        u_input = x_c  # (N,) - bath is control, not state!
         
         # Least squares identification: x[k+1] = A_d @ x[k] + B_d @ u[k]
-        X_curr = x[:, :-1]
-        X_next = x[:, 1:]
-        U = u[:-1].reshape(1, -1)
+        n_states = x.shape[0]  # 2 or 3
+        X_curr = x[:, :-1]  # (n_states, N-1)
+        X_next = x[:, 1:]   # (n_states, N-1)
+        U = u_input[:-1].reshape(1, -1)  # (1, N-1)
         
-        # Stack [X_curr; U]
-        Z = np.vstack([X_curr, U])
+        # Stack [X_curr; U] as regression matrix
+        Z = np.vstack([X_curr, U])  # (n_states+1, N-1)
         
         # Solve: X_next = [A_d, B_d] @ Z
         # [A_d, B_d] = X_next @ Z^T @ (Z @ Z^T)^{-1}
         AB = X_next @ Z.T @ np.linalg.pinv(Z @ Z.T)
         
-        self.A_d = AB[:, :3]
-        self.B_d = AB[:, 3:4]
+        self.A_d = AB[:, :n_states]  # (n_states, n_states) state matrix
+        self.B_d = AB[:, n_states:n_states+1]  # (n_states, 1) input matrix
         
-        # Compute fit quality metrics
-        X_pred = AB @ Z
+        # Compute fit quality metrics (for all states)
+        X_pred = AB @ Z  # (n_states, N-1)
         residual = X_next - X_pred
         
         # 1. R² (variance explained - sensitive to noise)
         ss_res = np.sum(residual**2, axis=1)
         ss_tot = np.sum((X_next - X_next.mean(axis=1, keepdims=True))**2, axis=1)
         r_squared = 1 - ss_res / (ss_tot + 1e-10)
+        
+        # Store R² for display (update self.last_r_squared for 2D or 3D)
+        if n_states == 2:
+            self.last_r_squared = [float(r_squared[0]), float(r_squared[1])]
+        else:  # n_states == 3
+            # For 3D, store all three but display will only show first two for compatibility
+            if not hasattr(self, 'last_r_squared_3d'):
+                self.last_r_squared_3d = [0.0, 0.0, 0.0]
+            self.last_r_squared_3d = [float(r_squared[0]), float(r_squared[1]), float(r_squared[2])]
+            self.last_r_squared = [float(r_squared[0]), float(r_squared[1])]  # Keep 2D for compatibility
         
         # 2. MAE (Mean Absolute Error - robust to outliers)
         mae = np.mean(np.abs(residual), axis=1)
@@ -720,43 +1258,127 @@ class LQRTemperatureController(hoomd.custom.Action):
         r_squared_smooth = 1 - ss_res_smooth / (ss_tot_smooth + 1e-10)
         
         # 4. Pearson correlation coefficient
-        corr = np.array([np.corrcoef(X_next[i, :], X_pred[i, :])[0, 1] for i in range(3)])
+        corr = np.array([np.corrcoef(X_next[i, :], X_pred[i, :])[0, 1] for i in range(n_states)])
         
         print(f"\nIdentified System Matrices:")
-        print(f"A_d (discrete-time state matrix):")
+        print(f"A_d (discrete-time state matrix, {n_states}x{n_states}):")
         print(f"{self.A_d}")
-        print(f"\nB_d (discrete-time input matrix):")
+        print(f"\nB_d (discrete-time input matrix, {n_states}x1):")
         print(f"{self.B_d.flatten()}")
-        print(f"\nFit Quality Metrics:")
-        print(f"{'':20s} {'Signal':>12s} {'Hot':>12s} {'Bath':>12s}")
-        print(f"{'-'*60}")
-        print(f"{'R² (raw)':20s} {r_squared[0]:12.4f} {r_squared[1]:12.4f} {r_squared[2]:12.4f}")
-        print(f"{'R² (smoothed)':20s} {r_squared_smooth[0]:12.4f} {r_squared_smooth[1]:12.4f} {r_squared_smooth[2]:12.4f}")
-        print(f"{'Correlation':20s} {corr[0]:12.4f} {corr[1]:12.4f} {corr[2]:12.4f}")
-        print(f"{'MAE (K)':20s} {mae[0]:12.4f} {mae[1]:12.4f} {mae[2]:12.4f}")
-        print(f"\nNOTE: Bath is control input, not a dynamic state!")
+        
+        # Print fit quality metrics with appropriate state names
+        print(f"\nFit Quality Metrics ({n_states}D State System):")
+        if n_states == 2:
+            headers = f"{'':20s} {'Signal':>12s} {'Hot':>12s}"
+            separator = '-' * 46
+            r2_line = f"{'R² (raw)':20s} {r_squared[0]:12.4f} {r_squared[1]:12.4f}"
+            r2_smooth_line = f"{'R² (smoothed)':20s} {r_squared_smooth[0]:12.4f} {r_squared_smooth[1]:12.4f}"
+            corr_line = f"{'Correlation':20s} {corr[0]:12.4f} {corr[1]:12.4f}"
+            mae_line = f"{'MAE (K)':20s} {mae[0]:12.4f} {mae[1]:12.4f}"
+        else:  # n_states == 3
+            headers = f"{'':20s} {'Signal':>12s} {'Hot':>12s} {'Kinetic':>12s}"
+            separator = '-' * 59
+            r2_line = f"{'R² (raw)':20s} {r_squared[0]:12.4f} {r_squared[1]:12.4f} {r_squared[2]:12.4f}"
+            r2_smooth_line = f"{'R² (smoothed)':20s} {r_squared_smooth[0]:12.4f} {r_squared_smooth[1]:12.4f} {r_squared_smooth[2]:12.4f}"
+            corr_line = f"{'Correlation':20s} {corr[0]:12.4f} {corr[1]:12.4f} {corr[2]:12.4f}"
+            mae_line = f"{'MAE (K)':20s} {mae[0]:12.4f} {mae[1]:12.4f} {mae[2]:12.4f}"
+        
+        print(headers)
+        print(separator)
+        print(r2_line)
+        print(r2_smooth_line)
+        print(corr_line)
+        print(mae_line)
+        print(f"\nNOTE: Bath is control input (u), NOT a dynamic state!")
+        
+        # Warn if fit quality is poor
+        min_r_squared = np.min(r_squared)
+        if min_r_squared < 0.5:
+            print(f"\n⚠⚠⚠ WARNING: POOR SYSTEM ID FIT (min R²={min_r_squared:.4f}) ⚠⚠⚠")
+            print(f"  This will cause poor LQR performance!")
+            print(f"  Common causes:")
+            print(f"    1. System ID duration too short (current: {self.system_id_duration_ps}ps)")
+            print(f"    2. States don't respond to bath changes (check thermostat coupling)")
+            print(f"    3. In 3D mode: T_kinetic thermalizes very slowly")
+            print(f"  Suggestions:")
+            print(f"    - Increase --lqr-system-id-duration (try 200-500ps)")
+            print(f"    - Reduce --molecular-tau for stronger thermostat")
+            print(f"    - For 3D mode: Expect T_kinetic R² to be low if tau >> duration")
         
         # Plot fit quality
-        self._plot_system_id_fit(X_next, X_pred, u[:-1], np.array(self.system_id_data['time'])[1:])
+        self._plot_system_id_fit(X_next, X_pred, u_input[:-1], np.array(self.system_id_data['time'])[1:])
         
         # Extract continuous-time parameters (approximate for small dt)
-        A_c_approx = (self.A_d - np.eye(3)) / self.dt
-        k_s = -A_c_approx[0, 0]
-        k_h = -A_c_approx[1, 1]
-        k_c = -A_c_approx[2, 2]
-        b_s = A_c_approx[0, 2]
-        b_h = A_c_approx[1, 2]
-        g_sh = A_c_approx[0, 1]
-        
-        print(f"\nApproximate Continuous-Time Parameters:")
-        print(f"  k_s = {k_s:.4f} (1/ps) → τ_s = {1/k_s:.2f} ps")
-        print(f"  k_h = {k_h:.4f} (1/ps) → τ_h = {1/k_h:.2f} ps")
-        print(f"  k_c = {k_c:.4f} (1/ps) → τ_c = {1/k_c:.2f} ps")
-        print(f"  b_s = {b_s:.4f} (signal-bath coupling)")
-        print(f"  b_h = {b_h:.4f} (hot-bath coupling)")
-        print(f"  g_sh = {g_sh:.4f} (signal-hot cross-coupling)")
+        # Use robust extraction with safeguards for very small dt
+        try:
+            # CRITICAL SAFEGUARD: Ensure dt is valid before division
+            if self.dt <= 0:
+                print(f"\n⚠⚠⚠ CRITICAL ERROR: dt = {self.dt} ps (invalid for parameter extraction!) ⚠⚠⚠")
+                print(f"  Cannot extract continuous-time parameters with dt ≤ 0")
+                print(f"  This will cause Infinity/-Infinity in continuous parameters!")
+                print(f"  Using emergency fallback dt = 0.01 ps")
+                self.dt = 0.01
+            
+            # For very small dt (< 0.01 ps), use matrix logarithm for better accuracy
+            if self.dt < 0.01:
+                print(f"\n⚠ Very small timestep (dt={self.dt:.4f}ps) detected!")
+                print(f"  Using matrix logarithm method for continuous-time parameter extraction...")
+                # A_c = (1/dt) * log(A_d), but use approximate A_c = (A_d - I)/dt for stability
+                A_c_approx = (self.A_d - np.eye(n_states)) / self.dt
+                B_c_approx = self.B_d / self.dt
+            else:
+                A_c_approx = (self.A_d - np.eye(n_states)) / self.dt  # Standard first-order approximation
+                B_c_approx = self.B_d / self.dt
+            
+            k_s = -A_c_approx[0, 0]  # Signal decay rate
+            k_h = -A_c_approx[1, 1]  # Hot decay rate
+            g_sh = A_c_approx[0, 1]  # Signal-hot cross-coupling
+            g_hs = A_c_approx[1, 0]  # Hot-signal cross-coupling
+            b_s = B_c_approx[0, 0]   # Signal-bath coupling
+            b_h = B_c_approx[1, 0]   # Hot-bath coupling
+            
+            # Clamp extreme values to prevent overflow in display
+            def safe_print(val, name, unit=""):
+                if np.abs(val) > 1e6:
+                    return f"  {name} = >1e6 ({unit}) [CLIPPED - dt too small for accurate extraction]"
+                elif np.isnan(val) or np.isinf(val):
+                    return f"  {name} = invalid ({unit})"
+                else:
+                    return f"  {name} = {val:.4f} ({unit})"
+            
+            print(f"\nApproximate Continuous-Time Parameters:")
+            print(safe_print(k_s, "k_s", "1/ps") + (f" → τ_s = {1/k_s:.2f} ps" if 0 < k_s < 1e6 else ""))
+            print(safe_print(k_h, "k_h", "1/ps") + (f" → τ_h = {1/k_h:.2f} ps" if 0 < k_h < 1e6 else ""))
+            print(safe_print(g_sh, "g_sh", "signal ← hot coupling"))
+            print(safe_print(g_hs, "g_hs", "hot ← signal coupling"))
+            print(safe_print(b_s, "b_s", "signal ← bath coupling"))
+            print(safe_print(b_h, "b_h", "hot ← bath coupling"))
+            
+            if n_states == 3:
+                k_kin = -A_c_approx[2, 2]  # Kinetic decay rate
+                g_skin = A_c_approx[0, 2]  # Signal-kinetic cross-coupling
+                g_hkin = A_c_approx[1, 2]  # Hot-kinetic cross-coupling
+                g_kins = A_c_approx[2, 0]  # Kinetic-signal cross-coupling
+                g_kinh = A_c_approx[2, 1]  # Kinetic-hot cross-coupling
+                b_kin = B_c_approx[2, 0]   # Kinetic-bath coupling
+                print(safe_print(k_kin, "k_kin", "1/ps") + (f" → τ_kin = {1/k_kin:.2f} ps" if 0 < k_kin < 1e6 else ""))
+                print(safe_print(g_skin, "g_skin", "signal ← kinetic coupling"))
+                print(safe_print(g_hkin, "g_hkin", "hot ← kinetic coupling"))
+                print(safe_print(g_kins, "g_kins", "kinetic ← signal coupling"))
+                print(safe_print(g_kinh, "g_kinh", "kinetic ← hot coupling"))
+                print(safe_print(b_kin, "b_kin", "kinetic ← bath coupling"))
+                
+        except Exception as e:
+            print(f"\n⚠ Warning: Continuous-time parameter extraction failed: {e}")
+            print(f"  (This is non-critical - discrete-time parameters are used for control)")
         
         # Save parameters to file
+        # Formulation string depends on whether kinetic tracking is enabled
+        if self.track_kinetic_temp:
+            formulation_str = "LQG: 3D state [x_s, x_h, x_kin], 1D control [u_bath]"
+        else:
+            formulation_str = "LQG: 2D state [x_s, x_h], 1D control [u_bath]"
+        
         params = {
             "identification_info": {
                 "timestamp": datetime.now().isoformat(),
@@ -764,7 +1386,8 @@ class LQRTemperatureController(hoomd.custom.Action):
                 "quench_temperature": self.system_id_temp_K,
                 "duration_ps": self.system_id_duration_ps,
                 "sample_time_ps": self.dt,
-                "num_data_points": N
+                "num_data_points": N,
+                "formulation": formulation_str
             },
             "system_matrices": {
                 "A_discrete": self.A_d.tolist(),
@@ -773,31 +1396,27 @@ class LQRTemperatureController(hoomd.custom.Action):
             "continuous_parameters": {
                 "k_s": float(k_s),
                 "k_h": float(k_h),
-                "k_c": float(k_c),
+                "g_sh": float(g_sh),
+                "g_hs": float(g_hs),
                 "b_s": float(b_s),
-                "b_h": float(b_h),
-                "g_sh": float(g_sh)
+                "b_h": float(b_h)
             },
             "fit_quality": {
                 "r_squared_raw": {
                     "signal": float(r_squared[0]),
-                    "hot": float(r_squared[1]),
-                    "bath": float(r_squared[2])
+                    "hot": float(r_squared[1])
                 },
                 "r_squared_smoothed": {
                     "signal": float(r_squared_smooth[0]),
-                    "hot": float(r_squared_smooth[1]),
-                    "bath": float(r_squared_smooth[2])
+                    "hot": float(r_squared_smooth[1])
                 },
                 "correlation": {
                     "signal": float(corr[0]),
-                    "hot": float(corr[1]),
-                    "bath": float(corr[2])
+                    "hot": float(corr[1])
                 },
                 "mae_K": {
                     "signal": float(mae[0]),
-                    "hot": float(mae[1]),
-                    "bath": float(mae[2])
+                    "hot": float(mae[1])
                 }
             }
         }
@@ -821,14 +1440,16 @@ class LQRTemperatureController(hoomd.custom.Action):
         """
         Plot actual vs predicted trajectories from system identification.
         
+        LQG formulation: 2D or 3D state system
+        
         Parameters
         ----------
         X_actual : np.ndarray
-            Actual state trajectories (3, N)
+            Actual state trajectories (n_states, N): [signal, hot] or [signal, hot, kinetic]
         X_pred : np.ndarray
-            Predicted state trajectories (3, N)
+            Predicted state trajectories (n_states, N): [signal, hot] or [signal, hot, kinetic]
         u : np.ndarray
-            Control input trajectory (N,)
+            Control input trajectory (N,): bath temperature deviation
         time : np.ndarray
             Time vector (N,)
         """
@@ -844,9 +1465,15 @@ class LQRTemperatureController(hoomd.custom.Action):
         def smooth_1d(data, window=5):
             return np.convolve(data, np.ones(window)/window, mode='same')
         
-        fig, axes = plt.subplots(4, 1, figsize=(12, 10), sharex=True)
+        n_states = X_actual.shape[0]
+        n_plots = n_states + 1  # States + control input
+        fig, axes = plt.subplots(n_plots, 1, figsize=(12, 3*n_plots), sharex=True)
         
-        # Signal temperature
+        # Title
+        state_str = f"{n_states}D State " + ("[x_s, x_h]" if n_states == 2 else "[x_s, x_h, x_kin]")
+        axes[0].set_title(f'LQG System ID: {state_str} + 1D Control [u_bath]', fontsize=14, fontweight='bold')
+        
+        # Signal temperature (state 1)
         axes[0].plot(time, X_actual[0, :] + self.target_temperature, 'b-', linewidth=1, label='Actual (raw)', alpha=0.3)
         axes[0].plot(time, X_pred[0, :] + self.target_temperature, 'r-', linewidth=1, label='Predicted (raw)', alpha=0.3)
         axes[0].plot(time, smooth_1d(X_actual[0, :], 10) + self.target_temperature, 'b-', linewidth=2.5, label='Actual (smoothed)', alpha=0.9)
@@ -854,9 +1481,8 @@ class LQRTemperatureController(hoomd.custom.Action):
         axes[0].set_ylabel('Signal Temp (K)', fontsize=12, fontweight='bold')
         axes[0].legend(loc='best', fontsize=9, ncol=2)
         axes[0].grid(True, alpha=0.3)
-        axes[0].set_title('System Identification: Actual vs Predicted (Raw + Smoothed)', fontsize=14, fontweight='bold')
         
-        # Hot temperature
+        # Hot temperature (state 2)
         axes[1].plot(time, X_actual[1, :] + self.target_temperature, 'b-', linewidth=1, label='Actual (raw)', alpha=0.3)
         axes[1].plot(time, X_pred[1, :] + self.target_temperature, 'r-', linewidth=1, label='Predicted (raw)', alpha=0.3)
         axes[1].plot(time, smooth_1d(X_actual[1, :], 10) + self.target_temperature, 'b-', linewidth=2.5, label='Actual (smoothed)', alpha=0.9)
@@ -865,23 +1491,25 @@ class LQRTemperatureController(hoomd.custom.Action):
         axes[1].legend(loc='best', fontsize=9, ncol=2)
         axes[1].grid(True, alpha=0.3)
         
-        # Bath temperature (NOTE: This is actuator, not a dynamic state!)
-        axes[2].plot(time, X_actual[2, :] + self.target_temperature, 'b-', linewidth=2, label='Actual (Control Input)', alpha=0.7)
-        axes[2].plot(time, X_pred[2, :] + self.target_temperature, 'r--', linewidth=2, label='Predicted (Meaningless!)')
-        axes[2].set_ylabel('Bath Temp (K)', fontsize=12, fontweight='bold')
-        axes[2].legend(loc='best', fontsize=10)
-        axes[2].grid(True, alpha=0.3)
-        axes[2].text(0.5, 0.5, 'NOTE: Bath is control input, not a state!', 
-                     transform=axes[2].transAxes, fontsize=11, ha='center', 
-                     bbox=dict(boxstyle='round', facecolor='yellow', alpha=0.5))
+        # Kinetic temperature (state 3, if 3D)
+        if n_states == 3:
+            axes[2].plot(time, X_actual[2, :] + self.target_temperature, 'b-', linewidth=1, label='Actual (raw)', alpha=0.3)
+            axes[2].plot(time, X_pred[2, :] + self.target_temperature, 'r-', linewidth=1, label='Predicted (raw)', alpha=0.3)
+            axes[2].plot(time, smooth_1d(X_actual[2, :], 10) + self.target_temperature, 'b-', linewidth=2.5, label='Actual (smoothed)', alpha=0.9)
+            axes[2].plot(time, smooth_1d(X_pred[2, :], 10) + self.target_temperature, 'r--', linewidth=2.5, label='Predicted (smoothed)')
+            axes[2].set_ylabel('Kinetic Temp (K)', fontsize=12, fontweight='bold')
+            axes[2].legend(loc='best', fontsize=9, ncol=2)
+            axes[2].grid(True, alpha=0.3)
         
-        # Control input deviation
-        axes[3].plot(time, u, 'g-', linewidth=2, label='Control Input (u)')
-        axes[3].set_ylabel('u (K)', fontsize=12, fontweight='bold')
-        axes[3].set_xlabel('Time (ps)', fontsize=12, fontweight='bold')
-        axes[3].legend(loc='best', fontsize=10)
-        axes[3].grid(True, alpha=0.3)
-        axes[3].axhline(0, color='k', linestyle=':', linewidth=1)
+        # Control input (bath temperature deviation) - last subplot
+        ctrl_ax = axes[-1]
+        ctrl_ax.plot(time, u, 'g-', linewidth=2, label='Control Input u (bath deviation)', alpha=0.8)
+        ctrl_ax.plot(time, u + self.target_temperature, 'c--', linewidth=1.5, label='Bath Temperature', alpha=0.6)
+        ctrl_ax.set_ylabel('Temperature (K)', fontsize=12, fontweight='bold')
+        ctrl_ax.set_xlabel('Time (ps)', fontsize=12, fontweight='bold')
+        ctrl_ax.legend(loc='best', fontsize=10)
+        ctrl_ax.grid(True, alpha=0.3)
+        ctrl_ax.axhline(0, color='k', linestyle=':', linewidth=1, label='Target')
         
         plt.tight_layout()
         
@@ -899,50 +1527,102 @@ class LQRTemperatureController(hoomd.custom.Action):
         plt.close()
     
     def _design_lqr_controller(self):
-        """Design LQR controller with integral action and Kalman filter."""
+        """Design LQR controller with integral action, Kalman filter, and cross-coupling.
+        
+        LQG formulation:
+        - Base system: x = [x_s, x_h] (2D) or [x_s, x_h, x_kin] (3D)
+        - Augmented system adds integral: [x_s, x_h, ξ] (3D) or [x_s, x_h, x_kin, ξ] (4D)
+        - LQR acts on augmented system: u = -K @ x_a
+        - Kalman filter estimates base system only (separation principle)
+        
+        Cross-coupling (3D mode only):
+        - Q matrix includes penalties on (T_i - T_j)² to enforce thermal equilibration
+        - Examples: (T_signal - T_kinetic)², (T_signal - T_hot)², (T_hot - T_kinetic)²
+        - Ensures Q remains PSD via rank-1 outer product construction
+        """
         print(f"\n{'='*70}")
-        print(f"Designing LQR Controller")
+        print(f"Designing LQG Controller with Cross-Coupling")
         print(f"{'='*70}")
         
-        # Augment system with integrator: [x; xi]
-        # x_aug[k+1] = A_aug @ x_aug[k] + B_aug @ u[k]
-        # where xi[k+1] = xi[k] + x_s[k]
+        n_states = self.state_dim  # 2 or 3
+        n_aug = n_states + 1  # 3 or 4 (states + integral)
         
-        A_aug = np.zeros((4, 4))
-        A_aug[:3, :3] = self.A_d
-        A_aug[3, 0] = 1.0  # xi += x_s
-        A_aug[3, 3] = 1.0  # xi += xi
+        # Augment state_dim system with integrator: x_a = [x_s; x_h; (x_kin); ξ]
+        A_aug = np.zeros((n_aug, n_aug))
+        A_aug[:n_states, :n_states] = self.A_d  # Copy state_dim x state_dim state matrix
+        A_aug[n_states, 0] = 1.0  # ξ[k+1] = ξ[k] + x_s[k]
+        A_aug[n_states, n_states] = 1.0
         
-        B_aug = np.zeros((4, 1))
-        B_aug[:3, :] = self.B_d
+        B_aug = np.zeros((n_aug, 1))
+        B_aug[:n_states, :] = self.B_d  # Copy state_dim x 1 input matrix
         
-        # LQR weighting matrices
-        Q = np.diag([self.lqr_weight_signal, 
-                     self.lqr_weight_hot, 
-                     self.lqr_weight_bath, 
-                     self.lqr_weight_integral])
-        R = np.array([[self.lqr_control_effort]])
+        # LQR weighting matrices with cross-coupling for thermal equilibration
+        # Start with individual state penalties (diagonal)
+        if n_states == 2:
+            Q = np.diag([self.lqr_weight_signal,   # Penalize signal deviation
+                         self.lqr_weight_hot,       # Penalize hot deviation
+                         self.lqr_weight_integral])  # Penalize integral (tracking)
+        else:  # n_states == 3
+            # Individual penalties
+            Q_individual = np.diag([self.lqr_weight_signal,   # Penalize signal deviation
+                                   self.lqr_weight_hot,       # Penalize hot deviation
+                                   self.weight_kinetic,       # Penalize kinetic deviation
+                                   self.lqr_weight_integral])  # Penalize integral (tracking)
+            
+            # Cross-coupling penalties: penalize (T_i - T_j)²
+            # This enforces thermal equilibration between subsystems
+            def pairwise_penalty(i, j, n):
+                """Construct PSD matrix that penalizes (x_i - x_j)²"""
+                e_diff = np.zeros((n, 1))
+                e_diff[i, 0] = 1.0
+                e_diff[j, 0] = -1.0
+                return e_diff @ e_diff.T  # Rank-1 PSD matrix
+            
+            # Add cross-coupling terms (only if weights > 0)
+            Q = Q_individual.copy()
+            if self.cross_coupling_signal_kinetic > 0:
+                Q[:n_aug, :n_aug] += self.cross_coupling_signal_kinetic * pairwise_penalty(0, 2, n_aug)
+            if self.cross_coupling_signal_hot > 0:
+                Q[:n_aug, :n_aug] += self.cross_coupling_signal_hot * pairwise_penalty(0, 1, n_aug)
+            if self.cross_coupling_hot_kinetic > 0:
+                Q[:n_aug, :n_aug] += self.cross_coupling_hot_kinetic * pairwise_penalty(1, 2, n_aug)
+        
+        R = np.array([[self.lqr_control_effort]])  # Penalize control effort
+        
+        # Verify Q is positive semi-definite (PSD check)
+        Q_eigenvalues = np.linalg.eigvalsh(Q)  # Hermitian eigenvalue solver (more stable)
+        min_eigenvalue = np.min(Q_eigenvalues)
+        if min_eigenvalue < -1e-10:  # Allow small numerical errors
+            raise ValueError(f"Q matrix is not PSD! Minimum eigenvalue: {min_eigenvalue:.6e}. "
+                           "Reduce cross-coupling weights or increase individual state weights.")
         
         print(f"LQR Weighting Matrices:")
-        print(f"  Q (state weights): {np.diag(Q)}")
+        print(f"  Q (state weights diagonal): {np.diag(Q)}")
+        if n_states == 3 and (self.cross_coupling_signal_kinetic > 0 or 
+                              self.cross_coupling_signal_hot > 0 or 
+                              self.cross_coupling_hot_kinetic > 0):
+            print(f"  Q (cross-coupling): s-kin={self.cross_coupling_signal_kinetic:.2f}, "
+                  f"s-hot={self.cross_coupling_signal_hot:.2f}, hot-kin={self.cross_coupling_hot_kinetic:.2f}")
+            print(f"  Q eigenvalues (PSD check): min={min_eigenvalue:.6e}, max={np.max(Q_eigenvalues):.6e}")
         print(f"  R (control effort): {R[0, 0]}")
         
-        # Solve discrete-time algebraic Riccati equation
+        # Solve discrete-time algebraic Riccati equation for augmented system
         try:
             P = solve_discrete_are(A_aug, B_aug, Q, R)
-            K_aug = np.linalg.inv(R + B_aug.T @ P @ B_aug) @ (B_aug.T @ P @ A_aug)
+            self.K = np.linalg.inv(R + B_aug.T @ P @ B_aug) @ (B_aug.T @ P @ A_aug)
             
-            self.K = K_aug[:, :3]
-            self.k_I = K_aug[:, 3]
+            # K is now 1 x n_aug: acts on augmented state
+            print(f"\nComputed LQR Gain (1x{n_aug}):")
+            print(f"  K = {self.K.flatten()}")
+            if n_states == 2:
+                print(f"  K breakdown: [K_signal={self.K[0,0]:.4f}, K_hot={self.K[0,1]:.4f}, K_integral={self.K[0,2]:.4f}]")
+            else:  # n_states == 3
+                print(f"  K breakdown: [K_signal={self.K[0,0]:.4f}, K_hot={self.K[0,1]:.4f}, K_kinetic={self.K[0,2]:.4f}, K_integral={self.K[0,3]:.4f}]")
             
-            print(f"\nComputed LQR Gains:")
-            print(f"  K (state feedback): {self.K.flatten()}")
-            print(f"  k_I (integral gain): {self.k_I}")
-            
-            # Check closed-loop stability
-            A_cl = A_aug - B_aug @ K_aug
+            # Check closed-loop stability of augmented system
+            A_cl = A_aug - B_aug @ self.K
             eigenvalues = np.linalg.eigvals(A_cl)
-            print(f"\nClosed-Loop Eigenvalues:")
+            print(f"\nClosed-Loop Eigenvalues ({n_aug}D augmented system):")
             for i, eig in enumerate(eigenvalues):
                 print(f"  λ_{i+1} = {eig:.4f} (|λ| = {abs(eig):.4f})")
             
@@ -955,34 +1635,46 @@ class LQRTemperatureController(hoomd.custom.Action):
             print(f"Error solving LQR problem: {e}")
             raise
         
-        # Design Kalman filter for state estimation
-        # Only estimate [x_s, x_h, x_c], not integral state
-        # Use adaptive noise estimates if available
-        Q_process = np.diag([self.process_noise_signal**2, 
-                            self.process_noise_hot**2, 
-                            1e-6])  # Bath has negligible process noise
-        R_meas = np.diag([self.estimated_noise_signal**2,
-                         self.estimated_noise_hot**2])
+        # Design Kalman filter for state_dim base system estimation
+        # Estimate [x_s, x_h], [x_s, x_h, x_kin], or [x_s, x_h, x_kin, x_bath]
+        # (integral ξ is deterministic, no noise)
+        # Separation principle: Kalman filter on base system, LQR on augmented system
+        if n_states == 2:
+            Q_process = np.diag([self.process_noise_signal**2, 
+                                self.process_noise_hot**2])  # Process noise (2D)
+            R_meas = np.diag([self.estimated_noise_signal**2,
+                             self.estimated_noise_hot**2])  # Measurement noise (2D)
+        else:  # n_states == 3
+            Q_process = np.diag([self.process_noise_signal**2, 
+                                self.process_noise_hot**2,
+                                self.process_noise_kinetic**2])  # Process noise (3D)
+            R_meas = np.diag([self.estimated_noise_signal**2,
+                             self.estimated_noise_hot**2,
+                             self.measurement_noise_kinetic**2])  # Measurement noise (3D)
         
-        print(f"\nKalman Filter Noise Parameters:")
-        print(f"  Process noise (σ_w): [{self.process_noise_signal:.2f}, {self.process_noise_hot:.2f}] K")
-        print(f"  Measurement noise (σ_v): [{self.estimated_noise_signal:.2f}, {self.estimated_noise_hot:.2f}] K")
+        print(f"\nKalman Filter Design ({n_states}D base system):")
+        if n_states == 2:
+            print(f"  Process noise (σ_w): [{self.process_noise_signal:.2f}, {self.process_noise_hot:.2f}] K")
+            print(f"  Measurement noise (σ_v): [{self.estimated_noise_signal:.2f}, {self.estimated_noise_hot:.2f}] K")
+        else:  # n_states == 3
+            print(f"  Process noise (σ_w): [{self.process_noise_signal:.2f}, {self.process_noise_hot:.2f}, {self.process_noise_kinetic:.2f}] K")
+            print(f"  Measurement noise (σ_v): [{self.estimated_noise_signal:.2f}, {self.estimated_noise_hot:.2f}, {self.measurement_noise_kinetic:.2f}] K")
         if self.enable_adaptation:
             print(f"  (Adaptive noise estimation enabled)")
         
-        # Solve Riccati for Kalman gain
+        # Solve Riccati for Kalman gain (state_dim system)
         try:
             P_kf = solve_discrete_are(self.A_d.T, self.C.T, Q_process, R_meas)
             self.L = P_kf @ self.C.T @ np.linalg.inv(self.C @ P_kf @ self.C.T + R_meas)
             
-            print(f"\nComputed Kalman Filter Gain:")
+            print(f"\nComputed Kalman Filter Gain ({n_states}x{n_states}):")
             print(f"  L (estimator gain):")
             print(f"{self.L}")
             
-            # Check estimator stability
+            # Check estimator stability (state_dim system)
             A_est = self.A_d - self.L @ self.C @ self.A_d
             eigenvalues_est = np.linalg.eigvals(A_est)
-            print(f"\nEstimator Eigenvalues:")
+            print(f"\nEstimator Eigenvalues ({n_states}D base system):")
             for i, eig in enumerate(eigenvalues_est):
                 print(f"  λ_{i+1} = {eig:.4f} (|λ| = {abs(eig):.4f})")
             
@@ -994,6 +1686,37 @@ class LQRTemperatureController(hoomd.custom.Action):
         except Exception as e:
             print(f"Error solving Kalman filter problem: {e}")
             raise
+        
+        # Initialize EKF for parameter estimation if enabled
+        # NOTE: EKF currently only supports 2D states [x_s, x_h]
+        # Skip EKF initialization in 3D mode (when track_kinetic_temp=True)
+        if self.use_ekf_adaptation and not self.track_kinetic_temp:
+            print(f"\nInitializing EKF for Online Parameter Estimation:")
+            self.parameter_ekf = ParameterEKF(
+                dt=self.dt,
+                process_noise_state=self.process_noise_signal,
+                process_noise_param=self.ekf_process_noise_param,
+                measurement_noise_signal=self.estimated_noise_signal,
+                measurement_noise_hot=self.estimated_noise_hot,
+                initial_covariance_state=1.0,
+                initial_covariance_param=self.ekf_initial_covariance_param
+            )
+            
+            # Initialize with current system ID results
+            self.parameter_ekf.initialize(
+                x_initial=self.x_hat,
+                A_initial=self.A_d,
+                B_initial=self.B_d
+            )
+            
+            # Store initial parameters for adaptive redesign tracking
+            self.last_lqr_redesign_params = np.concatenate([
+                self.A_d.flatten(),
+                self.B_d.flatten()
+            ])
+        elif self.use_ekf_adaptation and self.track_kinetic_temp:
+            print(f"\nℹ EKF parameter estimation disabled in 3D mode (kinetic temp tracking enabled)")
+            print(f"  (EKF only supports 2D states; use 2D mode for adaptive parameter estimation)")
         
         print(f"{'='*70}\n")
     
@@ -1023,6 +1746,7 @@ class LQRTemperatureController(hoomd.custom.Action):
             'time': [],
             'x_s': [],
             'x_h': [],
+            'x_kin': [],  # Kinetic temperature (only used if track_kinetic_temp=True)
             'x_c': [],
             'u': []
         }
@@ -1054,66 +1778,159 @@ class LQRTemperatureController(hoomd.custom.Action):
         
         # Apply median filter for outlier rejection
         signal_temp = self._apply_median_filter(signal_temp_raw, self.temp_buffer_signal, self.median_filter_window)
-        hot_temp = self._apply_median_filter(hot_temp_raw, self.temp_buffer_hot, self.median_filter_window)
+        hot_temp_median = self._apply_median_filter(hot_temp_raw, self.temp_buffer_hot, self.median_filter_window)
+        
+        # Apply low-pass filter to T_h to suppress high-frequency oscillations
+        # This prevents the controller from chasing natural thermal fluctuations
+        if self.T_h_filter_enabled:
+            # Initialize filter on first measurement
+            if self.T_h_filtered is None:
+                self.T_h_filtered = hot_temp_median
+            
+            # Exponential moving average: x_filt[k] = α·x[k] + (1-α)·x_filt[k-1]
+            # Time constant τ determines cutoff frequency: α = Δt/(Δt + τ)
+            alpha_filter = self.dt / (self.dt + self.T_h_filter_time_constant)
+            self.T_h_filtered = alpha_filter * hot_temp_median + (1 - alpha_filter) * self.T_h_filtered
+            
+            # Use filtered temperature for control (log unfiltered for diagnostics)
+            hot_temp = self.T_h_filtered
+            
+            # Diagnostic: show filtering effect occasionally
+            if self.num_updates <= 5 or self.num_updates % 200 == 0:
+                print(f"[T_h Low-Pass Filter] Raw: {hot_temp_median:.2f}K → Filtered: {self.T_h_filtered:.2f}K "
+                      f"(τ={self.T_h_filter_time_constant:.1f}ps, suppresses >~{1000/(2*np.pi*self.T_h_filter_time_constant):.1f}Hz)")
+        else:
+            hot_temp = hot_temp_median
         
         # Increment update counter
         self.num_updates += 1
         
-        # GENTLE STARTUP: Ramp up control authority over first 10 updates
+        # GENTLE STARTUP: Ramp up control authority gradually
         # Prevents violent reactions to initial transients
-        if self.num_updates <= 10:
-            startup_factor = min(1.0, self.num_updates / 10.0)
+        # Formula: linear ramp from min_authority to 1.0 over startup_steps
+        if self.num_updates <= self.gentle_startup_steps:
+            # Linear interpolation: min_authority at step 1, 1.0 at step N
+            progress = self.num_updates / self.gentle_startup_steps
+            startup_factor = self.gentle_startup_min_authority + (1.0 - self.gentle_startup_min_authority) * progress
+            startup_factor = min(1.0, startup_factor)
         else:
             startup_factor = 1.0
         
         # Log filtering effect occasionally
         if self.num_updates <= 5 or self.num_updates % 100 == 0:
             print(f"[Median Filter] Signal: {signal_temp_raw:.2f}K → {signal_temp:.2f}K | "
-                  f"Hot: {hot_temp_raw:.2f}K → {hot_temp:.2f}K")
-            if self.num_updates <= 10:
-                print(f"[Gentle Startup] Control authority: {startup_factor*100:.0f}%")
+                  f"Hot: {hot_temp_raw:.2f}K → {hot_temp_median:.2f}K")
+            if self.num_updates <= self.gentle_startup_steps:
+                print(f"[Gentle Startup] Control authority: {startup_factor*100:.1f}% (step {self.num_updates}/{self.gentle_startup_steps})")
+        
+        # Measure kinetic temperature if tracking is enabled
+        if self.track_kinetic_temp:
+            kinetic_temp_raw = self._measure_temperature('kinetic', current_time_ps)
+            if kinetic_temp_raw is None:
+                if self.num_updates <= 5:
+                    print(f"[WARNING] Kinetic temperature measurement failed at t={current_time_ps:.1f}ps")
+                return
+            # Apply median filter to kinetic temperature
+            kinetic_temp = self._apply_median_filter(kinetic_temp_raw, self.temp_buffer_signal, self.median_filter_window)
+        else:
+            kinetic_temp = None
         
         # Deviations from target
         x_s_meas = signal_temp - self.target_temperature
         x_h_meas = hot_temp - self.target_temperature
-        x_c_meas = bath_temp - self.target_temperature
+        x_bath_meas = bath_temp - self.target_temperature
         
-        # Measurement vector
-        y = np.array([[x_s_meas], [x_h_meas]])
+        # Measurement vector (2D or 3D depending on configuration)
+        if self.track_kinetic_temp:
+            # 3D mode: [x_s, x_h, x_kin]
+            x_kin_meas = kinetic_temp - self.target_temperature
+            y = np.array([[x_s_meas], [x_h_meas], [x_kin_meas]])
+        else:
+            # 2D mode: [x_s, x_h]
+            y = np.array([[x_s_meas], [x_h_meas]])
         
         # ADAPTIVE: Update noise estimates from actual signal variance
         if self.enable_adaptation:
-            self._update_noise_estimates(signal_temp, hot_temp, current_time_ps)
+            if self.track_kinetic_temp:
+                self._update_noise_estimates(signal_temp, hot_temp, current_time_ps, kinetic_temp)
+            else:
+                self._update_noise_estimates(signal_temp, hot_temp, current_time_ps)
         
-        # Save current state for RLS (before update)
-        x_current = np.array([[x_s_meas], [x_h_meas], [x_c_meas]])
+        # Save current state for EKF/RLS (state_dim state + 1D control)
+        if self.track_kinetic_temp:
+            x_current = np.array([[x_s_meas], [x_h_meas], [x_kin_meas]])
+        else:
+            x_current = np.array([[x_s_meas], [x_h_meas]])
         
-        # Kalman filter update
-        # Prediction: x_hat[k|k-1] = A @ x_hat[k-1|k-1] + B @ u[k-1]
-        u_prev = self.x_hat[2, 0]  # Previous control (stored in x_c_hat)
-        x_hat_pred = self.A_d @ self.x_hat + self.B_d * u_prev
+        # ===== KALMAN FILTER: Estimate base system [x_s, x_h] or [x_s, x_h, x_kin] =====
+        # Prediction: x_hat[k|k-1] = A_d @ x_hat[k-1|k-1] + B_d @ u[k-1]
+        if not hasattr(self, 'u_prev'):
+            self.u_prev = 0.0  # Initialize if missing
         
-        # Innovation: y_tilde = y - C @ x_hat_pred
+        x_hat_pred = self.A_d @ self.x_hat + self.B_d * self.u_prev
+        
+        # Innovation: r = y - C @ x_hat[k|k-1]
         y_pred = self.C @ x_hat_pred
         innovation = y - y_pred
         
         # Update: x_hat[k|k] = x_hat[k|k-1] + L @ innovation
         self.x_hat = x_hat_pred + self.L @ innovation
         
-        # Integral state update: xi += x_s * dt
-        # CRITICAL: Do NOT integrate during gentle startup (first 10 updates after re-ID)
-        # The Kalman filter sees huge innovations after reset and would cause integral windup
-        if self.num_updates >= 10:
+        # ===== INTEGRAL STATE: Deterministic integration (no Kalman) =====
+        # ξ[k+1] = ξ[k] + x_s[k] * dt
+        # CRITICAL: Skip during gentle startup to avoid windup during Kalman settling
+        kalman_settling_steps = min(3, self.gentle_startup_steps // 3)  # Settle for first 1/3 of gentle startup
+        if self.num_updates >= self.gentle_startup_steps:
             self.xi_hat[0, 0] += self.x_hat[0, 0] * dt_ps
-        elif self.num_updates < 3:
+        elif self.num_updates < kalman_settling_steps:
             print(f"[Gentle Startup] Skipping integral update (Kalman settling)")
         
-        # Anti-windup: clamp integral (improved)
+        # Anti-windup: clamp integral
         if abs(self.xi_hat[0, 0]) > self.integral_max:
             self.xi_hat[0, 0] = np.sign(self.xi_hat[0, 0]) * self.integral_max
         
-        # Control law: u = -K @ x_hat - k_I @ xi_hat
-        u_deviation = -self.K @ self.x_hat - self.k_I * self.xi_hat[0, 0]
+        # ===== GAIN SCHEDULING: Adapt control authority based on operating regime =====
+        if self.enable_gain_scheduling:
+            # Compute temperature spread (measure of proximity to equilibrium)
+            # In 3D mode: consider ALL temperature spreads (not just T_h vs T_s!)
+            if self.track_kinetic_temp:
+                # Maximum spread across all three temperatures
+                temps = [signal_temp, hot_temp, kinetic_temp]
+                delta_T = max(temps) - min(temps)
+            else:
+                # 2D mode: only signal vs hot
+                delta_T = abs(hot_temp - signal_temp)
+            
+            # Gain scheduling: reduce gain near equilibrium (high sensitivity region)
+            if delta_T > self.gain_schedule_far_threshold:
+                # Far from equilibrium: full gain
+                alpha_scheduled = 1.0
+            elif delta_T < self.gain_schedule_near_threshold:
+                # Near equilibrium: reduced gain (prevent aggressive control in sensitive region)
+                alpha_scheduled = 0.4
+            else:
+                # Transition region: linear interpolation
+                alpha_scheduled = 0.4 + 0.6 * (delta_T - self.gain_schedule_near_threshold) / (
+                    self.gain_schedule_far_threshold - self.gain_schedule_near_threshold
+                )
+            
+            # Smooth transition (exponential smoothing)
+            alpha_smoothing = 0.1
+            self.gain_schedule_alpha = alpha_smoothing * alpha_scheduled + (1 - alpha_smoothing) * self.gain_schedule_alpha
+            
+            # Log gain scheduling occasionally
+            if self.num_updates % 50 == 0 and self.num_updates > 10:
+                if self.track_kinetic_temp:
+                    print(f"[Gain Scheduling] ΔT_max={delta_T:.1f}K (across T_s, T_h, T_kin) → α={self.gain_schedule_alpha:.3f}")
+                else:
+                    print(f"[Gain Scheduling] ΔT={delta_T:.1f}K → α={self.gain_schedule_alpha:.3f}")
+        else:
+            self.gain_schedule_alpha = 1.0
+        
+        # ===== LQR CONTROL LAW: u = -α(regime) * K @ [x_s; x_h; (x_kin); ξ] =====
+        # Build augmented state vector (state_dim + 1)
+        x_aug = np.vstack([self.x_hat, self.xi_hat])  # (state_dim+1, 1): [x_s, x_h, (x_kin), ξ]
+        u_deviation = -self.gain_schedule_alpha * self.K @ x_aug  # (1, 1) with gain scheduling
         
         # Apply gentle startup scaling
         u_deviation_scaled = u_deviation * startup_factor
@@ -1152,19 +1969,109 @@ class LQRTemperatureController(hoomd.custom.Action):
         # Update thermostats
         self._update_thermostats(u_bath_temp_final)
         
-        # Store for next rate limiting
-        self.u_prev_temp = u_bath_temp_final
+        # Store for next iteration
+        self.u_prev_temp = u_bath_temp_final  # For rate limiting
+        self.u_prev = u_bath_temp_final - self.target_temperature  # For Kalman prediction
         
-        # Store bath temperature in state estimate
-        self.x_hat[2, 0] = u_bath_temp_final - self.target_temperature
-        
-        # ADAPTIVE: Collect data for RLS and perform periodic updates
-        if self.enable_adaptation:
-            # Next state (after control applied)
-            x_next = np.array([[x_s_meas], [x_h_meas], [u_bath_temp_final - self.target_temperature]])
+        # ADAPTIVE: EKF-based parameter estimation and adaptive LQR redesign
+        if self.enable_adaptation and self.use_ekf_adaptation and self.parameter_ekf is not None:
+            # EKF predict-update cycle for parameter estimation
+            self.adaptation_counter += 1
             
-            # Collect data
-            self._collect_rls_data(x_current, u_prev, x_next)
+            if self.adaptation_counter >= self.ekf_update_interval:
+                self.adaptation_counter = 0
+                
+                # EKF Prediction: propagate parameters forward using control input
+                self.parameter_ekf.predict(self.u_prev)
+                
+                # EKF Update: correct with measurement
+                self.parameter_ekf.update(y)
+                
+                # Get estimated parameters
+                A_ekf, B_ekf = self.parameter_ekf.get_parameter_estimates()
+                
+                # Check if parameters changed significantly → trigger LQR redesign (WITH SAFEGUARDS)
+                if self.last_lqr_redesign_params is not None:
+                    current_params = np.concatenate([A_ekf.flatten(), B_ekf.flatten()])
+                    param_change_norm = np.linalg.norm(current_params - self.last_lqr_redesign_params)
+                    param_base_norm = np.linalg.norm(self.last_lqr_redesign_params)
+                    relative_change = param_change_norm / (param_base_norm + 1e-10)
+                    
+                    # SAFEGUARD 1: Stability verification (eigenvalues < 0.99 for discrete-time)
+                    A_eigs = np.linalg.eigvals(A_ekf)
+                    max_eig = np.max(np.abs(A_eigs))
+                    is_stable = max_eig < 0.99
+                    
+                    # SAFEGUARD 2: Confidence gating (check EKF parameter uncertainty)
+                    P_theta = self.parameter_ekf.P[2:, 2:]  # Parameter covariance block
+                    param_uncertainty = np.trace(P_theta) / P_theta.shape[0]  # Average variance
+                    uncertainty_threshold = 0.05  # Only redesign if σ²_θ < 0.05
+                    is_confident = param_uncertainty < uncertainty_threshold
+                    
+                    # SAFEGUARD 3: Minimum convergence time (wait at least 10 EKF updates)
+                    min_updates_before_redesign = 10
+                    has_converged = self.parameter_ekf.num_updates >= min_updates_before_redesign
+                    
+                    # SAFEGUARD 4: Parameter validation (eigenvalues haven't jumped too much)
+                    A_old_eigs = np.linalg.eigvals(self.A_d)
+                    max_eig_old = np.max(np.abs(A_old_eigs))
+                    eig_change = abs(max_eig - max_eig_old)
+                    max_eig_change = 0.15  # Don't allow eigenvalues to change by more than 0.15
+                    eig_reasonable = eig_change < max_eig_change
+                    
+                    # Decision logic: ALL safeguards must pass
+                    if relative_change > self.adaptive_lqr_threshold and is_stable and is_confident and has_converged and eig_reasonable:
+                        # All safeguards passed → safe to redesign LQR
+                        print(f"\n[Adaptive LQG] Parameters changed by {relative_change*100:.1f}% → SAFE redesign")
+                        print(f"  ✓ Stability: max|λ|={max_eig:.4f} < 0.99")
+                        print(f"  ✓ Confidence: σ²_θ={param_uncertainty:.4f} < {uncertainty_threshold}")
+                        print(f"  ✓ Convergence: {self.parameter_ekf.num_updates} updates ≥ {min_updates_before_redesign}")
+                        print(f"  ✓ Eigenvalue change: Δ|λ|={eig_change:.4f} < {max_eig_change}")
+                        
+                        # Update system matrices with EKF estimates
+                        self.A_d = A_ekf.copy()
+                        self.B_d = B_ekf.copy()
+                        
+                        # Re-design LQR controller with new parameters
+                        self._design_lqr_controller()
+                        
+                        # Update tracking
+                        self.last_lqr_redesign_params = current_params.copy()
+                        self.num_lqr_redesigns += 1
+                        
+                        print(f"✓ LQR redesigned (total redesigns: {self.num_lqr_redesigns})")
+                        print(f"  New A_d eigenvalues: {A_eigs}")
+                    else:
+                        # Safeguards failed → reject redesign
+                        reasons = []
+                        if relative_change <= self.adaptive_lqr_threshold:
+                            reasons.append(f"insufficient change ({relative_change*100:.1f}% ≤ {self.adaptive_lqr_threshold*100:.1f}%)")
+                        if not is_stable:
+                            reasons.append(f"unstable (max|λ|={max_eig:.4f} ≥ 0.99)")
+                        if not is_confident:
+                            reasons.append(f"low confidence (σ²_θ={param_uncertainty:.4f} ≥ {uncertainty_threshold})")
+                        if not has_converged:
+                            reasons.append(f"insufficient convergence ({self.parameter_ekf.num_updates} < {min_updates_before_redesign})")
+                        if not eig_reasonable:
+                            reasons.append(f"eigenvalue jump too large (Δ|λ|={eig_change:.4f} ≥ {max_eig_change})")
+                        
+                        if self.num_updates % 100 == 0 and len(reasons) > 0:
+                            print(f"[Adaptive] Redesign blocked: {', '.join(reasons)}")
+                
+                # Log EKF statistics occasionally
+                if self.num_updates % 100 == 0:
+                    A_std, B_std = self.parameter_ekf.get_parameter_uncertainty()
+                    innov_stats = self.parameter_ekf.get_innovation_statistics()
+                    print(f"[EKF] Parameter uncertainty: A_std={np.mean(A_std):.4f}, B_std={np.mean(B_std):.4f}")
+                    print(f"[EKF] Innovation: mean={innov_stats['mean']:.3f}K, std={innov_stats['std']:.3f}K")
+        
+        elif self.enable_adaptation and not self.use_ekf_adaptation:
+            # Fallback to RLS if EKF disabled
+            # Next state measurement (2D state only, measured on next step)
+            x_next = x_current  # Current measurement becomes "next" for this step
+            
+            # Collect data (use self.u_prev which was just updated)
+            self._collect_rls_data(x_current, self.u_prev, x_next)
             
             # Periodic RLS update
             self.adaptation_counter += 1
@@ -1174,21 +2081,47 @@ class LQRTemperatureController(hoomd.custom.Action):
         
         # Console output
         if current_time_ps - self.last_console_output_time >= self.console_output_period_ps:
-            adapt_info = f" [R²={self.last_r_squared[0]:.2f},{self.last_r_squared[1]:.2f}]" if self.enable_adaptation else ""
-            print(f"LQR Control | t={current_time_ps:.1f}ps | "
-                  f"T_s={signal_temp:.2f}K | T_h={hot_temp:.2f}K | T_bath={u_bath_temp_final:.2f}K | "
-                  f"e_s={x_s_meas:.2f}K | ξ={self.xi_hat[0,0]:.2f}{adapt_info}")
+            if self.enable_adaptation and self.use_ekf_adaptation and self.parameter_ekf is not None:
+                adapt_info = f" [EKF:{self.parameter_ekf.num_updates}upd"
+                if self.num_lqr_redesigns > 0:
+                    adapt_info += f",{self.num_lqr_redesigns}redesign"
+                adapt_info += "]"
+            elif self.enable_adaptation:
+                adapt_info = f" [R²={self.last_r_squared[0]:.2f},{self.last_r_squared[1]:.2f}]"
+            else:
+                adapt_info = ""
+            
+            gain_info = f" α={self.gain_schedule_alpha:.2f}" if self.enable_gain_scheduling else ""
+            
+            if self.track_kinetic_temp:
+                # 3D mode: show signal, hot, kinetic
+                print(f"LQR Control | t={current_time_ps:.1f}ps | "
+                      f"T_s={signal_temp:.2f}K | T_h={hot_temp:.2f}K | T_kin={kinetic_temp:.2f}K | T_bath={u_bath_temp_final:.2f}K | "
+                      f"e_s={x_s_meas:.2f}K | e_kin={x_kin_meas:.2f}K | ξ={self.xi_hat[0,0]:.2f}{gain_info}{adapt_info}")
+            else:
+                # 2D mode: show signal, hot only
+                print(f"LQR Control | t={current_time_ps:.1f}ps | "
+                      f"T_s={signal_temp:.2f}K | T_h={hot_temp:.2f}K | T_bath={u_bath_temp_final:.2f}K | "
+                      f"e_s={x_s_meas:.2f}K | ξ={self.xi_hat[0,0]:.2f}{gain_info}{adapt_info}")
             self.last_console_output_time = current_time_ps
         
         # Log data
         try:
             with open(self.output_file, 'a', encoding='utf-8') as f:
-                f.write(f"{current_time_ps:.6f},control,{signal_temp:.6f},{hot_temp:.6f},"
-                       f"{bath_temp:.6f},{self.x_hat[0,0]:.6f},{self.x_hat[1,0]:.6f},"
-                       f"{self.x_hat[2,0]:.6f},{self.xi_hat[0,0]:.6f},"
-                       f"{u_deviation_scaled[0,0]:.6f},1\n")
-        except:
-            pass
+                # Build log string based on state dimensionality
+                if self.track_kinetic_temp:
+                    # 3D: log signal, hot, kinetic temps and estimates
+                    f.write(f"{current_time_ps:.6f},control,{signal_temp:.6f},{hot_temp:.6f},{kinetic_temp:.6f},"
+                           f"{bath_temp:.6f},{self.x_hat[0,0]:.6f},{self.x_hat[1,0]:.6f},{self.x_hat[2,0]:.6f},"
+                           f"{self.xi_hat[0,0]:.6f},{u_deviation_scaled[0,0]:.6f},1\n")
+                else:
+                    # 2D: log signal, hot temps and estimates (kinetic=0 as placeholder)
+                    f.write(f"{current_time_ps:.6f},control,{signal_temp:.6f},{hot_temp:.6f},0.0,"
+                           f"{bath_temp:.6f},{self.x_hat[0,0]:.6f},{self.x_hat[1,0]:.6f},0.0,"
+                           f"{self.xi_hat[0,0]:.6f},{u_deviation_scaled[0,0]:.6f},1\n")
+        except Exception as e:
+            if self.num_updates <= 5:
+                print(f"[WARNING] Failed to log data: {e}")
     
     def _apply_median_filter(self, value: float, buffer: list, window_size: int) -> float:
         """Apply median filter to reject outliers.
@@ -1388,16 +2321,37 @@ class LQRTemperatureController(hoomd.custom.Action):
             import traceback
             traceback.print_exc()
     
-    def _update_noise_estimates(self, signal_temp: float, hot_temp: float, current_time_ps: float):
-        """Estimate measurement noise from signal variance (adaptive noise tuning)."""
+    def _update_noise_estimates(self, signal_temp: float, hot_temp: float, current_time_ps: float, kinetic_temp: float = None):
+        """Estimate measurement noise from signal variance (adaptive noise tuning).
+        
+        Parameters
+        ----------
+        signal_temp : float
+            Signal temperature (K)
+        hot_temp : float
+            Hot temperature (K)
+        current_time_ps : float
+            Current simulation time (ps)
+        kinetic_temp : float, optional
+            Kinetic temperature (K), only used if track_kinetic_temp=True
+        """
         # Add to noise buffers
         self.noise_buffer_signal.append(signal_temp)
         self.noise_buffer_hot.append(hot_temp)
         
-        # Keep buffer at fixed size
+        # Add kinetic temp to buffer if tracking
+        if self.track_kinetic_temp and kinetic_temp is not None:
+            if not hasattr(self, 'noise_buffer_kinetic'):
+                self.noise_buffer_kinetic = []
+            self.noise_buffer_kinetic.append(kinetic_temp)
+        
+        # Keep buffers at fixed size
         if len(self.noise_buffer_signal) > self.noise_estimation_window:
             self.noise_buffer_signal.pop(0)
             self.noise_buffer_hot.pop(0)
+            if self.track_kinetic_temp and hasattr(self, 'noise_buffer_kinetic'):
+                if len(self.noise_buffer_kinetic) > self.noise_estimation_window:
+                    self.noise_buffer_kinetic.pop(0)
         
         # Update estimates periodically
         if current_time_ps - self.last_noise_update >= self.noise_update_interval:
@@ -1411,11 +2365,20 @@ class LQRTemperatureController(hoomd.custom.Action):
                 self.estimated_noise_signal = alpha * signal_std + (1 - alpha) * self.estimated_noise_signal
                 self.estimated_noise_hot = alpha * hot_std + (1 - alpha) * self.estimated_noise_hot
                 
+                # Update kinetic temp noise estimate if tracking
+                if self.track_kinetic_temp and hasattr(self, 'noise_buffer_kinetic'):
+                    if len(self.noise_buffer_kinetic) >= 50:
+                        kinetic_std = np.std(self.noise_buffer_kinetic)
+                        self.measurement_noise_kinetic = alpha * kinetic_std + (1 - alpha) * self.measurement_noise_kinetic
+                
                 self.last_noise_update = current_time_ps
                 
                 # Log noise update
                 if self.num_adaptations % 10 == 0:  # Log occasionally
-                    print(f"[Adaptive] Noise estimates updated: signal={self.estimated_noise_signal:.3f}K, hot={self.estimated_noise_hot:.3f}K")
+                    if self.track_kinetic_temp:
+                        print(f"[Adaptive] Noise estimates updated: signal={self.estimated_noise_signal:.3f}K, hot={self.estimated_noise_hot:.3f}K, kinetic={self.measurement_noise_kinetic:.3f}K")
+                    else:
+                        print(f"[Adaptive] Noise estimates updated: signal={self.estimated_noise_signal:.3f}K, hot={self.estimated_noise_hot:.3f}K")
     
     def _collect_rls_data(self, x_current: np.ndarray, u_current: float, x_next: np.ndarray):
         """Collect data for Recursive Least Squares (RLS) adaptation."""
@@ -1430,33 +2393,33 @@ class LQRTemperatureController(hoomd.custom.Action):
             self.rls_data_buffer['x_next'].pop(0)
     
     def _perform_rls_update(self):
-        """Perform Recursive Least Squares update of system parameters."""
+        """Perform Recursive Least Squares update of system parameters (2D state system)."""
         try:
             # Need enough data
             N = len(self.rls_data_buffer['x'])
             if N < 50:  # Minimum data for reliable estimation
                 return False
             
-            # Stack data
-            X = np.array(self.rls_data_buffer['x'])  # (N, 3, 1)
+            # Stack data (2D state system)
+            X = np.array(self.rls_data_buffer['x'])  # (N, 2, 1)
             U = np.array(self.rls_data_buffer['u'])  # (N,)
-            X_next = np.array(self.rls_data_buffer['x_next'])  # (N, 3, 1)
+            X_next = np.array(self.rls_data_buffer['x_next'])  # (N, 2, 1)
             
-            # Reshape for least squares: x[k+1] = A @ x[k] + B @ u[k]
-            X_curr = X.reshape(N, 3).T  # (3, N)
-            X_next_mat = X_next.reshape(N, 3).T  # (3, N)
+            # Reshape for least squares: x[k+1] = A_d @ x[k] + B_d @ u[k]
+            X_curr = X.reshape(N, 2).T  # (2, N)
+            X_next_mat = X_next.reshape(N, 2).T  # (2, N)
             U_vec = U.reshape(1, N)  # (1, N)
             
             # Build regressor matrix: Z = [X_curr; U_vec]
-            Z = np.vstack([X_curr, U_vec])  # (4, N)
+            Z = np.vstack([X_curr, U_vec])  # (3, N)
             
             # Regularized least squares: [A_d, B_d] = X_next @ Z^T @ (Z @ Z^T + λI)^{-1}
             ZZT = Z @ Z.T
-            ZZT_reg = ZZT + self.rls_regularization * np.eye(4)
+            ZZT_reg = ZZT + self.rls_regularization * np.eye(3)
             AB_new = X_next_mat @ Z.T @ np.linalg.inv(ZZT_reg)
             
-            A_d_new = AB_new[:, :3]
-            B_d_new = AB_new[:, 3:4]
+            A_d_new = AB_new[:, :2]  # (2, 2)
+            B_d_new = AB_new[:, 2:3]  # (2, 1)
             
             # Compute fit quality (R²)
             X_pred = AB_new @ Z
@@ -1482,8 +2445,8 @@ class LQRTemperatureController(hoomd.custom.Action):
                 # Re-design controller with new model
                 self._design_lqr_controller()
                 
-                print(f"\n[Adaptive LQR] Model updated (#{self.num_adaptations}):")
-                print(f"  R² = [{r_squared[0]:.4f}, {r_squared[1]:.4f}, {r_squared[2]:.4f}]")
+                print(f"\n[Adaptive LQG] 2D Model updated (#{self.num_adaptations}):")
+                print(f"  R² = [{r_squared[0]:.4f}, {r_squared[1]:.4f}]")
                 print(f"  Eigenvalues: {np.linalg.eigvals(A_d_new)}")
                 
                 return True
@@ -1506,100 +2469,113 @@ class LQRTemperatureController(hoomd.custom.Action):
             return False
     
     def _load_system_parameters(self):
-        """Load system parameters from file."""
+        """Load system parameters from file (2D state system)."""
         print(f"Loading system parameters from: {self.system_id_file}")
         try:
             with open(self.system_id_file, 'r') as f:
                 params = json.load(f)
             
             self.A_d = np.array(params['system_matrices']['A_discrete'])
-            self.B_d = np.array(params['system_matrices']['B_discrete']).reshape(3, 1)
+            B_d_flat = np.array(params['system_matrices']['B_discrete'])
             
-            print(f"Loaded A_d:")
+            # Auto-detect dimensions and reshape appropriately
+            if self.A_d.shape == (2, 2):
+                # New format: 2D state system
+                self.B_d = B_d_flat.reshape(2, 1)
+                print(f"✓ Loaded LQG 2D state system")
+            elif self.A_d.shape == (3, 3):
+                # Old format: convert 3D to 2D by dropping bath state
+                print(f"⚠ Warning: Loading old 3D state system file")
+                print(f"  Converting to 2D LQG format (dropping bath state)")
+                self.A_d = self.A_d[:2, :2]  # Keep only signal and hot
+                self.B_d = B_d_flat[:2].reshape(2, 1) if len(B_d_flat) >= 2 else B_d_flat.reshape(2, 1)
+            else:
+                raise ValueError(f"Unexpected A_d shape: {self.A_d.shape}")
+            
+            print(f"Loaded A_d (2x2):")
             print(f"{self.A_d}")
-            print(f"Loaded B_d:")
+            print(f"Loaded B_d (2x1):")
             print(f"{self.B_d.flatten()}")
         
         except Exception as e:
             raise RuntimeError(f"Could not load system parameters: {e}")
     
     def _set_manual_parameters(self):
-        """Set system parameters manually from dict."""
+        """Set system parameters manually from dict (2D state system)."""
         if 'A_discrete' not in self.system_params or 'B_discrete' not in self.system_params:
             raise ValueError("system_params must contain 'A_discrete' and 'B_discrete'")
         
         self.A_d = np.array(self.system_params['A_discrete'])
-        self.B_d = np.array(self.system_params['B_discrete']).reshape(3, 1)
         
-        print(f"Using manual system parameters:")
-        print(f"A_d = {self.A_d}")
-        print(f"B_d = {self.B_d.flatten()}")
+        # Ensure 2D state system
+        if self.A_d.shape != (2, 2):
+            raise ValueError(f"Expected A_discrete to be (2, 2), got {self.A_d.shape}. "
+                           "Use 2D state system: [signal, hot]")
+        self.B_d = np.array(self.system_params['B_discrete']).reshape(2, 1)
+        
+        print(f"Using manual system parameters (2D LQG):")
+        print(f"A_d (2x2) = {self.A_d}")
+        print(f"B_d (2x1) = {self.B_d.flatten()}")
     
     def _initialize_from_physics(self):
-        """Initialize system matrices from physics-based guesses.
+        """Initialize system matrices from physics-based guesses (2D LQG).
         
         For glassy systems with slow drift:
         - τ_signal ~ 100-1000 ps (slow glassy relaxation)
         - τ_hot ~ 10-50 ps (faster harmonic equilibration)
         - Weak coupling between subsystems
-        - Bath has significant control authority (B ≠ 0!)
+        - Bath (control input) has significant authority on both states
         
+        LQG formulation: 2D state [signal, hot], 1D control [bath]
         This allows the controller to start with reasonable parameters
-        and let RLS refine them online from control actions and drift.
+        and let RLS refine them online from control actions.
         """
         # Physics-based time constants (continuous time)
         tau_signal = 200.0  # ps - slow glassy drift
         tau_hot = 30.0      # ps - faster harmonic
-        tau_bath = 1.0      # ps - bath actuator (thermostat response)
-        coupling = 0.01     # Weak coupling coefficient
+        coupling = 0.01     # Weak signal-hot coupling coefficient
         
         # Convert to rates (1/time constant)
         k_s = 1.0 / tau_signal
         k_h = 1.0 / tau_hot
-        k_c = 1.0 / tau_bath
         
-        # Continuous-time A matrix structure:
-        # dx_s/dt = -k_s * x_s + coupling * x_h + b_s * x_c
-        # dx_h/dt = coupling * x_s - k_h * x_h + b_h * x_c
-        # dx_c/dt = -k_c * x_c + k_c * u
+        # Continuous-time 2D state system:
+        # dx_s/dt = -k_s * x_s + coupling * x_h + b_s * u_bath
+        # dx_h/dt = coupling * x_s - k_h * x_h + b_h * u_bath
         #
-        # where b_s, b_h are bath sensitivities (TO BE LEARNED!)
+        # where b_s, b_h are bath input gains (to be learned by RLS)
         
-        # Initial guess: signal and hot ARE sensitive to bath
-        # (This is the KEY difference from the B=0 problem!)
-        b_s = k_s * 0.5  # Signal has SOME bath sensitivity
-        b_h = k_h * 0.3  # Hot has more bath sensitivity
+        # Initial guess: signal and hot ARE influenced by bath control
+        b_s = k_s * 0.5  # Signal has moderate bath sensitivity
+        b_h = k_h * 0.8  # Hot has stronger bath sensitivity (faster response)
         
         A_cont = np.array([
-            [-k_s, coupling, b_s],
-            [coupling, -k_h, b_h],
-            [0.0, 0.0, -k_c]
-        ])
+            [-k_s, coupling],
+            [coupling, -k_h]
+        ])  # (2, 2)
         
-        B_cont = np.array([[0.0], [0.0], [k_c]])
+        B_cont = np.array([[b_s], [b_h]])  # (2, 1)
         
-        # Discretize using zero-order hold approximation
-        # For small dt: A_d ≈ I + A_cont * dt, B_d ≈ B_cont * dt
+        # Discretize using zero-order hold (first-order approximation)
         dt = self.update_interval_ps
         
         from scipy.linalg import expm
-        # More accurate discretization using matrix exponential
+        # Exact discretization using matrix exponential
         n = A_cont.shape[0]
         M = np.zeros((n + 1, n + 1))
         M[:n, :n] = A_cont * dt
         M[:n, n:n+1] = B_cont * dt
         M_exp = expm(M)
         
-        self.A_d = M_exp[:n, :n]
-        self.B_d = M_exp[:n, n:n+1]
+        self.A_d = M_exp[:n, :n]  # (2, 2)
+        self.B_d = M_exp[:n, n:n+1]  # (2, 1)
         
-        print(f"\nPhysics-Based Initialization:")
+        print(f"\nPhysics-Based Initialization (2D LQG):")
         print(f"  Time constants:")
         print(f"    τ_signal = {tau_signal:.1f} ps (slow glassy)")
         print(f"    τ_hot = {tau_hot:.1f} ps (harmonic)")
-        print(f"    τ_bath = {tau_bath:.1f} ps (actuator)")
         print(f"  Coupling = {coupling:.4f}")
-        print(f"  Bath sensitivities:")
+        print(f"  Bath input gains (initial guess):")
         print(f"    b_s = {b_s:.6f} (signal ← bath)")
         print(f"    b_h = {b_h:.6f} (hot ← bath)")
         print(f"\n  Discrete-time matrices (dt={dt:.2f}ps):")

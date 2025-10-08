@@ -1,24 +1,29 @@
 #!/bin/bash
 
-# LQR Controller Test Script - MULTI-STEP SYSTEM ID VERSION
-# Sequential control experiment: DiffEqController → LQR Controller → Control
+# LQG Controller Test - FIXED GAINS + GAIN SCHEDULING (LQG 2D)
+# Sequential control experiment: DiffEqController → LQG System ID → Control
 # Phase 1 (10-110 ps):    DiffEqController tracks LJ+Coulombic, exponential wave coupling
-# Phase 2 (110-210 ps):   LQR Multi-Step System ID
+# Phase 2 (110-210 ps):   LQG Multi-Step System ID (2D state: signal, hot; 1D control: bath)
 #                         - 4 sequential excitations (cool/heat/cool/return)
 #                         - Each step is 25ps → total 100ps
 #                         - Tests both directions + multiple magnitudes
 #                         - Much better frequency coverage than single quench!
-# Phase 3 (210+ ps):      LQR optimal control (signal-only, hot has inverse response)
+# Phase 3 (210+ ps):      LQG optimal control with:
+#                         - Kalman filter for state estimation [T_s, T_h]
+#                         - EKF for online parameter tracking (monitoring only)
+#                         - FIXED controller (adaptive redesign DISABLED)
+#                         - Gain scheduling: reduce gain near equilibrium (ΔT < 10K)
+#                         - T_h low-pass filter: suppress high-frequency noise (τ=20ps)
 
 python3 18_unified_cavity_dynamics.py \
   --molecular-bath bussi \
   --cavity-bath langevin \
   --coupling-type exponentialwave \
-  --coupling 5e-4 \
+  --coupling 3e-4 \
   --exp-period 50.0 \
   --exp-tau 1.0 \
   --exp-start-time 10.0 \
-  --exp-stop-time 110.0 \
+  --exp-stop-time 510.0 \
   --exp-adaptive \
   --temperature 300.0 \
   --frequency 1560.0 \
@@ -32,7 +37,7 @@ python3 18_unified_cavity_dynamics.py \
   --diffeq-temperature-method lj_coulombic \
   --diffeq-time-constant 0.1 \
   --diffeq-turn-on-time 10.0 \
-  --diffeq-turn-off-time 110.0 \
+  --diffeq-turn-off-time 510.0 \
   --diffeq-update-interval 0.0 \
   --diffeq-apply-to both \
   --diffeq-T-min 2.0 \
@@ -44,7 +49,6 @@ python3 18_unified_cavity_dynamics.py \
   --lqr-dynamic-target-method lj_coulombic \
   --lqr-weight-signal 100.0 \
   --lqr-weight-hot 0.01 \
-  --lqr-weight-bath 0.1 \
   --lqr-weight-integral 5.0 \
   --lqr-control-effort 10.0 \
   --lqr-process-noise-signal 2.0 \
@@ -52,15 +56,18 @@ python3 18_unified_cavity_dynamics.py \
   --lqr-measurement-noise-signal 2.0 \
   --lqr-measurement-noise-hot 30.0 \
   --lqr-system-id-mode multi_step \
-  --lqr-system-id-temp 10.0 \
+  --lqr-system-id-temp 7.5 \
   --lqr-system-id-duration 100.0 \
   --lqr-periodic-system-id \
-  --lqr-periodic-system-id-interval 100.0 \
-  --lqr-turn-on-time 110.0 \
-  --lqr-update-interval 1.0000 \
-  --lqr-T-min 2.0 \
-  --lqr-T-max 600.0 \
+  --lqr-periodic-system-id-interval 1000.0 \
+  --lqr-turn-on-time 510.0 \
+  --lqr-update-interval 1.0 \
+  --lqr-T-min 1.0 \
+  --lqr-T-max 1000.0 \
   --lqr-apply-to both \
+  --lqr-th-filter-enabled \
+  --lqr-th-filter-time-constant 100.0 \
+  --lqr-adaptive-lqr-threshold 1000.0 \
   --lqr-empirical-data-file /home/mh7373/GitRepos/cav-hoomd/potential_energy_vs_T.txt \
   --device GPU \
   --seed 42 \
