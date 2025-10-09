@@ -569,6 +569,11 @@ class CavityMDSimulation:
                  offset_apply_to: str = 'both',
                  offset_T_min: float = 0.0,
                  offset_T_max: Optional[float] = None,
+                 # Harmonic bond reset parameters
+                 enable_harmonic_reset: bool = False,
+                 harmonic_reset_turn_on_time_ps: float = 0.0,
+                 harmonic_reset_temperature: Optional[float] = None,
+                 harmonic_reset_seed: int = 42,
                  # Differential equation controller parameters
                  enable_diffeq_controller: bool = False,
                  diffeq_temperature_method: str = 'kinetic',
@@ -906,6 +911,12 @@ class CavityMDSimulation:
         self.offset_apply_to = offset_apply_to
         self.offset_T_min = offset_T_min
         self.offset_T_max = offset_T_max
+        
+        # Harmonic bond reset parameters
+        self.enable_harmonic_reset = enable_harmonic_reset
+        self.harmonic_reset_turn_on_time_ps = harmonic_reset_turn_on_time_ps
+        self.harmonic_reset_temperature = harmonic_reset_temperature
+        self.harmonic_reset_seed = harmonic_reset_seed
         
         # Differential equation controller parameters
         self.enable_diffeq_controller = enable_diffeq_controller
@@ -2814,6 +2825,11 @@ class CavityMDSimulation:
                 self.log_info(f"  WARNING: DiffEq controller conflicts with immediate controllers: {', '.join(immediate_conflicts)} - disabling diffeq")
                 self.diffeq_controller = None
         
+        # Set up harmonic bond reset if enabled
+        if getattr(self, 'enable_harmonic_reset', False):
+            self._setup_harmonic_reset()
+            enabled_features.append(f"harmonic bond reset (t={self.harmonic_reset_turn_on_time_ps:.1f}ps)")
+        
         # Set up comprehensive temperature tracker if enabled
         # IMPORTANT: Must be set up BEFORE LQR controller (which needs temperature measurements)
         if getattr(self, 'enable_temp_tracker', False):
@@ -3304,6 +3320,148 @@ class CavityMDSimulation:
             self.log_error(f"Failed to setup differential equation controller: {e}")
             self.log_error(f"Full traceback: {traceback.format_exc()}")
             self.diffeq_controller = None
+    
+    def _setup_harmonic_reset(self):
+        """Set up harmonic bond reset."""
+        if not self.enable_harmonic_reset:
+            return
+        
+        try:
+            from .harmonic_bond_reset import HarmonicBondReset
+            
+            # Use dynamic bath temperature if reset_temperature is None
+            use_dynamic_temperature = (self.harmonic_reset_temperature is None)
+            initial_temp = self.harmonic_reset_temperature if self.harmonic_reset_temperature is not None else self.temperature
+            
+            self.log_info(f"\n{'='*60}")
+            self.log_info("HARMONIC BOND RESET CONFIGURATION")
+            self.log_info(f"{'='*60}")
+            self.log_info(f"Bond parameters: Will auto-detect from simulation at reset time")
+            if use_dynamic_temperature:
+                self.log_info(f"Reset temperature: DYNAMIC (will use bath temperature at reset time)")
+            else:
+                self.log_info(f"Reset temperature: {initial_temp} K (fixed)")
+            self.log_info(f"Turn-on time: {self.harmonic_reset_turn_on_time_ps} ps")
+            self.log_info(f"Random seed: {self.harmonic_reset_seed}")
+            self.log_info(f"{'='*60}\n")
+            
+            # Create a placeholder bond reset action
+            # Parameters will be populated at reset time
+            bond_reset = HarmonicBondReset(
+                bond_params={'placeholder': {'K': 1.0, 'r0': 1.0}},  # Temporary
+                temperature=initial_temp,  # Initial value
+                kB=PhysicalConstants.KB_HARTREE_PER_K,  # Correct atomic units!
+                seed=self.harmonic_reset_seed
+            )
+            bond_reset._sim_obj = self  # Store reference to simulation object
+            
+            # Load empirical data for harmonic fictive temperature calculation
+            # Use the same empirical data file as the temperature tracker
+            if hasattr(self, 'empirical_data_file') and self.empirical_data_file is not None:
+                from pathlib import Path
+                from .analysis import EmpiricalTemperatureData
+                empirical_path = Path(self.empirical_data_file)
+                if empirical_path.exists():
+                    try:
+                        harmonic_empirical_data = EmpiricalTemperatureData(
+                            str(empirical_path),
+                            energy_component='harmonic',
+                            use_direct_harmonic=False,  # Use extended fits
+                            create_plots=False
+                        )
+                        bond_reset.set_empirical_data(harmonic_empirical_data)
+                        print(f"✓ Loaded harmonic empirical data for bond reset from {empirical_path}")
+                    except Exception as e:
+                        print(f"Warning: Could not load empirical data for bond reset: {e}")
+            
+            # Add as custom updater that checks periodically
+            reset_updater = hoomd.update.CustomUpdater(
+                action=bond_reset,
+                trigger=hoomd.trigger.Periodic(period=100)  # Check every 100 steps
+            )
+            self.sim.operations.updaters.append(reset_updater)
+            
+            # Create a trigger callback to enable the reset at the specified time
+            class HarmonicResetTrigger(hoomd.custom.Action):
+                def __init__(self, bond_reset_action, trigger_time_ps, use_dynamic_temp, sim_obj):
+                    self.bond_reset_action = bond_reset_action
+                    self.trigger_time_ps = trigger_time_ps
+                    self.triggered = False
+                    self.use_dynamic_temp = use_dynamic_temp
+                    self.sim_obj = sim_obj  # Reference to CavityMDSimulation object
+                
+                def act(self, timestep):
+                    # Use actual simulation time instead of timestep count (for adaptive timestep compatibility)
+                    current_time_ps = self.sim_obj.time_tracker.elapsed_time
+                    
+                    if not self.triggered and current_time_ps >= self.trigger_time_ps:
+                        # Update temperature dynamically from bath if requested
+                        if self.use_dynamic_temp:
+                            try:
+                                # Get actual kinetic temperature from particle velocities, not thermostat setpoint!
+                                # CRITICAL: Must exclude cavity particle (type 'X') from molecular bath calculation
+                                
+                                # Get type names from state (not from snapshot, which doesn't have it)
+                                type_names = self.sim_obj.sim.state.particle_types
+                                cavity_type_idx = None
+                                if 'X' in type_names:
+                                    cavity_type_idx = type_names.index('X')
+                                
+                                with self.sim_obj.sim.state.cpu_local_snapshot as snap:
+                                    velocities = snap.particles.velocity
+                                    masses = snap.particles.mass
+                                    types = snap.particles.typeid
+                                    
+                                    # Exclude cavity particle from kinetic temperature calculation
+                                    if cavity_type_idx is not None:
+                                        molecular_mask = types != cavity_type_idx
+                                        mol_velocities = velocities[molecular_mask]
+                                        mol_masses = masses[molecular_mask]
+                                    else:
+                                        mol_velocities = velocities
+                                        mol_masses = masses
+                                    
+                                    # Calculate kinetic energy: KE = 0.5 * sum(m * v^2)
+                                    KE_total = 0.5 * np.sum(mol_masses[:, np.newaxis] * mol_velocities**2)
+                                    
+                                    # Number of degrees of freedom (3N for N molecular particles, excluding cavity)
+                                    N_mol_dof = 3 * len(mol_masses)
+                                    
+                                    # Equipartition: KE = 0.5 * N_dof * kB * T
+                                    # T = 2 * KE / (N_dof * kB)
+                                    molecular_bath_T = 2.0 * KE_total / (N_mol_dof * PhysicalConstants.KB_HARTREE_PER_K)
+                                    
+                                    self.bond_reset_action.T = molecular_bath_T
+                                    print(f"\n>>> Harmonic bond reset: Using dynamic kinetic temperature T = {molecular_bath_T:.2f} K <<<")
+                                    print(f"    (Calculated from {len(mol_masses)} molecular particles, excluding cavity)")
+                                    print(f"    (Actual instantaneous kinetic energy, not thermostat setpoint)")
+                                    
+                            except Exception as e:
+                                    print(f"\n>>> Warning: Could not calculate kinetic temperature ({e}), using default T = {float(self.bond_reset_action.T):.2f} K <<<")
+                                    import traceback
+                                    traceback.print_exc()
+                        
+                        print(f"\n>>> Enabling harmonic bond reset at t={current_time_ps:.2f} ps (timestep {timestep}) <<<\n")
+                        self.bond_reset_action.enabled = True
+                        self.triggered = True
+            
+            # Add trigger updater (no dt_fs needed - uses simulation time)
+            trigger_action = HarmonicResetTrigger(
+                bond_reset, 
+                self.harmonic_reset_turn_on_time_ps, 
+                use_dynamic_temperature,
+                self  # Pass CavityMDSimulation object
+            )
+            trigger_updater = hoomd.update.CustomUpdater(
+                action=trigger_action,
+                trigger=hoomd.trigger.Periodic(period=10)  # Check every 10 steps
+            )
+            self.sim.operations.updaters.append(trigger_updater)
+            
+        except Exception as e:
+            import traceback
+            self.log_error(f"Failed to setup harmonic bond reset: {e}")
+            self.log_error(f"Full traceback: {traceback.format_exc()}")
     
     def _setup_lqr_controller(self):
         """Set up LQR optimal temperature controller."""

@@ -13,12 +13,14 @@ To use the components, import from the specific submodules:
 - cavitymd.simulation: Simulation framework components
 - cavitymd.updaters: Particle updaters
 - cavitymd.variants: Parameter variants
+- cavitymd.harmonic_bond_reset: One-time thermal bond reset for diatomics
 
 Example:
     from cavitymd.forces import CavityForce
     from cavitymd.utils import PhysicalConstants
     from cavitymd.analysis import EnergyTracker
     from cavitymd.controller import LQRTemperatureController
+    from cavitymd.harmonic_bond_reset import HarmonicBondReset
 """
 
 # Version compatibility check

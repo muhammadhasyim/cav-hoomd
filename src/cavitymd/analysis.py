@@ -2822,6 +2822,10 @@ class GradientDescentTemperatureFeedback(hoomd.custom.Action):
         except Exception as e:
             print(f"Warning: Failed to initialize gradient descent output file: {e}")
     
+    def _get_hoomd_simulation(self):
+        """Get reference to HOOMD simulation object."""
+        return self.simulation
+    
     def _calculate_system_temperature(self, current_time_ps: float) -> Optional[float]:
         """Calculate system temperature using the specified method."""
         try:

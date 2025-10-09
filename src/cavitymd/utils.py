@@ -107,6 +107,9 @@ class PhysicalConstants:
     MASS_KG: float = 9.1093837139e-31  # Electron mass in kg
     """Electron mass in kg"""
     
+    AMU_TO_ELECTRON_MASS: float = 1822.888  # Atomic mass unit to electron mass
+    """Conversion factor from AMU to electron masses (used in atomic units)"""
+    
     # Time conversions
     TIME_SECONDS: float = 2.418884e-17  # Atomic time unit to seconds
     """Atomic time unit to seconds conversion factor"""

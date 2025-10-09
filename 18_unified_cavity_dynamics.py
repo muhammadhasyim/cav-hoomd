@@ -23,6 +23,14 @@ with ALL enhanced coupling modes and control features:
 - Harmonic fictive temperature (T^3/2 scaling)
 - IMC auto-tuning or manual PI parameters
 
+ HARMONIC BOND RESET:
+- One-time thermal reinitialization of bond stretch DOF for ALL bond types
+- Auto-detects bond parameters (K, r0) from simulation force field
+- Preserves COM motion and molecular orientation
+- Option B: Exact canonical sampling at target temperature
+- Triggered at specified time during simulation
+- Dynamic temperature: automatically uses bath temperature at reset time
+
  PRODUCTION FEATURES:
 - All Phase 3 enhanced features integrated
 - Full GPU/CPU compatibility and consistency 
@@ -82,6 +90,7 @@ import numpy as np
 import hoomd
 from hoomd.cavitymd.simulation import CavityMDSimulation
 from hoomd.cavitymd.utils import PhysicalConstants
+from hoomd.cavitymd.harmonic_bond_reset import HarmonicBondReset
 
 # =============================================================================
 # SIMULATION FUNCTIONS (Unified: Periodic, Laser, Mechanical, Switch-time)
@@ -192,6 +201,9 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
                          offset_temperature_offset_K=-50.0, offset_turn_on_time_ps=0.0,
                          offset_turn_off_time_ps=None, offset_update_interval_ps=0.1,
                          offset_apply_to='both', offset_T_min=0.0, offset_T_max=None,
+                         # Harmonic bond reset parameters
+                         enable_harmonic_reset=False, harmonic_reset_turn_on_time_ps=0.0,
+                         harmonic_reset_temperature=None, harmonic_reset_seed=42,
                          # Differential equation controller parameters
                          enable_diffeq_controller=False, diffeq_temperature_method='kinetic',
                          diffeq_time_constant_ps=5.0, diffeq_turn_on_time_ps=0.0,
@@ -209,6 +221,25 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
                         lqr_system_id_mode='step', lqr_system_id_temp_K=5.0,
                         lqr_system_id_duration_ps=50.0, lqr_system_id_file='lqr_system_params.json',
                         lqr_periodic_system_id=False, lqr_periodic_system_id_interval_ps=1000.0,
+                        # EKF-based adaptation
+                        lqr_use_ekf_adaptation=True, lqr_ekf_update_interval=50,
+                        lqr_ekf_process_noise_param=0.001, lqr_ekf_initial_covariance_param=0.1,
+                        lqr_adaptive_lqr_threshold=0.05,
+                        # Gain scheduling
+                        lqr_enable_gain_scheduling=True, lqr_gain_schedule_far_threshold=20.0,
+                        lqr_gain_schedule_near_threshold=10.0,
+                        # T_h low-pass filter
+                        lqr_th_filter_enabled=True, lqr_th_filter_time_constant=20.0,
+                        # Gentle startup
+                        lqr_gentle_startup_steps=10, lqr_gentle_startup_min_authority=0.1,
+                        # Kinetic temperature tracking (3D state)
+                        lqr_track_kinetic_temp=False, lqr_weight_kinetic=100.0,
+                        lqr_process_noise_kinetic=2.0, lqr_measurement_noise_kinetic=2.0,
+                        # Cross-coupling weights for thermal equilibration
+                        lqr_cross_coupling_signal_kinetic=0.0,
+                        lqr_cross_coupling_signal_hot=0.0,
+                        lqr_cross_coupling_hot_kinetic=0.0,
+                        # Timing and limits
                         lqr_turn_on_time_ps=0.0, lqr_turn_off_time_ps=None,
                         lqr_update_interval_ps=0.1, lqr_T_min=0.1, lqr_T_max=None,
                         lqr_apply_to='both', lqr_output_file='lqr_controller.csv',
@@ -622,6 +653,13 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
             offset_apply_to=offset_apply_to,
             offset_T_min=offset_T_min,
             offset_T_max=offset_T_max,
+            
+            # Harmonic bond reset parameters
+            enable_harmonic_reset=enable_harmonic_reset,
+            harmonic_reset_turn_on_time_ps=harmonic_reset_turn_on_time_ps,
+            harmonic_reset_temperature=harmonic_reset_temperature,
+            harmonic_reset_seed=harmonic_reset_seed,
+            
             # Differential equation controller parameters
             enable_diffeq_controller=enable_diffeq_controller,
             diffeq_temperature_method=diffeq_temperature_method,
@@ -656,6 +694,28 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
             lqr_system_id_file=lqr_system_id_file,
             lqr_periodic_system_id=lqr_periodic_system_id,
             lqr_periodic_system_id_interval_ps=lqr_periodic_system_id_interval_ps,
+            # EKF adaptation
+            lqr_use_ekf_adaptation=lqr_use_ekf_adaptation,
+            lqr_ekf_update_interval=lqr_ekf_update_interval,
+            lqr_ekf_process_noise_param=lqr_ekf_process_noise_param,
+            lqr_ekf_initial_covariance_param=lqr_ekf_initial_covariance_param,
+            lqr_adaptive_lqr_threshold=lqr_adaptive_lqr_threshold,
+            # Gain scheduling
+            lqr_enable_gain_scheduling=lqr_enable_gain_scheduling,
+            lqr_gain_schedule_far_threshold=lqr_gain_schedule_far_threshold,
+            lqr_gain_schedule_near_threshold=lqr_gain_schedule_near_threshold,
+            # T_h low-pass filter
+            lqr_th_filter_enabled=lqr_th_filter_enabled,
+            lqr_th_filter_time_constant=lqr_th_filter_time_constant,
+            # Gentle startup
+            lqr_gentle_startup_steps=lqr_gentle_startup_steps,
+            lqr_gentle_startup_min_authority=lqr_gentle_startup_min_authority,
+            # Kinetic temperature tracking (3D state)
+            lqr_track_kinetic_temp=lqr_track_kinetic_temp,
+            lqr_weight_kinetic=lqr_weight_kinetic,
+            lqr_process_noise_kinetic=lqr_process_noise_kinetic,
+            lqr_measurement_noise_kinetic=lqr_measurement_noise_kinetic,
+            # Timing
             lqr_turn_on_time_ps=lqr_turn_on_time_ps,
             lqr_turn_off_time_ps=lqr_turn_off_time_ps,
             lqr_update_interval_ps=lqr_update_interval_ps,
@@ -746,6 +806,9 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
             auto_stop_min_time_ps=auto_stop_min_time_ps,
             auto_stop_smoothing_window=auto_stop_smoothing_window,
         )
+        
+        # Harmonic reset parameters are passed to CavityMDSimulation
+        # The updaters will be created inside the simulation class
         
         return sim.run() == 0  # Return True for success (exit code 0)
         
@@ -1126,6 +1189,22 @@ Examples:
     parser.add_argument('--sinusoidal-bath-adaptive-range-mode', action='store_true',
                        help='Enable adaptive range mode: sinusoid bounds fixed at target, range adapts to |Ts-Ttarget| (default: False)')
     
+    # Harmonic bond reset parameters
+    parser.add_argument('--enable-harmonic-reset', action='store_true',
+                       help='Enable one-time harmonic bond reset (thermal sampling of bond stretch DOF for ALL bond types)')
+    parser.add_argument('--harmonic-reset-turn-on-time', type=float, default=0.0,
+                       help='Time in ps to trigger harmonic bond reset (default: 0.0)')
+    parser.add_argument('--harmonic-reset-bond-type', type=str, default='bond',
+                       help='[DEPRECATED] Bond type name - now auto-detects all bond types')
+    parser.add_argument('--harmonic-reset-spring-constant', type=float, default=None,
+                       help='[DEPRECATED] Spring constant K - now auto-detected from force field')
+    parser.add_argument('--harmonic-reset-equilibrium-length', type=float, default=None,
+                       help='[DEPRECATED] Equilibrium length r0 - now auto-detected from force field')
+    parser.add_argument('--harmonic-reset-temperature', type=float, default=None,
+                       help='Target temperature for internal stretch DOF (default: None, use dynamic bath temperature at reset time)')
+    parser.add_argument('--harmonic-reset-seed', type=int, default=42,
+                       help='Random seed for harmonic reset (default: 42)')
+    
     # Adaptive bath temperature controller parameters  
     parser.add_argument('--enable-adaptive-bath', action='store_true',
                        help='Enable adaptive bath temperature controller (default: False)')
@@ -1244,7 +1323,7 @@ Examples:
     parser.add_argument('--lqr-weight-hot', type=float, default=1.0,
                        help='LQR weight for hot temperature (lower = allow more variation) (default: 1.0)')
     parser.add_argument('--lqr-weight-bath', type=float, default=0.1,
-                       help='LQR weight for bath temperature (default: 0.1)')
+                       help='[DEPRECATED - LQG uses 2D state, bath is control input] Old 3D formulation parameter (default: 0.1)')
     parser.add_argument('--lqr-weight-integral', type=float, default=10.0,
                        help='LQR weight for integral action (default: 10.0)')
     parser.add_argument('--lqr-control-effort', type=float, default=1.0,
@@ -1271,6 +1350,63 @@ Examples:
                        help='Enable periodic re-identification of system parameters')
     parser.add_argument('--lqr-periodic-system-id-interval', type=float, default=1000.0,
                        help='Time interval between periodic system IDs (ps) (default: 1000.0)')
+    
+    # EKF-based Adaptive LQG parameters
+    parser.add_argument('--lqr-use-ekf-adaptation', action='store_true', default=True,
+                       help='Use EKF for online parameter estimation (default: True)')
+    parser.add_argument('--lqr-no-ekf-adaptation', dest='lqr_use_ekf_adaptation', action='store_false',
+                       help='Disable EKF adaptation and use RLS instead')
+    parser.add_argument('--lqr-ekf-update-interval', type=int, default=50,
+                       help='EKF update interval (control steps) (default: 50)')
+    parser.add_argument('--lqr-ekf-process-noise-param', type=float, default=0.001,
+                       help='EKF parameter drift noise std (default: 0.001)')
+    parser.add_argument('--lqr-ekf-initial-covariance-param', type=float, default=0.1,
+                       help='EKF initial parameter uncertainty (default: 0.1)')
+    parser.add_argument('--lqr-adaptive-lqr-threshold', type=float, default=0.05,
+                       help='Relative parameter change threshold for LQR redesign (default: 0.05 = 5%%)')
+    
+    # Gain Scheduling parameters
+    parser.add_argument('--lqr-enable-gain-scheduling', action='store_true', default=True,
+                       help='Enable gain scheduling based on temperature spread (default: True)')
+    parser.add_argument('--lqr-disable-gain-scheduling', dest='lqr_enable_gain_scheduling', action='store_false',
+                       help='Disable gain scheduling')
+    parser.add_argument('--lqr-gain-schedule-far-threshold', type=float, default=20.0,
+                       help='Temperature spread for full gain (K) (default: 20.0)')
+    parser.add_argument('--lqr-gain-schedule-near-threshold', type=float, default=10.0,
+                       help='Temperature spread for reduced gain (K) (default: 10.0)')
+    
+    # T_h low-pass filter parameters
+    parser.add_argument('--lqr-th-filter-enabled', action='store_true', default=True,
+                       help='Enable low-pass filtering on T_h measurements (default: True)')
+    parser.add_argument('--lqr-th-filter-disabled', dest='lqr_th_filter_enabled',
+                       action='store_false',
+                       help='Disable T_h low-pass filtering')
+    parser.add_argument('--lqr-th-filter-time-constant', type=float, default=20.0,
+                       help='T_h filter time constant in ps (default: 20.0, cutoff ~8Hz)')
+    
+    # Gentle startup parameters
+    parser.add_argument('--lqr-gentle-startup-steps', type=int, default=10,
+                       help='Number of steps to ramp up control authority (default: 10)')
+    parser.add_argument('--lqr-gentle-startup-min-authority', type=float, default=0.1,
+                       help='Starting control authority fraction (default: 0.1 = 10%%)')
+    
+    # Kinetic temperature tracking parameters (3D state augmentation)
+    parser.add_argument('--lqr-track-kinetic-temp', action='store_true', default=False,
+                       help='Enable kinetic temperature as 3rd state variable (default: False, uses 2D system)')
+    parser.add_argument('--lqr-weight-kinetic', type=float, default=100.0,
+                       help='LQR weight for kinetic temperature error (default: 100.0, same as signal temp)')
+    parser.add_argument('--lqr-process-noise-kinetic', type=float, default=2.0,
+                       help='Kalman filter process noise for kinetic temp (K) (default: 2.0)')
+    parser.add_argument('--lqr-measurement-noise-kinetic', type=float, default=2.0,
+                       help='Kalman filter measurement noise for kinetic temp (K) (default: 2.0)')
+    
+    # Cross-coupling weights for thermal equilibration (3D mode only)
+    parser.add_argument('--lqr-cross-coupling-signal-kinetic', type=float, default=0.0,
+                       help='Cross-coupling weight for (T_signal - T_kinetic)² penalty (default: 0.0, disabled)')
+    parser.add_argument('--lqr-cross-coupling-signal-hot', type=float, default=0.0,
+                       help='Cross-coupling weight for (T_signal - T_hot)² penalty (default: 0.0, disabled)')
+    parser.add_argument('--lqr-cross-coupling-hot-kinetic', type=float, default=0.0,
+                       help='Cross-coupling weight for (T_hot - T_kinetic)² penalty (default: 0.0, disabled)')
 
     # Adaptive LQI Controller parameters
     parser.add_argument('--lqr-controller-type', type=str, choices=['standard', 'adaptive_lqi'], default='standard',
@@ -2011,6 +2147,11 @@ def main():
             offset_apply_to=args.offset_apply_to,
             offset_T_min=args.offset_T_min,
             offset_T_max=args.offset_T_max,
+            # Harmonic bond reset parameters
+            enable_harmonic_reset=args.enable_harmonic_reset,
+            harmonic_reset_turn_on_time_ps=args.harmonic_reset_turn_on_time,
+            harmonic_reset_temperature=args.harmonic_reset_temperature,
+            harmonic_reset_seed=args.harmonic_reset_seed,
             # Differential equation controller parameters
             enable_diffeq_controller=args.enable_diffeq_controller,
             diffeq_temperature_method=args.diffeq_temperature_method,
@@ -2031,7 +2172,7 @@ def main():
             lqr_dynamic_target_method=args.lqr_dynamic_target_method,
             lqr_weight_signal=args.lqr_weight_signal,
             lqr_weight_hot=args.lqr_weight_hot,
-            lqr_weight_bath=args.lqr_weight_bath,
+            lqr_weight_bath=args.lqr_weight_bath,  # Deprecated: not used in LQG 2D formulation
             lqr_weight_integral=args.lqr_weight_integral,
             lqr_control_effort=args.lqr_control_effort,
             lqr_process_noise_signal=args.lqr_process_noise_signal,
@@ -2044,6 +2185,32 @@ def main():
             lqr_system_id_file=args.lqr_system_id_file,
             lqr_periodic_system_id=args.lqr_periodic_system_id,
             lqr_periodic_system_id_interval_ps=args.lqr_periodic_system_id_interval,
+            # EKF adaptation
+            lqr_use_ekf_adaptation=args.lqr_use_ekf_adaptation,
+            lqr_ekf_update_interval=args.lqr_ekf_update_interval,
+            lqr_ekf_process_noise_param=args.lqr_ekf_process_noise_param,
+            lqr_ekf_initial_covariance_param=args.lqr_ekf_initial_covariance_param,
+            lqr_adaptive_lqr_threshold=args.lqr_adaptive_lqr_threshold,
+            # Gain scheduling
+            lqr_enable_gain_scheduling=args.lqr_enable_gain_scheduling,
+            lqr_gain_schedule_far_threshold=args.lqr_gain_schedule_far_threshold,
+            lqr_gain_schedule_near_threshold=args.lqr_gain_schedule_near_threshold,
+            # T_h low-pass filter
+            lqr_th_filter_enabled=args.lqr_th_filter_enabled,
+            lqr_th_filter_time_constant=args.lqr_th_filter_time_constant,
+            # Gentle startup
+            lqr_gentle_startup_steps=args.lqr_gentle_startup_steps,
+            lqr_gentle_startup_min_authority=args.lqr_gentle_startup_min_authority,
+            # Kinetic temperature tracking (3D state)
+            lqr_track_kinetic_temp=args.lqr_track_kinetic_temp,
+            lqr_weight_kinetic=args.lqr_weight_kinetic,
+            lqr_process_noise_kinetic=args.lqr_process_noise_kinetic,
+            lqr_measurement_noise_kinetic=args.lqr_measurement_noise_kinetic,
+            # Cross-coupling weights for thermal equilibration
+            lqr_cross_coupling_signal_kinetic=args.lqr_cross_coupling_signal_kinetic,
+            lqr_cross_coupling_signal_hot=args.lqr_cross_coupling_signal_hot,
+            lqr_cross_coupling_hot_kinetic=args.lqr_cross_coupling_hot_kinetic,
+            # Timing
             lqr_turn_on_time_ps=args.lqr_turn_on_time,
             lqr_turn_off_time_ps=args.lqr_turn_off_time,
             lqr_update_interval_ps=args.lqr_update_interval,
