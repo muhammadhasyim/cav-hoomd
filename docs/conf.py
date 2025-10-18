@@ -241,9 +241,10 @@ exclude_patterns = [
 ]
 
 # The suffix(es) of source filenames.
+# Let extensions auto-register their parsers
 source_suffix = {
-    '.rst': None,
-    '.md': 'myst_parser',
+    '.rst': 'restructuredtext',
+    '.md': 'markdown',
     '.ipynb': 'nbsphinx',
 }
 

@@ -1,125 +1,132 @@
 ===============================
-Cavity HOOMD Documentation
+Cavity HOOMD User Guide
 ===============================
 
 **Cavity HOOMD** enables molecular dynamics simulations with optical cavity coupling using HOOMD-blue.
 
-This package provides advanced tools for studying light-matter interactions in molecular systems through cavity-coupled molecular dynamics simulations with comprehensive analysis and time-varying coupling capabilities.
+This package extends HOOMD-blue to simulate molecules interacting with optical cavity modes, enabling study of light-matter interactions, polariton chemistry, and cavity-modified molecular dynamics.
 
-Quick Start
+.. image:: _static/logo.png
+   :width: 200px
+   :align: center
+   :alt: Cavity HOOMD Logo
+
+Quick Links
 ===========
 
-Get started quickly with a basic cavity simulation:
+- **New Users:** Start with :doc:`part1_application/getting_started`
+- **Running Simulations:** See :doc:`part1_application/running_simulations`
+- **Theory Background:** Read :doc:`part2_theory/introduction`
+- **API Reference:** Browse :doc:`api/index`
+- **Installation Help:** :doc:`installation`
+
+What Can You Do?
+================
+
+**Core Capabilities:**
+
+- Simulate cavity-molecule coupling with time-dependent coupling strength
+- Study strong coupling effects and polariton formation
+- Analyze energy flow between molecular and photonic degrees of freedom
+- Use advanced control systems for temperature and parameter management
+- GPU-accelerated simulations for large systems
+
+**Example Applications:**
+
+- Vibrational strong coupling in molecular ensembles
+- Cavity-modified chemical dynamics
+- Non-equilibrium switching experiments
+- Polariton-mediated energy transfer
+- Mode-selective chemistry under strong coupling
+
+Quick Example
+=============
+
+Get started in minutes:
 
 .. code-block:: bash
 
+   # Install
    git clone https://github.com/muhammadhasyim/cav-hoomd.git
    cd cav-hoomd
    ./build_install.sh
+
+   # Run your first cavity simulation
    python examples/05_advanced_run.py --coupling 1e-3 --runtime 1000
 
-For time-varying coupling experiments:
+That's it! See :doc:`part1_application/getting_started` for detailed instructions.
 
-.. code-block:: bash
+Documentation Structure
+=======================
 
-   python examples/05_advanced_run.py --coupling 1e-3 --switch-time 1.0 --runtime 1000
+This documentation is organized into three main parts, following the structure of OpenMM:
 
-That's it! See the :doc:`installation` and :doc:`quickstart` guides for more details.
+**Part I: The Cavity HOOMD Application Layer**
+  User-focused tutorials and guides for running simulations, from basic examples to advanced time-varying coupling experiments.
 
-What It Does
-============
+**Part II: Theory and Implementation**
+  Mathematical foundations, equations of motion, energy conservation, and physical interpretation of cavity-molecule coupling.
 
-Cavity HOOMD implements cavity-molecule coupling through the single-mode Hamiltonian:
+**Part III: Advanced Features and Analysis**
+  Advanced controllers, FDR temperature measurement, molecular temperature decomposition, correlation analysis, and performance optimization.
 
-.. math::
-
-   H = \frac{1}{2} K_\lambda \tilde{q}_{0,\lambda}^2 + \tilde{\varepsilon}_{0,\lambda} \tilde{q}_{0,\lambda} \sum_{n=1}^{N_{\text{sub}}} d_{ng,\lambda} + \frac{\tilde{\varepsilon}_{0,\lambda}^2}{2K_\lambda} \left(\sum_{n=1}^{N_{\text{sub}}} d_{ng,\lambda}\right)^2
-
-Where:
-
-- :math:`\tilde{q}_{0,\lambda}` is the normalized cavity mode coordinate for polarization λ (x,y)
-- :math:`d_{ng,\lambda}` is the dipole moment component of molecule n in direction λ  
-- :math:`\tilde{\varepsilon}_{0,\lambda}` is the effective coupling strength for the fundamental mode
-- :math:`K_\lambda = m_{0,\lambda}\omega_{0,\lambda}^2` is the cavity spring constant
-
-This implements the single-mode approximation (κ = 0) with transverse polarizations.
-
-**NEW: Time-Varying Coupling**
-
-The plugin now supports time-varying coupling strength and dissipation using HOOMD variants:
-
-.. math::
-
-   g(t) = \begin{cases}
-   0 & \text{if } t < t_{\text{switch}} \\
-   g_{\text{target}} & \text{if } t \geq t_{\text{switch}}
-   \end{cases}
-
-For complete theoretical background, see :doc:`theory`.
-
-Features
-========
-
-**Core Capabilities**
-
-- **Time-varying coupling**: Step-function coupling switching for dynamic simulations
-- **Multiple thermostats**: Bussi and Langevin thermostats for molecular and cavity degrees of freedom
-- **GPU acceleration**: Optimized CUDA kernels for high-performance simulations  
-- **Flexible coupling**: Support for both q=0 and finite-q cavity modes
-- **HOOMD integration**: Built as native HOOMD-blue plugins with full HOOMD ecosystem compatibility
-
-**Advanced Analysis**
-
-- **Energy tracking**: Comprehensive energy component monitoring (harmonic, coupling, dipole self-energy)
-- **Correlation functions**: F(k,t) density correlation analysis
-- **Cavity mode monitoring**: Real-time cavity particle position and velocity tracking
-- **Performance tracking**: Detailed performance metrics and benchmarking
-- **Adaptive timestep**: Automatic timestep optimization for stability and performance
-
-**Simulation Framework**
-
-- **Smart particle handling**: Automatic detection and validation of cavity particles
-- **Replica management**: Built-in support for multiple independent simulations
-- **SLURM integration**: Native support for high-performance computing environments
-- **Comprehensive validation**: Parameter validation following scientific best practices
-- **Modular architecture**: Clean separation of forces, analysis, and simulation components
-
-**Time-Varying Experiments**
-
-- **Coupling switching**: Instantaneous coupling activation at specified times
-- **Dissipation ramping**: Time-dependent cavity damping
-- **Finite-q displacement**: Automatic cavity particle repositioning for finite-q modes
-- **Energy conservation**: Rigorous energy conservation testing for time-varying systems
-
-**Output and Visualization**
-
-- **Multiple output formats**: GSD trajectories, energy logs, cavity mode data
-- **Real-time monitoring**: Console output with customizable verbosity
-- **Analysis tools**: Built-in plotting and analysis utilities
-- **Jupyter integration**: Interactive notebook examples for analysis
-
-Documentation
-=============
+----
 
 .. toctree::
    :maxdepth: 2
+   :caption: Part I: Application Layer
+   :hidden:
+   
+   part1_application/getting_started
+   part1_application/running_simulations
+   part1_application/advanced_simulations
+   part1_application/analysis_tools
+   part1_application/time_varying_coupling
 
+.. toctree::
+   :maxdepth: 2
+   :caption: Part II: Theory and Implementation
+   :hidden:
+   
+   part2_theory/introduction
+   part2_theory/cavity_forces
+   part2_theory/time_varying_coupling
+   part2_theory/thermostats
+   part2_theory/energy_conservation
+   part2_theory/strong_coupling
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Part III: Advanced Features
+   :hidden:
+   
+   part3_advanced/controllers
+   part3_advanced/fdr_temperature
+   part3_advanced/molecular_temperatures
+   part3_advanced/correlation_analysis
+   part3_advanced/performance
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Reference
+   :hidden:
+   
    installation
-   quickstart
-   theory
+   reference
    api/index
    license
 
 Help and Support
 ================
 
-- **Installation help**: :doc:`installation`
-- **Usage examples**: :doc:`quickstart`  
-- **Issues**: https://github.com/muhammadhasyim/cav-hoomd/issues
-- **Discussions**: https://github.com/muhammadhasyim/cav-hoomd/discussions
+- **GitHub Issues:** https://github.com/muhammadhasyim/cav-hoomd/issues
+- **Discussions:** https://github.com/muhammadhasyim/cav-hoomd/discussions
+- **Documentation:** You're reading it!
 
 Citation
 ========
+
+If you use Cavity HOOMD in your research, please cite:
 
 .. code-block:: bibtex
 
@@ -128,4 +135,15 @@ Citation
      author={Development Team},
      year={2025},
      url={https://github.com/muhammadhasyim/cav-hoomd}
-   } 
+   }
+
+License
+=======
+
+Cavity HOOMD is released under the BSD 3-Clause License. See :doc:`license` for details.
+
+Indices and Tables
+==================
+
+* :ref:`genindex`
+* :ref:`search`
