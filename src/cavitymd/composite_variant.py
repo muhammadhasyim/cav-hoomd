@@ -62,7 +62,7 @@ class CompositeVariant(hoomd.variant.Variant):
     **Sinusoid + Adaptive Square Wave:**
     
     >>> from hoomd.cavitymd.composite_variant import CompositeVariant
-    >>> from hoomd.cavitymd.variants import PeriodicVariant, AdaptiveSquareWaveVariant
+    >>> from hoomd.cavitymd.coupling import PeriodicVariant, AdaptiveSquareWaveVariant
     >>> from hoomd.cavitymd.analysis import ElapsedTimeTracker
     >>> 
     >>> # Create time tracker

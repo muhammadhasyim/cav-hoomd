@@ -123,7 +123,7 @@ class CavityForce(hoomd.md.force.Force):
     
     **Time-varying coupling:**
     
-    >>> from hoomd.cavitymd.variants import StepVariant
+    >>> from hoomd.cavitymd.coupling import StepVariant
     >>> coupling_variant = StepVariant(
     ...     target_value=0.001,
     ...     switch_time_ps=1.0,
@@ -154,7 +154,7 @@ class CavityForce(hoomd.md.force.Force):
     
     See Also
     --------
-    hoomd.cavitymd.variants.StepVariant : For time-varying coupling
+    hoomd.cavitymd.coupling.StepVariant : For time-varying coupling
     hoomd.cavitymd.analysis.EnergyTracker : For monitoring energy conservation
     hoomd.cavitymd.simulation.CavityMDSimulation : For complete simulation setup
     

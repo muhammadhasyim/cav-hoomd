@@ -4,6 +4,9 @@ Molecular temperature calculations for diatomic molecules.
 
 This module provides temperature estimates for translational, rotational,
 and vibrational degrees of freedom in a system of diatomic molecules.
+
+NOTE: This is a calculation-only class. File output is handled by ObservableWriter
+in data.py. This class has been stripped of its old CSV output functionality.
 """
 
 import hoomd
@@ -64,14 +67,12 @@ class DiatomicMolecularTemperatures(hoomd.custom.Action):
     def __init__(self, 
                  simulation: hoomd.Simulation,
                  time_tracker,
-                 output_period_ps: float,
-                 output_file: str,
+                 output_period_ps: float = 0.1,
                  debug: bool = False):
-        
+        super().__init__()
         self.simulation = simulation
         self.time_tracker = time_tracker
         self.output_period_ps = output_period_ps
-        self.output_file = output_file
         self.debug = debug
         
         # Physical constants
@@ -81,16 +82,13 @@ class DiatomicMolecularTemperatures(hoomd.custom.Action):
         self._initialize_molecular_info()
         
         # Tracking state
-        self.last_output_time = None
+        self.last_calculation_time = None
         
         # Temperature attributes for external access
         self.translational_temp = None
         self.rotational_temp = None
         self.vibrational_temp = None
         self.total_kinetic_temp = None
-        
-        # Initialize output file
-        self._initialize_output_file()
     
     def _initialize_molecular_info(self):
         """Extract bond topology and particle masses from initial snapshot."""
@@ -141,55 +139,26 @@ class DiatomicMolecularTemperatures(hoomd.custom.Action):
                 print(f"  N-N molecules: {np.sum(self.molecule_types == 1)}")
                 print(f"  O-N molecules: {np.sum(self.molecule_types == 2)}")
     
-    def _initialize_output_file(self):
-        """Initialize CSV output file with headers."""
-        with open(self.output_file, 'w') as f:
-            f.write("# Molecular Temperature Decomposition for Diatomic Molecules\n")
-            f.write("# All temperatures in Kelvin\n")
-            f.write("# \n")
-            f.write("# time_ps: simulation time in picoseconds\n")
-            f.write("# T_trans: translational temperature (center of mass motion)\n")
-            f.write("# T_rot: rotational temperature (rotation around COM)\n")
-            f.write("# T_vib: vibrational temperature (motion along bond)\n")
-            f.write("# T_kinetic_total: total kinetic temperature from all velocities\n")
-            f.write("# T_trans_O2: translational temperature for O-O molecules only\n")
-            f.write("# T_trans_N2: translational temperature for N-N molecules only\n")
-            f.write("# T_rot_O2: rotational temperature for O-O molecules only\n")
-            f.write("# T_rot_N2: rotational temperature for N-N molecules only\n")
-            f.write("# T_vib_O2: vibrational temperature for O-O molecules only\n")
-            f.write("# T_vib_N2: vibrational temperature for N-N molecules only\n")
-            f.write("\n")
-            f.write("time_ps,T_trans,T_rot,T_vib,T_kinetic_total,")
-            f.write("T_trans_O2,T_trans_N2,T_rot_O2,T_rot_N2,T_vib_O2,T_vib_N2\n")
-    
     def act(self, timestep):
         """Calculate molecular temperatures at each timestep."""
         current_time_ps = self.time_tracker.elapsed_time
         
-        # Always calculate temperatures for external access
-        temps = self._calculate_molecular_temperatures()
-        
-        self.translational_temp = temps['T_trans']
-        self.rotational_temp = temps['T_rot']
-        self.vibrational_temp = temps['T_vib']
-        self.total_kinetic_temp = temps['T_kinetic_total']
-        
-        # Write to CSV only when needed
-        if self._should_output(current_time_ps):
-            with open(self.output_file, 'a') as f:
-                f.write(f"{current_time_ps:.6f},{temps['T_trans']:.6f},{temps['T_rot']:.6f},"
-                       f"{temps['T_vib']:.6f},{temps['T_kinetic_total']:.6f},"
-                       f"{temps['T_trans_O2']:.6f},{temps['T_trans_N2']:.6f},"
-                       f"{temps['T_rot_O2']:.6f},{temps['T_rot_N2']:.6f},"
-                       f"{temps['T_vib_O2']:.6f},{temps['T_vib_N2']:.6f}\n")
+        # Calculate temperatures periodically
+        if self._should_calculate(current_time_ps):
+            temps = self._calculate_molecular_temperatures()
             
-            self.last_output_time = current_time_ps
+            self.translational_temp = temps['T_trans']
+            self.rotational_temp = temps['T_rot']
+            self.vibrational_temp = temps['T_vib']
+            self.total_kinetic_temp = temps['T_kinetic_total']
+            
+            self.last_calculation_time = current_time_ps
     
-    def _should_output(self, current_time_ps: float) -> bool:
-        """Check if we should output data."""
-        if self.last_output_time is None:
+    def _should_calculate(self, current_time_ps: float) -> bool:
+        """Check if we should calculate temperatures."""
+        if self.last_calculation_time is None:
             return True
-        return (current_time_ps - self.last_output_time) >= self.output_period_ps
+        return (current_time_ps - self.last_calculation_time) >= self.output_period_ps
     
     def _get_hoomd_simulation(self):
         """Get the HOOMD simulation object."""

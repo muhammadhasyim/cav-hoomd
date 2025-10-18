@@ -9,18 +9,20 @@ To use the components, import from the specific submodules:
 - cavitymd.forces: Force implementations
 - cavitymd.utils: Utility functions and constants
 - cavitymd.analysis: Analysis and tracking tools
-- cavitymd.controller: Advanced control systems (LQR, MPC)
+- cavitymd.controllers: Advanced control systems (LQR, EKF, DiffEq)
 - cavitymd.simulation: Simulation framework components
-- cavitymd.updaters: Particle updaters
-- cavitymd.variants: Parameter variants
-- cavitymd.harmonic_bond_reset: One-time thermal bond reset for diatomics
+- cavitymd.updaters: Particle updaters and bond reset actions
+- cavitymd.variants: Coupling strength variants and time-dependent protocols
+- cavitymd.data: HDF5-based observable output system
 
 Example:
     from cavitymd.forces import CavityForce
     from cavitymd.utils import PhysicalConstants
     from cavitymd.analysis import EnergyTracker
-    from cavitymd.controller import LQRTemperatureController
-    from cavitymd.harmonic_bond_reset import HarmonicBondReset
+    from cavitymd.controllers import LQRTemperatureController
+    from cavitymd.updaters import HarmonicBondReset
+    from cavitymd.variants import StepVariant, PeriodicVariant
+    from cavitymd.data import ObservableWriter
 """
 
 # Version compatibility check
@@ -48,4 +50,69 @@ else:
     if current_version != _REQUIRED_HOOMD_VERSION:
         print(f"WARNING: HOOMD version {current_version} detected on Read the Docs")
         print(f"         CavityMD is tested with version {_REQUIRED_HOOMD_VERSION}")
-        print(f"         Documentation build proceeding with available version") 
+        print(f"         Documentation build proceeding with available version")
+
+# Import from new submodule structure
+# This maintains backward compatibility - users can still do:
+# from cavitymd.analysis import EnergyTracker
+# or from cavitymd import EnergyTracker
+
+from .simulation import CavityMDSimulation, AdaptiveTimestepUpdater
+from .analysis import (
+    Status, TimestepFormatter, ElapsedTimeTracker,
+    EnergyTracker, PerformanceTracker, TemperatureTracker,
+    FieldAutocorrelationTracker, AutocorrelationTracker,
+    EmpiricalTemperatureData, EmpiricalTemperatureFeedback,
+    GradientDescentTemperatureFeedback, DualIndependentTemperatureFeedback,
+    DipoleMomentFDRTracker
+)
+from .controllers import (
+    ParameterEKF, LQRTemperatureController, DiffEqController
+)
+from .variants import (
+    StepVariant, ConstantVariant, PeriodicVariant, SquareWaveVariant,
+    ExponentialDecayVariant, DecayingSquareWaveVariant,
+    AdaptiveSquareWaveVariant, ExponentialWaveVariant
+)
+
+__all__ = [
+    # Simulation
+    'CavityMDSimulation',
+    'AdaptiveTimestepUpdater',
+    
+    # Analysis - Timing
+    'Status',
+    'TimestepFormatter',
+    'ElapsedTimeTracker',
+    
+    # Analysis - Trackers
+    'EnergyTracker',
+    'PerformanceTracker',
+    'TemperatureTracker',
+    'FieldAutocorrelationTracker',
+    'AutocorrelationTracker',
+    
+    # Analysis - Feedback
+    'EmpiricalTemperatureData',
+    'EmpiricalTemperatureFeedback',
+    'GradientDescentTemperatureFeedback',
+    'DualIndependentTemperatureFeedback',
+    
+    # Analysis - FDR
+    'DipoleMomentFDRTracker',
+    
+    # Controllers
+    'ParameterEKF',
+    'LQRTemperatureController',
+    'DiffEqController',
+    
+    # Variants
+    'StepVariant',
+    'ConstantVariant',
+    'PeriodicVariant',
+    'SquareWaveVariant',
+    'ExponentialDecayVariant',
+    'DecayingSquareWaveVariant',
+    'AdaptiveSquareWaveVariant',
+    'ExponentialWaveVariant',
+]

@@ -16,7 +16,7 @@ from hoomd.bussi_reservoir.thermostats import BussiReservoir as Bussi
 from .validation import CavitySimulationParams
 from .utils import PhysicalConstants, unwrap_positions
 from .forces import CavityForce
-from .variants import StepVariant
+from .coupling import StepVariant
 
 
 def convert_to_numpy_array(array_data):
