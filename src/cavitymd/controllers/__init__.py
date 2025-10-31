@@ -3,13 +3,15 @@
 
 """Controllers submodule for cavity molecular dynamics."""
 
-from .ekf import ParameterEKF
-from .lqr import LQRTemperatureController
 from .diffeq import DiffEqController
+from .simple_setpoint import SimpleSetpointController
+from .adaptive_mpc import AdaptiveMPCController
+from .pid_control import PIDControl
 
 __all__ = [
-    'ParameterEKF',
-    'LQRTemperatureController',
     'DiffEqController',
+    'SimpleSetpointController',
+    'AdaptiveMPCController',
+    'PIDControl',
 ]
 

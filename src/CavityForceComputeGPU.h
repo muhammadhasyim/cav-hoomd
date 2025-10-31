@@ -32,7 +32,7 @@ public:
     //! Constructs the compute
     CavityForceComputeGPU(std::shared_ptr<SystemDefinition> sysdef,
                           Scalar omegac,
-                          std::shared_ptr<Variant> couplstr,
+                          std::shared_ptr<Variant> lambda_coupling,
                           Scalar phmass = Scalar(1.0));
 
     //! Destructor

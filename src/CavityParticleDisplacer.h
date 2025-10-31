@@ -22,7 +22,7 @@ class PYBIND11_EXPORT CavityParticleDisplacer : public Updater
         //! Constructs the updater
         CavityParticleDisplacer(std::shared_ptr<SystemDefinition> sysdef,
                                 std::shared_ptr<Trigger> trigger,
-                                std::shared_ptr<Variant> couplstr,
+                                std::shared_ptr<Variant> lambda_coupling,
                                 Scalar omegac,
                                 Scalar phmass);
 
@@ -33,12 +33,12 @@ class PYBIND11_EXPORT CavityParticleDisplacer : public Updater
         virtual void update(uint64_t timestep);
 
     protected:
-        std::shared_ptr<Variant> m_couplstr;  // The coupling strength variant
-        Scalar m_omegac;                      // Cavity frequency
-        Scalar m_phmass;                      // Photon mass
-        Scalar m_K;                           // Harmonic force constant K = m * omega^2
-        bool m_has_run;                       // Flag to ensure step variants displace only once
-        Scalar m_last_coupling;               // Track last coupling value for transition detection
+        std::shared_ptr<Variant> m_lambda_coupling;  // The dimensionless coupling parameter (lambda) variant
+        Scalar m_omegac;                             // Cavity frequency
+        Scalar m_phmass;                             // Photon mass
+        Scalar m_K;                                  // Harmonic force constant K = m * omega^2
+        bool m_has_run;                              // Flag to ensure step variants displace only once
+        Scalar m_last_coupling;                      // Track last coupling value for transition detection
 
     private:
         // Helper functions to find the cavity particle and perform calculations

@@ -62,12 +62,10 @@ from .analysis import (
     Status, TimestepFormatter, ElapsedTimeTracker,
     EnergyTracker, PerformanceTracker, TemperatureTracker,
     FieldAutocorrelationTracker, AutocorrelationTracker,
-    EmpiricalTemperatureData, EmpiricalTemperatureFeedback,
-    GradientDescentTemperatureFeedback, DualIndependentTemperatureFeedback,
     DipoleMomentFDRTracker
 )
 from .controllers import (
-    ParameterEKF, LQRTemperatureController, DiffEqController
+    DiffEqController, SimpleSetpointController
 )
 from .variants import (
     StepVariant, ConstantVariant, PeriodicVariant, SquareWaveVariant,

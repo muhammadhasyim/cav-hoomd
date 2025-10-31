@@ -27,12 +27,14 @@ from ..forces import CavityForce
 from ..analysis import (
     Status, ElapsedTimeTracker, TimestepFormatter, FieldAutocorrelationTracker,
     EnergyTracker, PerformanceTracker, AutocorrelationTracker,
-    TemperatureTracker, EmpiricalTemperatureData
+    TemperatureTracker
 )
+from ..controllers.empirical import EmpiricalTemperatureData
+from .timestep import AdaptiveTimestepUpdater
 from ..updaters import CavityParticleDisplacer
 from ..variants import StepVariant, PeriodicVariant, ExponentialDecayVariant, SquareWaveVariant, DecayingSquareWaveVariant, AdaptiveSquareWaveVariant
 from ..composite_variant import CompositeVariant
-from ..controllers import DiffEqController
+from ..controllers import DiffEqController, SimpleSetpointController
 from ..data import ObservableWriter
 
 
@@ -95,10 +97,18 @@ class CavityMDSimulation:
         Replica number for this simulation instance
     freq : float
         Cavity frequency in cm⁻¹ (wavenumbers)
-    couplstr : float
-        Cavity coupling strength in atomic units
     incavity : bool
         Whether to enable cavity coupling
+    lambda_coupling : float
+        Dimensionless coupling parameter :math:`\lambda`. The effective coupling strength
+        is computed as :math:`\varepsilon = \lambda \cdot \omega_c` where :math:`\omega_c`
+        is the cavity characteristic frequency. This parameter is independent of the
+        cavity frequency, allowing the same :math:`\lambda` values to be used across
+        different cavity frequencies.
+    couplstr : float, optional
+        **DEPRECATED**: Use `lambda_coupling` instead. For backward compatibility, if
+        provided, it will be used as the effective coupling strength directly (not scaled
+        by omega_c). This parameter will be removed in a future version.
     runtime_ps : float, optional
         Simulation runtime in picoseconds. Default: 500.0
     input_gsd : str, optional
@@ -335,12 +345,13 @@ class CavityMDSimulation:
     cavity theory and time-varying coupling dynamics.
     """
     
-    def __init__(self, 
-        job_dir: str, 
-            replica: int, 
-                 freq: float, 
-                 couplstr: float, 
-                 incavity: bool, 
+    def __init__(self,
+        job_dir: str,
+            replica: int,
+                 freq: float,
+                 incavity: bool,
+                 lambda_coupling: Optional[float] = None,
+                 couplstr: Optional[float] = None,
                  runtime_ps: float = 500.0,
                  input_gsd: str = 'molecular-0.gsd', 
                  frame: int = -1, 
@@ -371,7 +382,7 @@ class CavityMDSimulation:
                  dipole_reference_interval_ps: float = 1.0,
                  dipole_max_references: int = 10,
                  max_energy_output_time_ps: Optional[float] = None, 
-                 enable_energy_tracking: bool = False, 
+                 enable_energy_tracking: bool = True, 
                  dt_fs: Optional[float] = None, 
                  device: str = 'CPU', 
                  gpu_id: int = 0,
@@ -581,6 +592,7 @@ class CavityMDSimulation:
                  enable_diffeq_controller: bool = False,
                  diffeq_temperature_method: str = 'kinetic',
                  diffeq_time_constant_ps: float = 5.0,
+                 diffeq_time_constant_auto: bool = False,
                  diffeq_turn_on_time_ps: float = 0.0,
                  diffeq_turn_off_time_ps: Optional[float] = None,
                  diffeq_update_interval_ps: float = 0.1,
@@ -588,6 +600,7 @@ class CavityMDSimulation:
                  diffeq_T_min: float = 0.0,
                  diffeq_T_max: Optional[float] = None,
                  diffeq_rate_limit_K_per_ps: Optional[float] = None,
+                 diffeq_disable_bias_estimation: bool = False,
                  # DiffEq Kalman filter bias estimation parameters
                  diffeq_enable_bias_estimation: bool = True,
                  diffeq_bias_process_noise: float = 1e-6,
@@ -602,6 +615,108 @@ class CavityMDSimulation:
                  # DiffEq bias correction parameters (new clean interface)
                  diffeq_bias_correction_mode: str = 'none',
                  diffeq_equilibrium_temperature: Optional[float] = None,
+                 # Exact-cancellation + PI control parameters
+                 diffeq_enable_pi_control: bool = False,
+                 diffeq_pi_rho: float = 1.0,
+                 diffeq_pi_epsilon: float = 0.5,
+                 diffeq_pi_zeta: float = 0.8,
+                 diffeq_relaxation_data_file: Optional[str] = None,
+                 diffeq_filter_window: float = 0.0,
+                 # Adaptive bias cancellation parameters (mutually exclusive with PI control)
+                 diffeq_enable_bias_cancellation: bool = False,
+                 diffeq_bias_tau_b_ps: float = 50.0,
+                 diffeq_bias_tau_b_auto: bool = False,
+                 diffeq_bias_kappa: float = 0.01,
+                 diffeq_bias_kappa_auto: bool = False,
+                 diffeq_bias_tau_b_prefactor: float = 5.0,
+                 diffeq_bias_kappa_prefactor: float = 50.0,
+                 diffeq_bias_calibration_time_ps: float = 10.0,
+                 # BathPI controller parameters
+                 enable_bath_pi_controller: bool = False,
+                 bath_pi_apply_to: str = 'both',
+                 bath_pi_K_p_molecular: float = 0.1,
+                 bath_pi_K_i_molecular: float = 0.01,
+                 bath_pi_K_T_molecular: float = 0.0,
+                 bath_pi_K_p_cavity: float = 0.1,
+                 bath_pi_K_i_cavity: float = 0.01,
+                 bath_pi_K_T_cavity: float = 0.0,
+                 bath_pi_filter_window_ps: Union[float, str] = 5.0,
+                 bath_pi_flux_source: str = 'reservoir',
+                 bath_pi_anti_windup_alpha: float = 0.01,
+                 bath_pi_enable_feedforward: bool = False,
+                 bath_pi_T_nominal: Optional[float] = None,
+                 bath_pi_feedforward_tau_ps: float = 1000.0,
+                 bath_pi_turn_on_time_ps: float = 0.0,
+                 bath_pi_turn_off_time_ps: Optional[float] = None,
+                 bath_pi_update_interval_ps: float = 0.1,
+                 bath_pi_T_min: float = 0.1,
+                 bath_pi_T_max: Optional[float] = None,
+                 bath_pi_rate_limit_K_per_ps: Optional[float] = None,
+                 bath_pi_output_file: str = 'bath_pi_control.csv',
+                 bath_pi_relaxation_data_file: Optional[str] = None,
+                 # Simple Setpoint Controller parameters
+                 enable_simple_setpoint_controller: bool = False,
+                 simple_setpoint_signal_method: str = 'kinetic',
+                 simple_setpoint_time_constant_ps: float = 5.0,
+                 simple_setpoint_apply_to: str = 'both',
+                 simple_setpoint_turn_on_time_ps: float = 0.0,
+                 simple_setpoint_turn_off_time_ps: Optional[float] = None,
+                 simple_setpoint_update_interval_ps: float = 0.1,
+                 simple_setpoint_T_min: float = 0.0,
+                 simple_setpoint_T_max: Optional[float] = None,
+                 simple_setpoint_output_file: str = 'simple_setpoint_control.csv',
+                 simple_setpoint_console_output_period_ps: float = 1.0,
+                 # Adaptive MPC controller parameters
+                 enable_adaptive_mpc_controller: bool = False,
+                 adaptive_mpc_target_temperature: float = 100.0,
+                 adaptive_mpc_turn_on_time_ps: float = 0.0,
+                 adaptive_mpc_turn_off_time_ps: Optional[float] = None,
+                 adaptive_mpc_system_id_duration_ps: float = 50.0,
+                 adaptive_mpc_system_id_step_duration_ps: float = 5.0,
+                 adaptive_mpc_system_id_seed: int = 42,
+                 adaptive_mpc_update_interval_ps: float = 0.1,
+                 adaptive_mpc_prediction_horizon: int = 10,
+                 adaptive_mpc_control_horizon: int = 5,
+                 adaptive_mpc_output_weight: float = 100.0,
+                 adaptive_mpc_control_effort_weight: List[float] = None,
+                 adaptive_mpc_rate_penalty_weight: List[float] = None,
+                 adaptive_mpc_lambda_min: float = 0.0,
+                 adaptive_mpc_lambda_max: float = 1e-2,
+                 adaptive_mpc_T_bath_min: float = 0.1,
+                 adaptive_mpc_T_bath_max: float = 500.0,
+                 adaptive_mpc_delta_lambda_max: float = 1e-4,
+                 adaptive_mpc_delta_T_bath_max: float = 10.0,
+                 adaptive_mpc_apply_to: str = 'both',
+                 adaptive_mpc_rls_forgetting_factor: float = 0.995,
+                 adaptive_mpc_rls_initial_covariance: float = 100.0,
+                 adaptive_mpc_model_update_interval: int = 10,
+                 adaptive_mpc_output_file: str = 'adaptive_mpc_control.csv',
+                 adaptive_mpc_console_output_period_ps: float = 1.0,
+                 adaptive_mpc_regularization_param: float = 1e-3,
+                 adaptive_mpc_use_scaling: bool = True,
+                 adaptive_mpc_debug_mode: bool = False,
+                 # PID controller parameters
+                 enable_pid_controller: bool = False,
+                 pid_signal_choice: str = 'lj_coulombic',
+                 pid_target_temperature: float = 100.0,
+                 pid_self_loop: bool = False,
+                 pid_Kp: Optional[float] = None,
+                 pid_Ti: Optional[float] = None,
+                 pid_Td: Optional[float] = None,
+                 pid_auto_tune: bool = True,
+                 pid_auto_tune_step_size: float = 20.0,
+                 pid_auto_tune_duration_ps: float = 50.0,
+                 pid_turn_on_time_ps: float = 0.0,
+                 pid_turn_off_time_ps: Optional[float] = None,
+                 pid_update_interval_ps: float = 0.1,
+                 pid_apply_to: str = 'both',
+                 pid_T_min: float = 0.1,
+                 pid_T_max: Optional[float] = None,
+                 pid_rate_limit_K_per_ps: Optional[float] = None,
+                 pid_derivative_filter_N: float = 10.0,
+                 pid_enable_anti_windup: bool = True,
+                 pid_output_file: str = 'pid_control.csv',
+                 pid_console_output_period_ps: float = 1.0,
                  # LQR controller parameters
                  enable_lqr_controller: bool = False,
                  lqr_signal_method: str = 'lj_coulombic',
@@ -676,11 +791,51 @@ class CavityMDSimulation:
                  lqr_integral_max_common: float = 1000.0,
                  lqr_integral_max_diff: float = 100.0,
                  lqr_theta_change_threshold: float = 0.05,
-                 enable_temp_tracker: bool = False,
-                 temp_tracker_output_period_ps: float = 0.1,
-                 temp_tracker_empirical_data_file: Optional[str] = None,
-                 # HDF5 observable output parameters
-                 enable_hdf5_output: bool = False,
+                 # LQG coupling controller parameters (new coupling-type: lqg_coupling)
+                 lqg_coupling_target_temperature: float = 100.0,
+                 lqg_coupling_update_interval_ps: float = 0.1,
+                 lqg_coupling_equilibrium_duration_ps: float = 5.0,
+                 lqg_coupling_step_duration_ps: float = 5.0,
+                 lqg_coupling_n_steps: int = 2,
+                 lqg_coupling_lambda_min: float = 0.0,
+                 lqg_coupling_lambda_max: float = 1e-2,
+                 lqg_coupling_process_noise_std: float = 0.1,
+                 lqg_coupling_measurement_noise_std: float = 0.5,
+                 lqg_coupling_weight_signal: float = 100.0,
+                 lqg_coupling_weight_harmonic: float = 1.0,
+                 lqg_coupling_weight_kinetic: float = 1.0,
+                 lqg_coupling_weight_bath: float = 0.1,
+                 lqg_coupling_control_effort: float = 1.0,
+                 lqg_coupling_integral_gain: float = 2.0,
+                 lqg_coupling_system_id_file: str = 'lqg_coupling_system_id.json',
+                 lqg_coupling_control_file: str = 'lqg_coupling_control.csv',
+                 lqg_coupling_temperature_methods: List[str] = None,
+                 lqg_coupling_bath_temperature_method: str = 'kinetic',
+                 # Legacy LQG pulse controller parameters (for backward compatibility)
+                 enable_lqg_controller: bool = False,
+                 lqg_A_matrix=None, lqg_B_matrix=None, lqg_C_matrix=None,
+                 lqg_S_matrix=None, lqg_r_target=None,
+                 lqg_Qz_weights=None, lqg_Ru_weights=None, lqg_Qe_weights=None,
+                 lqg_W_noise=None, lqg_V_noise=None,
+                 lqg_g0_baseline: float = 1e-4, lqg_dt: float = 5.0,
+                 lqg_delta_g_min: float = -0.3, lqg_delta_g_max: float = 0.3,
+                 lqg_T_bath_min: float = 10.0, lqg_T_bath_max: float = 500.0,
+                 lqg_rate_limit_K_per_ps: float = 1.0,
+                 lqg_turn_on_time_ps: float = 0.0, lqg_turn_off_time_ps: Optional[float] = None,
+                 lqg_update_interval_ps: float = 5.0, lqg_console_output_period_ps: float = 10.0,
+                 lqg_c_affine_term=None, lqg_temperature_methods=None,
+                 lqg_square_period_ps: float = 5.0, lqg_square_duty_cycle: float = 0.5,
+                 lqg_square_phase_offset: float = 0.0, lqg_square_start_time_ps: float = 0.0,
+                 lqg_square_stop_time_ps: Optional[float] = None, lqg_square_g_low_level: float = 1e-6,
+                 lqg_enable_system_id: bool = True, lqg_equilibrium_duration_ps: float = 500.0,
+                 lqg_prbs_n_unique_steps: int = 10, lqg_prbs_amplitude: float = 5e-5,
+                 lqg_bath_n_unique_steps: int = 8, lqg_bath_excitation_amplitude: float = 10.0,
+                lqg_system_id_output_file: str = 'lqg_system_id.json',
+                enable_temp_tracker: bool = True,
+                temp_tracker_output_period_ps: float = 0.1,
+                temp_tracker_empirical_data_file: Optional[str] = None,
+                # HDF5 observable output parameters
+                enable_hdf5_output: bool = True,
                  hdf5_output_file: Optional[str] = None,
                  hdf5_output_period_ps: float = 0.01,
                  # Molecular temperature decomposition parameters
@@ -708,7 +863,41 @@ class CavityMDSimulation:
         self.job_dir = job_dir
         self.replica = replica
         self.freq = freq
-        self.couplstr = couplstr
+        
+        # Calculate omegac for lambda-to-epsilon conversion
+        from ..utils import PhysicalConstants
+        self.omegac = self.freq / PhysicalConstants.HARTREE_TO_CM_MINUS1
+
+        # Handle coupling constant: lambda_coupling is now the primary parameter
+        if couplstr is not None:
+            import warnings
+            warnings.warn(
+                "The 'couplstr' parameter is DEPRECATED and will be removed in a future version. "
+                "Please use 'lambda_coupling' instead. "
+                "The relationship is: epsilon = lambda_coupling * omega_c, "
+                "where omega_c is the cavity characteristic frequency.",
+                DeprecationWarning,
+                stacklevel=2
+            )
+            if lambda_coupling is not None:
+                raise ValueError(
+                    "Cannot specify both 'couplstr' (deprecated) and 'lambda_coupling'. "
+                    "Please use only 'lambda_coupling' going forward."
+                )
+            # For backward compatibility, treat couplstr as the effective coupling (not scaled)
+            self.lambda_coupling = None
+            self.couplstr = couplstr
+            self.use_deprecated_couplstr = True
+        else:
+            if lambda_coupling is None:
+                raise ValueError(
+                    "Must specify 'lambda_coupling' (dimensionless coupling parameter). "
+                    "The effective coupling strength will be computed as: epsilon = lambda_coupling * omega_c"
+                )
+            self.lambda_coupling = lambda_coupling
+            self.couplstr = None
+            self.use_deprecated_couplstr = False
+
         self.incavity = incavity
         self.runtime_ps = runtime_ps
         self.input_gsd = input_gsd
@@ -942,6 +1131,7 @@ class CavityMDSimulation:
         self.enable_diffeq_controller = enable_diffeq_controller
         self.diffeq_temperature_method = diffeq_temperature_method
         self.diffeq_time_constant_ps = diffeq_time_constant_ps
+        self.diffeq_time_constant_auto = diffeq_time_constant_auto
         self.diffeq_turn_on_time_ps = diffeq_turn_on_time_ps
         self.diffeq_turn_off_time_ps = diffeq_turn_off_time_ps
         self.diffeq_update_interval_ps = diffeq_update_interval_ps
@@ -949,6 +1139,7 @@ class CavityMDSimulation:
         self.diffeq_T_min = diffeq_T_min
         self.diffeq_T_max = diffeq_T_max
         self.diffeq_rate_limit_K_per_ps = diffeq_rate_limit_K_per_ps
+        self.diffeq_disable_bias_estimation = diffeq_disable_bias_estimation
         # Kalman filter bias estimation
         self.diffeq_enable_bias_estimation = diffeq_enable_bias_estimation
         self.diffeq_bias_process_noise = diffeq_bias_process_noise
@@ -963,6 +1154,112 @@ class CavityMDSimulation:
         # DiffEq bias correction parameters
         self.diffeq_bias_correction_mode = diffeq_bias_correction_mode
         self.diffeq_equilibrium_temperature = diffeq_equilibrium_temperature
+        # Exact-cancellation + PI control parameters
+        self.diffeq_enable_pi_control = diffeq_enable_pi_control
+        self.diffeq_pi_rho = diffeq_pi_rho
+        self.diffeq_pi_epsilon = diffeq_pi_epsilon
+        self.diffeq_pi_zeta = diffeq_pi_zeta
+        self.diffeq_relaxation_data_file = diffeq_relaxation_data_file
+        self.diffeq_filter_window = diffeq_filter_window
+        # Adaptive bias cancellation parameters
+        self.diffeq_enable_bias_cancellation = diffeq_enable_bias_cancellation
+        self.diffeq_bias_tau_b_ps = diffeq_bias_tau_b_ps
+        self.diffeq_bias_tau_b_auto = diffeq_bias_tau_b_auto
+        self.diffeq_bias_kappa = diffeq_bias_kappa
+        self.diffeq_bias_kappa_auto = diffeq_bias_kappa_auto
+        self.diffeq_bias_tau_b_prefactor = diffeq_bias_tau_b_prefactor
+        self.diffeq_bias_kappa_prefactor = diffeq_bias_kappa_prefactor
+        self.diffeq_bias_calibration_time_ps = diffeq_bias_calibration_time_ps
+        
+        # BathPI controller parameters
+        self.enable_bath_pi_controller = enable_bath_pi_controller
+        self.bath_pi_apply_to = bath_pi_apply_to
+        self.bath_pi_K_p_molecular = bath_pi_K_p_molecular
+        self.bath_pi_K_i_molecular = bath_pi_K_i_molecular
+        self.bath_pi_K_T_molecular = bath_pi_K_T_molecular
+        self.bath_pi_K_p_cavity = bath_pi_K_p_cavity
+        self.bath_pi_K_i_cavity = bath_pi_K_i_cavity
+        self.bath_pi_K_T_cavity = bath_pi_K_T_cavity
+        self.bath_pi_filter_window_ps = bath_pi_filter_window_ps
+        self.bath_pi_flux_source = bath_pi_flux_source
+        self.bath_pi_anti_windup_alpha = bath_pi_anti_windup_alpha
+        self.bath_pi_enable_feedforward = bath_pi_enable_feedforward
+        self.bath_pi_T_nominal = bath_pi_T_nominal
+        self.bath_pi_feedforward_tau_ps = bath_pi_feedforward_tau_ps
+        self.bath_pi_turn_on_time_ps = bath_pi_turn_on_time_ps
+        self.bath_pi_turn_off_time_ps = bath_pi_turn_off_time_ps
+        self.bath_pi_update_interval_ps = bath_pi_update_interval_ps
+        self.bath_pi_T_min = bath_pi_T_min
+        self.bath_pi_T_max = bath_pi_T_max
+        self.bath_pi_rate_limit_K_per_ps = bath_pi_rate_limit_K_per_ps
+        self.bath_pi_output_file = bath_pi_output_file
+        self.bath_pi_relaxation_data_file = bath_pi_relaxation_data_file
+        
+        # Simple Setpoint Controller parameters
+        self.enable_simple_setpoint_controller = enable_simple_setpoint_controller
+        self.simple_setpoint_signal_method = simple_setpoint_signal_method
+        self.simple_setpoint_time_constant_ps = simple_setpoint_time_constant_ps
+        self.simple_setpoint_apply_to = simple_setpoint_apply_to
+        self.simple_setpoint_turn_on_time_ps = simple_setpoint_turn_on_time_ps
+        self.simple_setpoint_turn_off_time_ps = simple_setpoint_turn_off_time_ps
+        self.simple_setpoint_update_interval_ps = simple_setpoint_update_interval_ps
+        self.simple_setpoint_T_min = simple_setpoint_T_min
+        self.simple_setpoint_T_max = simple_setpoint_T_max
+        self.simple_setpoint_output_file = simple_setpoint_output_file
+        self.simple_setpoint_console_output_period_ps = simple_setpoint_console_output_period_ps
+        
+        # Adaptive MPC controller parameters
+        self.enable_adaptive_mpc_controller = enable_adaptive_mpc_controller
+        self.adaptive_mpc_target_temperature = adaptive_mpc_target_temperature
+        self.adaptive_mpc_turn_on_time_ps = adaptive_mpc_turn_on_time_ps
+        self.adaptive_mpc_turn_off_time_ps = adaptive_mpc_turn_off_time_ps
+        self.adaptive_mpc_system_id_duration_ps = adaptive_mpc_system_id_duration_ps
+        self.adaptive_mpc_system_id_step_duration_ps = adaptive_mpc_system_id_step_duration_ps
+        self.adaptive_mpc_system_id_seed = adaptive_mpc_system_id_seed
+        self.adaptive_mpc_update_interval_ps = adaptive_mpc_update_interval_ps
+        self.adaptive_mpc_prediction_horizon = adaptive_mpc_prediction_horizon
+        self.adaptive_mpc_control_horizon = adaptive_mpc_control_horizon
+        self.adaptive_mpc_output_weight = adaptive_mpc_output_weight
+        self.adaptive_mpc_control_effort_weight = adaptive_mpc_control_effort_weight if adaptive_mpc_control_effort_weight else [1.0, 0.1]
+        self.adaptive_mpc_rate_penalty_weight = adaptive_mpc_rate_penalty_weight if adaptive_mpc_rate_penalty_weight else [10.0, 1.0]
+        self.adaptive_mpc_lambda_min = adaptive_mpc_lambda_min
+        self.adaptive_mpc_lambda_max = adaptive_mpc_lambda_max
+        self.adaptive_mpc_T_bath_min = adaptive_mpc_T_bath_min
+        self.adaptive_mpc_T_bath_max = adaptive_mpc_T_bath_max
+        self.adaptive_mpc_delta_lambda_max = adaptive_mpc_delta_lambda_max
+        self.adaptive_mpc_delta_T_bath_max = adaptive_mpc_delta_T_bath_max
+        self.adaptive_mpc_apply_to = adaptive_mpc_apply_to
+        self.adaptive_mpc_rls_forgetting_factor = adaptive_mpc_rls_forgetting_factor
+        self.adaptive_mpc_rls_initial_covariance = adaptive_mpc_rls_initial_covariance
+        self.adaptive_mpc_model_update_interval = adaptive_mpc_model_update_interval
+        self.adaptive_mpc_output_file = adaptive_mpc_output_file
+        self.adaptive_mpc_console_output_period_ps = adaptive_mpc_console_output_period_ps
+        self.adaptive_mpc_regularization_param = adaptive_mpc_regularization_param
+        self.adaptive_mpc_use_scaling = adaptive_mpc_use_scaling
+        self.adaptive_mpc_debug_mode = adaptive_mpc_debug_mode
+        
+        # PID controller parameters
+        self.enable_pid_controller = enable_pid_controller
+        self.pid_signal_choice = pid_signal_choice
+        self.pid_target_temperature = pid_target_temperature
+        self.pid_self_loop = pid_self_loop
+        self.pid_Kp = pid_Kp
+        self.pid_Ti = pid_Ti
+        self.pid_Td = pid_Td
+        self.pid_auto_tune = pid_auto_tune
+        self.pid_auto_tune_step_size = pid_auto_tune_step_size
+        self.pid_auto_tune_duration_ps = pid_auto_tune_duration_ps
+        self.pid_turn_on_time_ps = pid_turn_on_time_ps
+        self.pid_turn_off_time_ps = pid_turn_off_time_ps
+        self.pid_update_interval_ps = pid_update_interval_ps
+        self.pid_apply_to = pid_apply_to
+        self.pid_T_min = pid_T_min
+        self.pid_T_max = pid_T_max
+        self.pid_rate_limit_K_per_ps = pid_rate_limit_K_per_ps
+        self.pid_derivative_filter_N = pid_derivative_filter_N
+        self.pid_enable_anti_windup = pid_enable_anti_windup
+        self.pid_output_file = pid_output_file
+        self.pid_console_output_period_ps = pid_console_output_period_ps
         
         # LQR controller parameters
         self.enable_lqr_controller = enable_lqr_controller
@@ -1038,6 +1335,66 @@ class CavityMDSimulation:
         self.lqr_integral_max_common = lqr_integral_max_common
         self.lqr_integral_max_diff = lqr_integral_max_diff
         self.lqr_theta_change_threshold = lqr_theta_change_threshold
+        
+        # LQG coupling controller parameters
+        self.lqg_coupling_target_temperature = lqg_coupling_target_temperature
+        self.lqg_coupling_update_interval_ps = lqg_coupling_update_interval_ps
+        self.lqg_coupling_equilibrium_duration_ps = lqg_coupling_equilibrium_duration_ps
+        self.lqg_coupling_step_duration_ps = lqg_coupling_step_duration_ps
+        self.lqg_coupling_n_steps = lqg_coupling_n_steps
+        self.lqg_coupling_lambda_min = lqg_coupling_lambda_min
+        self.lqg_coupling_lambda_max = lqg_coupling_lambda_max
+        self.lqg_coupling_process_noise_std = lqg_coupling_process_noise_std
+        self.lqg_coupling_measurement_noise_std = lqg_coupling_measurement_noise_std
+        self.lqg_coupling_weight_signal = lqg_coupling_weight_signal
+        self.lqg_coupling_weight_harmonic = lqg_coupling_weight_harmonic
+        self.lqg_coupling_weight_kinetic = lqg_coupling_weight_kinetic
+        self.lqg_coupling_weight_bath = lqg_coupling_weight_bath
+        self.lqg_coupling_control_effort = lqg_coupling_control_effort
+        self.lqg_coupling_integral_gain = lqg_coupling_integral_gain
+        self.lqg_coupling_system_id_file = lqg_coupling_system_id_file
+        self.lqg_coupling_control_file = lqg_coupling_control_file
+        self.lqg_coupling_temperature_methods = lqg_coupling_temperature_methods or ['lj_coulombic', 'harmonic_equipartition', 'kinetic']
+        self.lqg_coupling_bath_temperature_method = lqg_coupling_bath_temperature_method
+        
+        # Store legacy LQG pulse controller parameters
+        self.enable_lqg_controller = enable_lqg_controller
+        self.lqg_A_matrix = lqg_A_matrix
+        self.lqg_B_matrix = lqg_B_matrix
+        self.lqg_C_matrix = lqg_C_matrix
+        self.lqg_S_matrix = lqg_S_matrix
+        self.lqg_r_target = lqg_r_target
+        self.lqg_Qz_weights = lqg_Qz_weights
+        self.lqg_Ru_weights = lqg_Ru_weights
+        self.lqg_Qe_weights = lqg_Qe_weights
+        self.lqg_W_noise = lqg_W_noise
+        self.lqg_V_noise = lqg_V_noise
+        self.lqg_g0_baseline = lqg_g0_baseline
+        self.lqg_dt = lqg_dt
+        self.lqg_delta_g_min = lqg_delta_g_min
+        self.lqg_delta_g_max = lqg_delta_g_max
+        self.lqg_T_bath_min = lqg_T_bath_min
+        self.lqg_T_bath_max = lqg_T_bath_max
+        self.lqg_rate_limit_K_per_ps = lqg_rate_limit_K_per_ps
+        self.lqg_turn_on_time_ps = lqg_turn_on_time_ps
+        self.lqg_turn_off_time_ps = lqg_turn_off_time_ps
+        self.lqg_update_interval_ps = lqg_update_interval_ps
+        self.lqg_console_output_period_ps = lqg_console_output_period_ps
+        self.lqg_c_affine_term = lqg_c_affine_term
+        self.lqg_temperature_methods = lqg_temperature_methods
+        self.lqg_square_period_ps = lqg_square_period_ps
+        self.lqg_square_duty_cycle = lqg_square_duty_cycle
+        self.lqg_square_phase_offset = lqg_square_phase_offset
+        self.lqg_square_start_time_ps = lqg_square_start_time_ps
+        self.lqg_square_stop_time_ps = lqg_square_stop_time_ps
+        self.lqg_square_g_low_level = lqg_square_g_low_level
+        self.lqg_enable_system_id = lqg_enable_system_id
+        self.lqg_equilibrium_duration_ps = lqg_equilibrium_duration_ps
+        self.lqg_prbs_n_unique_steps = lqg_prbs_n_unique_steps
+        self.lqg_prbs_amplitude = lqg_prbs_amplitude
+        self.lqg_bath_n_unique_steps = lqg_bath_n_unique_steps
+        self.lqg_bath_excitation_amplitude = lqg_bath_excitation_amplitude
+        self.lqg_system_id_output_file = lqg_system_id_output_file
         
         self.enable_temp_tracker = enable_temp_tracker
         self.temp_tracker_output_period_ps = temp_tracker_output_period_ps
@@ -1367,7 +1724,11 @@ class CavityMDSimulation:
         self.log_info(f"Cavity coupling: {'Enabled' if self.incavity else 'Disabled'}")
         if self.incavity:
             self.log_info(f"  Frequency: {self.freq} cm^-1")
-            self.log_info(f"  Coupling strength: {self.couplstr}")
+            if self.use_deprecated_couplstr:
+                self.log_info(f"  ⚠️  DEPRECATED: Coupling strength (couplstr): {self.couplstr} a.u.")
+            else:
+                self.log_info(f"  Lambda coupling: {self.lambda_coupling}")
+                self.log_info(f"  Epsilon (lambda * omega_c): {self.lambda_coupling * self.omegac:.6e} a.u.")
             self.log_info(f"  Finite-q mode: {self.finite_q}")
         self.log_info(f"Molecular thermostat: {self.molecular_thermostat} (tau={self.molecular_thermostat_tau} ps)")
         if self.incavity:
@@ -1398,63 +1759,118 @@ class CavityMDSimulation:
         """Create coupling variant based on coupling_variant_type."""
         if not hasattr(self, 'time_tracker') or self.time_tracker is None:
             raise ValueError("Time tracker must be set up before creating coupling variants")
-        
+
+        # Determine the base coupling value to use
+        if self.use_deprecated_couplstr:
+            # Using deprecated couplstr - use it directly as epsilon
+            base_coupling = self.couplstr
+            self.log_info(f"⚠️  DEPRECATED: Using couplstr={base_coupling} a.u. directly (not scaled by omega_c)")
+            self.log_info(f"    Please migrate to lambda_coupling parameter for future compatibility")
+        else:
+            # Using new lambda_coupling - will be scaled by omega_c
+            base_coupling = self.lambda_coupling
+            self.log_info(f"Using lambda_coupling={base_coupling} (will be scaled by omega_c={self.omegac:.6f} a.u.)")
+
         variant_type = self.coupling_variant_type.lower()
-        
+
         if variant_type == 'constant':
             # Constant coupling (default)
             from hoomd.variant import Constant
-            coupling_variant = Constant(self.couplstr)
-            self.log_info(f"Using constant coupling: {self.couplstr} a.u.")
+
+            if self.use_deprecated_couplstr:
+                # For backward compatibility, use couplstr directly
+                coupling_variant = Constant(base_coupling)
+                self.log_info(f"Using constant coupling: {base_coupling} a.u. (deprecated mode)")
+            else:
+                # Pass lambda (dimensionless) directly - C++ will multiply by omegac
+                coupling_variant = Constant(base_coupling)
+                epsilon = base_coupling * self.omegac
+                self.log_info(f"Using constant coupling: lambda={base_coupling}, epsilon={epsilon:.6e} a.u.")
         
         elif variant_type == 'step':
-            # Step coupling (with optional turn-off and decay)  
-            coupling_variant = StepVariant(
-                target_value=self.couplstr,
+            # Step coupling (with optional turn-off and decay)
+            step_variant = StepVariant(
+                target_value=base_coupling,
                 switch_time_ps=self.switch_time_ps if self.switch_time_ps is not None else 0.0,
                 time_tracker=self.time_tracker,
                 decay_time_constant_ps=self.decay_time_constant_ps,
                 turn_off_time_ps=getattr(self, 'step_turn_off_time_ps', None)
             )
-            self.log_info(f"Using step coupling:")
-            self.log_info(f"  Target value: {self.couplstr} a.u.")
+
+            if self.use_deprecated_couplstr:
+                coupling_variant = step_variant
+                self.log_info(f"Using step coupling (deprecated mode):")
+                self.log_info(f"  Target value: {base_coupling} a.u.")
+            else:
+                # Pass lambda (dimensionless) directly - C++ will multiply by omegac
+                coupling_variant = step_variant
+                epsilon = base_coupling * self.omegac
+                self.log_info(f"Using step coupling:")
+                self.log_info(f"  Target lambda: {base_coupling}")
+                self.log_info(f"  Target epsilon: {epsilon:.6e} a.u.")
+
             self.log_info(f"  Switch time: {self.switch_time_ps} ps")
             if self.decay_time_constant_ps:
                 self.log_info(f"  Decay time constant: {self.decay_time_constant_ps} ps")
         
         elif variant_type == 'periodic':
-            # Periodic coupling  
-            coupling_variant = PeriodicVariant(
-                amplitude=self.couplstr,
+            # Periodic coupling
+            periodic_variant = PeriodicVariant(
+                amplitude=base_coupling,
                 time_tracker=self.time_tracker,
                 period_ps=getattr(self, 'periodic_period_ps', 1.0),
                 phase_offset=getattr(self, 'periodic_phase_offset', 0.0),
                 start_time_ps=getattr(self, 'periodic_start_time_ps', 0.0),
                 stop_time_ps=getattr(self, 'periodic_stop_time_ps', None)
             )
-            self.log_info(f"Using periodic coupling:")
-            self.log_info(f"  Amplitude: {self.couplstr} a.u.")
+
+            if self.use_deprecated_couplstr:
+                coupling_variant = periodic_variant
+                self.log_info(f"Using periodic coupling (deprecated mode):")
+                self.log_info(f"  Amplitude: {base_coupling} a.u.")
+            else:
+                # Pass lambda (dimensionless) directly - C++ will multiply by omegac
+                coupling_variant = periodic_variant
+                epsilon = base_coupling * self.omegac
+                self.log_info(f"Using periodic coupling:")
+                self.log_info(f"  Amplitude lambda: {base_coupling}")
+                self.log_info(f"  Amplitude epsilon: {epsilon:.6e} a.u.")
+
             self.log_info(f"  Period: {getattr(self, 'periodic_period_ps', 1.0)} ps")
             self.log_info(f"  Phase offset: {getattr(self, 'periodic_phase_offset', 0.0):.3f} rad")
         
         elif variant_type == 'exponential':
             # Exponential decay coupling
-            coupling_variant = ExponentialDecayVariant(
-                amplitude=self.exponential_amplitude,
+            # For exponential, use exponential_amplitude if provided, else use base_coupling
+            exp_amplitude = self.exponential_amplitude if self.exponential_amplitude is not None else base_coupling
+
+            exp_variant = ExponentialDecayVariant(
+                amplitude=exp_amplitude,
                 time_tracker=self.time_tracker,
                 decay_time_constant_ps=self.exponential_decay_time_ps,
                 turn_on_time_ps=self.exponential_turn_on_time_ps,
                 turn_off_time_ps=self.exponential_turn_off_time_ps
             )
-            self.log_info(f"Using exponential decay coupling:")
-            self.log_info(f"  Amplitude: {self.exponential_amplitude} a.u.")
+
+            if self.use_deprecated_couplstr:
+                coupling_variant = exp_variant
+                self.log_info(f"Using exponential decay coupling (deprecated mode):")
+                self.log_info(f"  Amplitude: {exp_amplitude} a.u.")
+            else:
+                # Pass lambda (dimensionless) directly - C++ will multiply by omegac
+                coupling_variant = exp_variant
+                epsilon = exp_amplitude * self.omegac
+                self.log_info(f"Using exponential decay coupling:")
+                self.log_info(f"  Amplitude lambda: {exp_amplitude}")
+                self.log_info(f"  Amplitude epsilon: {epsilon:.6e} a.u.")
+
             self.log_info(f"  Decay time constant: {self.exponential_decay_time_ps} ps")
             self.log_info(f"  Turn-on time: {self.exponential_turn_on_time_ps} ps")
         
         elif variant_type == 'square':
             # Square wave coupling
-            coupling_variant = SquareWaveVariant(
-                amplitude=self.couplstr,
+            square_variant = SquareWaveVariant(
+                amplitude=base_coupling,
                 period_ps=self.square_period_ps,
                 time_tracker=self.time_tracker,
                 duty_cycle=self.square_duty_cycle,
@@ -1462,15 +1878,26 @@ class CavityMDSimulation:
                 start_time_ps=self.square_start_time_ps,
                 stop_time_ps=self.square_stop_time_ps
             )
-            self.log_info(f"Using square wave coupling:")
-            self.log_info(f"  Amplitude: {self.couplstr} a.u.")
+
+            if self.use_deprecated_couplstr:
+                coupling_variant = square_variant
+                self.log_info(f"Using square wave coupling (deprecated mode):")
+                self.log_info(f"  Amplitude: {base_coupling} a.u.")
+            else:
+                # Pass lambda (dimensionless) directly - C++ will multiply by omegac
+                coupling_variant = square_variant
+                epsilon = base_coupling * self.omegac
+                self.log_info(f"Using square wave coupling:")
+                self.log_info(f"  Amplitude lambda: {base_coupling}")
+                self.log_info(f"  Amplitude epsilon: {epsilon:.6e} a.u.")
+
             self.log_info(f"  Period: {self.square_period_ps} ps")
             self.log_info(f"  Duty cycle: {self.square_duty_cycle:.1%}")
         
         elif variant_type == 'decaying_square':
             # Decaying square wave coupling
-            coupling_variant = DecayingSquareWaveVariant(
-                initial_amplitude=self.couplstr,
+            decay_square_variant = DecayingSquareWaveVariant(
+                initial_amplitude=base_coupling,
                 period_ps=self.decaying_square_period_ps,
                 time_tracker=self.time_tracker,
                 decay_rate_per_period=self.decaying_square_decay_rate,
@@ -1480,8 +1907,19 @@ class CavityMDSimulation:
                 stop_time_ps=self.decaying_square_stop_time_ps,
                 minimum_amplitude=self.decaying_square_minimum_amplitude
             )
-            self.log_info(f"Using decaying square wave coupling:")
-            self.log_info(f"  Initial amplitude: {self.couplstr} a.u.")
+
+            if self.use_deprecated_couplstr:
+                coupling_variant = decay_square_variant
+                self.log_info(f"Using decaying square wave coupling (deprecated mode):")
+                self.log_info(f"  Initial amplitude: {base_coupling} a.u.")
+            else:
+                # Pass lambda (dimensionless) directly - C++ will multiply by omegac
+                coupling_variant = decay_square_variant
+                epsilon = base_coupling * self.omegac
+                self.log_info(f"Using decaying square wave coupling:")
+                self.log_info(f"  Initial amplitude lambda: {base_coupling}")
+                self.log_info(f"  Initial amplitude epsilon: {epsilon:.6e} a.u.")
+
             self.log_info(f"  Period: {self.decaying_square_period_ps} ps")
             self.log_info(f"  Duty cycle: {self.decaying_square_duty_cycle:.1%}")
             self.log_info(f"  Decay rate: {self.decaying_square_decay_rate:.1%} per period")
@@ -1695,6 +2133,10 @@ class CavityMDSimulation:
             else:
                 self.log_info(f"  Adaptive mode: DISABLED (fixed amplitude)")
 
+        elif variant_type == 'lqg_coupling':
+            # LQG coupling controller has been removed from codebase
+            self.log_error("LQG coupling controller has been removed. Please use a different coupling variant.")
+            raise ValueError("LQG coupling controller has been removed from codebase.")
         else:
             raise ValueError(f"Unknown coupling_variant_type: {variant_type}")
         
@@ -1746,7 +2188,7 @@ class CavityMDSimulation:
             from ..forces import CavityForce
             cavityforce = CavityForce(
                 kvector=np.array([0,0,1]), 
-                couplstr=coupling_variant, 
+                lambda_coupling=coupling_variant, 
                 omegac=omegac,
             )
             
@@ -1775,18 +2217,18 @@ class CavityMDSimulation:
         lj.params[('N', 'O')] = dict(epsilon=0.00025027802, sigma=4.9832074319)
         lj.r_cut[('N', 'O')] = rcut
 
-        # Disable pair interaction with 'L' particle (photon)
-        if self.incavity:
-            lj.params[('L', 'N')] = dict(epsilon=0.0, sigma=1.0)
-            lj.r_cut[('L', 'N')] = 0.0
-            lj.params[('N', 'L')] = dict(epsilon=0.0, sigma=1.0)
-            lj.r_cut[('N', 'L')] = 0.0
-            lj.params[('O', 'L')] = dict(epsilon=0.0, sigma=1.0)
-            lj.r_cut[('O', 'L')] = 0.0
-            lj.params[('L', 'O')] = dict(epsilon=0.0, sigma=1.0)
-            lj.r_cut[('L', 'O')] = 0.0
-            lj.params[('L', 'L')] = dict(epsilon=0.0, sigma=1.0)
-            lj.r_cut[('L', 'L')] = 0.0
+        # Always disable pair interaction with 'L' particle (photon) if it exists
+        # This ensures compatibility whether incavity=True or False
+        lj.params[('L', 'N')] = dict(epsilon=0.0, sigma=1.0)
+        lj.r_cut[('L', 'N')] = 0.0
+        lj.params[('N', 'L')] = dict(epsilon=0.0, sigma=1.0)
+        lj.r_cut[('N', 'L')] = 0.0
+        lj.params[('O', 'L')] = dict(epsilon=0.0, sigma=1.0)
+        lj.r_cut[('O', 'L')] = 0.0
+        lj.params[('L', 'O')] = dict(epsilon=0.0, sigma=1.0)
+        lj.r_cut[('L', 'O')] = 0.0
+        lj.params[('L', 'L')] = dict(epsilon=0.0, sigma=1.0)
+        lj.r_cut[('L', 'L')] = 0.0
         forces.append(lj)
 
         # Setup long-range Coulomb interactions using PPPM method
@@ -2439,7 +2881,8 @@ class CavityMDSimulation:
                     output_prefix=output_prefix,
                     force_objects=force_objects,        # CRITICAL: Pass force objects
                     thermostat_objects=thermostat_objects,  # CRITICAL: Pass thermostat objects
-                    verbose="quiet"  # Suppress debug output by default
+                    verbose="quiet",  # Suppress debug output by default
+                    enable_csv_output=False  # Use HDF5 output via ObservableWriter
                 )
                 
                 # Add energy tracker to simulation - trigger period doesn't matter since it uses internal timing
@@ -2688,7 +3131,8 @@ class CavityMDSimulation:
     def _setup_empirical_feedback(self):
         """Set up empirical temperature feedback system."""
         try:
-            from ..analysis import EmpiricalTemperatureData, EmpiricalTemperatureFeedback
+            from ..controllers.empirical import EmpiricalTemperatureData
+            from ..controllers.feedback import EmpiricalTemperatureFeedback
             
             # Validate parameters
             if not self.empirical_data_file:
@@ -2857,21 +3301,67 @@ class CavityMDSimulation:
             
             if not immediate_conflicts:
                 self._setup_diffeq_controller()
-                enabled_features.append(f"differential equation controller ({self.diffeq_temperature_method}, τ={self.diffeq_time_constant_ps:.1f}ps)")
+                if self.diffeq_time_constant_auto:
+                    enabled_features.append(f"differential equation controller ({self.diffeq_temperature_method}, adaptive τ)")
+                else:
+                    enabled_features.append(f"differential equation controller ({self.diffeq_temperature_method}, τ={self.diffeq_time_constant_ps:.1f}ps)")
             else:
                 self.log_info(f"  WARNING: DiffEq controller conflicts with immediate controllers: {', '.join(immediate_conflicts)} - disabling diffeq")
                 self.diffeq_controller = None
+        
+        # Set up comprehensive temperature tracker if enabled
+        # IMPORTANT: Must be set up BEFORE BathPI and LQR controllers (which need temperature measurements)
+        if getattr(self, 'enable_temp_tracker', False):
+            self._setup_temperature_tracker()
+            enabled_features.append(f"comprehensive temperature tracker ({self.temp_tracker_output_period_ps:.1f} ps)")
+        
+        # Set up BathPI controller if enabled (AFTER temperature tracker!)
+        if getattr(self, 'enable_bath_pi_controller', False):
+            # Check for conflicts with immediate controllers
+            immediate_conflicts = []
+            if getattr(self, 'enable_empirical_feedback', False):
+                immediate_conflicts.append("empirical feedback")
+            if getattr(self, 'enable_lqr_controller', False):
+                immediate_conflicts.append("LQR")
+            if getattr(self, 'enable_quench_controller', False):
+                immediate_conflicts.append("quench")
+            
+            # Check if dual controller is immediate (not delayed)
+            dual_turn_on_time = getattr(self, 'dual_turn_on_time_ps', 0.0)
+            current_time = self.time_tracker.elapsed_time if self.time_tracker else 0.0
+            if (getattr(self, 'enable_dual_feedback', False) and 
+                dual_turn_on_time <= current_time + 1.0):
+                immediate_conflicts.append(f"dual independent (immediate, turn_on={dual_turn_on_time:.1f}ps)")
+            
+            if not immediate_conflicts:
+                self.log_info(f"  WARNING: BathPI controller has been removed from codebase")
+                self.bath_pi_controller = None
+            else:
+                self.log_info(f"  WARNING: BathPI controller has been removed from codebase")
+                self.bath_pi_controller = None
+        
+        # Set up SimpleSetpointController if enabled
+        if getattr(self, 'enable_simple_setpoint_controller', False):
+            self._setup_simple_setpoint_controller()
+            if self.simple_setpoint_controller is not None:
+                enabled_features.append(f"SimpleSetpointController ({self.simple_setpoint_apply_to}, signal={self.simple_setpoint_signal_method})")
+        
+        # Set up Adaptive MPC Controller if enabled
+        if getattr(self, 'enable_adaptive_mpc_controller', False):
+            self._setup_adaptive_mpc_controller()
+            if self.adaptive_mpc_controller is not None:
+                enabled_features.append(f"Adaptive MPC Controller (target={getattr(self, 'adaptive_mpc_target_temperature', 100.0):.1f}K, Np={getattr(self, 'adaptive_mpc_prediction_horizon', 10)})")
+        
+        # Note: PID Controller setup moved to run() method after thermostat creation
+        # to ensure proper thermostat object references
+        if getattr(self, 'enable_pid_controller', False):
+            mode = "self-loop" if getattr(self, 'pid_self_loop', False) else f"setpoint={getattr(self, 'pid_target_temperature', 100.0):.1f}K"
+            enabled_features.append(f"PID Controller ({mode}, signal={getattr(self, 'pid_signal_choice', 'lj_coulombic')})")
         
         # Set up harmonic bond reset if enabled
         if getattr(self, 'enable_harmonic_reset', False):
             self._setup_harmonic_reset()
             enabled_features.append(f"harmonic bond reset (t={self.harmonic_reset_turn_on_time_ps:.1f}ps)")
-        
-        # Set up comprehensive temperature tracker if enabled
-        # IMPORTANT: Must be set up BEFORE LQR controller (which needs temperature measurements)
-        if getattr(self, 'enable_temp_tracker', False):
-            self._setup_temperature_tracker()
-            enabled_features.append(f"comprehensive temperature tracker ({self.temp_tracker_output_period_ps:.1f} ps)")
         
         # Set up HDF5 observable output if enabled
         # NOTE: Must be set up AFTER trackers (energy, temperature) so they can be registered
@@ -2879,21 +3369,16 @@ class CavityMDSimulation:
             self._setup_hdf5_output()
             enabled_features.append(f"HDF5 observable output ({self.hdf5_output_period_ps:.3f} ps)")
         
-        # Set up LQR optimal temperature controller if enabled
-        if getattr(self, 'enable_lqr_controller', False):
-            self._setup_lqr_controller()
-            if self.lqr_controller is not None:
-                enabled_features.append(f"LQR optimal controller (signal={self.lqr_signal_method}, hot={self.lqr_hot_method})")
-        
         # Note: Quench controller setup moved to after thermostat creation
         # to ensure proper thermostat object references
         if getattr(self, 'enable_quench_controller', False):
             enabled_features.append(f"quench controller ({self.quench_initial_temperature:.1f}K→{self.quench_target_temperature:.1f}K at {self.quench_time_ps:.1f}ps)")
         
         # Set up molecular temperature decomposition if enabled
+        # NOTE: Molecular temperatures are now tracked by TemperatureTracker with track_molecular=True
         if getattr(self, 'enable_molecular_temps', False):
-            self._setup_molecular_temperature_tracker()
-            enabled_features.append(f"molecular temperature decomposition ({self.molecular_temps_output_period_ps:.1f} ps)")
+            # self._setup_molecular_temperature_tracker()  # DEPRECATED - now handled by TemperatureTracker
+            enabled_features.append(f"molecular temperature decomposition (integrated in TemperatureTracker)")
             
         if getattr(self, 'enable_temp_tracker', False):
             # Set up auto-stop controller if enabled (requires temperature tracker)
@@ -2940,7 +3425,7 @@ class CavityMDSimulation:
             return
         
         try:
-            from ..analysis import GradientDescentTemperatureFeedback
+            from ..controllers.feedback import GradientDescentTemperatureFeedback
             
             # Create output file path
             output_file = f"gd_feedback_replica_{self.replica}.csv"
@@ -2992,7 +3477,7 @@ class CavityMDSimulation:
             return
         
         try:
-            from ..analysis import DualIndependentTemperatureFeedback
+            from ..controllers.dual_feedback import DualIndependentTemperatureFeedback
             
             # Create output file path
             output_file = f"dual_feedback_replica_{self.replica}.csv"
@@ -3070,6 +3555,7 @@ class CavityMDSimulation:
                 time_tracker=self.time_tracker,
                 energy_tracker=getattr(self, 'energy_tracker', None),
                 simulation=self.sim,
+                time_constant_auto=self.diffeq_time_constant_auto,
                 molecular_thermostat=getattr(self, 'molecular_thermostat_obj', None),
                 cavity_thermostat=getattr(self, 'cavity_thermostat_obj', None),
                 apply_to=self.diffeq_apply_to,
@@ -3079,10 +3565,26 @@ class CavityMDSimulation:
                 T_max=self.diffeq_T_max,
                 output_file=output_file,
                 empirical_data_file=getattr(self, 'temp_tracker_empirical_data_file', None),
-                # Bias correction parameters (new clean interface)
-                bias_correction_mode=self.diffeq_bias_correction_mode,
-                equilibrium_temperature=self.diffeq_equilibrium_temperature,
+                # Bias correction parameters (using actual DiffEqController interface)
+                enable_bias_estimation=not self.diffeq_disable_bias_estimation,  # Controlled by --diffeq-disable-bias-estimation flag
                 console_output_period_ps=self.console_output_period_ps,
+                # Exact-cancellation + PI control parameters
+                enable_pi_control=self.diffeq_enable_pi_control,
+                pi_rho=self.diffeq_pi_rho,
+                pi_epsilon=self.diffeq_pi_epsilon,
+                pi_zeta=self.diffeq_pi_zeta,
+                relaxation_data_file=self.diffeq_relaxation_data_file,
+                filter_window_ps=self.diffeq_filter_window,
+                # Adaptive bias cancellation parameters
+                enable_bias_cancellation=self.diffeq_enable_bias_cancellation,
+                bias_tau_b_ps=self.diffeq_bias_tau_b_ps,
+                bias_tau_b_auto=self.diffeq_bias_tau_b_auto,
+                bias_kappa=self.diffeq_bias_kappa,
+                bias_kappa_auto=self.diffeq_bias_kappa_auto,
+                bias_tau_b_prefactor=self.diffeq_bias_tau_b_prefactor,
+                bias_kappa_prefactor=self.diffeq_bias_kappa_prefactor,
+                bias_calibration_time_ps=self.diffeq_bias_calibration_time_ps,
+                enable_csv_output=False  # Use HDF5 output via ObservableWriter
             )
             
             # Add to simulation with appropriate trigger frequency
@@ -3099,7 +3601,10 @@ class CavityMDSimulation:
             
             self.log_info(f" Differential equation controller enabled")
             self.log_info(f"  Method: {self.diffeq_temperature_method}")
-            self.log_info(f"  Time constant: {self.diffeq_time_constant_ps:.2f} ps")
+            if self.diffeq_time_constant_auto:
+                self.log_info(f"  Time constant: ADAPTIVE τ = T[T_bath] (fallback: {self.diffeq_time_constant_ps:.2f} ps)")
+            else:
+                self.log_info(f"  Time constant: {self.diffeq_time_constant_ps:.2f} ps (fixed)")
             self.log_info(f"  Turn on time: {self.diffeq_turn_on_time_ps:.1f} ps")
             self.log_info(f"  Update interval: {self.diffeq_update_interval_ps:.3f} ps")
             self.log_info(f"  Apply to: {self.diffeq_apply_to}")
@@ -3113,8 +3618,9 @@ class CavityMDSimulation:
                 self.log_info(f"  Rate limit: {self.diffeq_rate_limit_K_per_ps:.2f} K/ps")
             
             # Log Kalman filter and auto-tuning status
-            self.log_info(f"  Kalman filter bias estimation: {'ENABLED' if self.diffeq_enable_bias_estimation else 'DISABLED'}")
-            if self.diffeq_enable_bias_estimation:
+            enable_bias_estimation_actual = not self.diffeq_disable_bias_estimation
+            self.log_info(f"  Kalman filter bias estimation: {'ENABLED' if enable_bias_estimation_actual else 'DISABLED'}")
+            if enable_bias_estimation_actual:
                 self.log_info(f"    Process noise: {self.diffeq_bias_process_noise:.2e} K²/ps")
                 self.log_info(f"    Initial covariance: {self.diffeq_bias_initial_covariance:.1f} K²")
             
@@ -3133,6 +3639,231 @@ class CavityMDSimulation:
             self.log_error(f"Failed to setup differential equation controller: {e}")
             self.log_error(f"Full traceback: {traceback.format_exc()}")
             self.diffeq_controller = None
+    
+    def _setup_simple_setpoint_controller(self):
+        """Set up SimpleSetpointController for temperature control."""
+        if not self.enable_simple_setpoint_controller:
+            self.simple_setpoint_controller = None
+            return
+        
+        try:
+            # Create output file path
+            output_file = f"{self.simple_setpoint_output_file.replace('.csv', '')}_replica_{self.replica}.csv"
+            
+            # Get empirical data file path if needed
+            empirical_data_file = None
+            if self.simple_setpoint_signal_method in ['lj_coulombic', 'harmonic']:
+                empirical_data_file = getattr(self, 'temp_tracker_empirical_data_file', None)
+            
+            # Create SimpleSetpointController
+            self.simple_setpoint_controller = SimpleSetpointController(
+                signal_method=self.simple_setpoint_signal_method,
+                time_constant_ps=self.simple_setpoint_time_constant_ps,
+                time_tracker=self.time_tracker,
+                energy_tracker=getattr(self, 'energy_tracker', None),
+                molecular_thermostat=getattr(self, 'molecular_thermostat_obj', None),
+                cavity_thermostat=getattr(self, 'cavity_thermostat_obj', None),
+                apply_to=self.simple_setpoint_apply_to,
+                turn_on_time_ps=self.simple_setpoint_turn_on_time_ps,
+                turn_off_time_ps=self.simple_setpoint_turn_off_time_ps,
+                update_interval_ps=self.simple_setpoint_update_interval_ps,
+                T_min=self.simple_setpoint_T_min,
+                T_max=self.simple_setpoint_T_max,
+                output_file=output_file,
+                empirical_data_file=empirical_data_file,
+                console_output_period_ps=self.simple_setpoint_console_output_period_ps,
+                enable_csv_output=False  # Use HDF5 output via ObservableWriter
+            )
+            
+            # Add to simulation operations
+            steps_per_ps = 1.0 / (self.dt_fs * 1e-3)  # Convert fs to ps
+            trigger_steps = max(1, int(self.simple_setpoint_update_interval_ps * steps_per_ps))
+            
+            simple_setpoint_updater = hoomd.update.CustomUpdater(
+                action=self.simple_setpoint_controller,
+                trigger=hoomd.trigger.Periodic(trigger_steps)
+            )
+            self.sim.operations.updaters.append(simple_setpoint_updater)
+            
+            self.log_info(f"\n SimpleSetpointController enabled")
+            self.log_info(f"   Signal method: {self.simple_setpoint_signal_method}")
+            self.log_info(f"   Time constant: {self.simple_setpoint_time_constant_ps:.2f} ps")
+            self.log_info(f"   Apply to: {self.simple_setpoint_apply_to}")
+            self.log_info(f"   Turn on time: {self.simple_setpoint_turn_on_time_ps:.2f} ps")
+            if self.simple_setpoint_turn_off_time_ps is not None:
+                self.log_info(f"   Turn off time: {self.simple_setpoint_turn_off_time_ps:.2f} ps")
+            self.log_info(f"   Output file: {output_file}")
+            if empirical_data_file is not None:
+                self.log_info(f"   Empirical data: {empirical_data_file}")
+            
+        except Exception as e:
+            import traceback
+            self.log_error(f"Failed to setup SimpleSetpointController: {e}")
+            self.log_error(f"Full traceback: {traceback.format_exc()}")
+            self.simple_setpoint_controller = None
+    
+    def _setup_adaptive_mpc_controller(self):
+        """Set up Adaptive MPC Controller for temperature regulation."""
+        if not getattr(self, 'enable_adaptive_mpc_controller', False):
+            self.adaptive_mpc_controller = None
+            return
+        
+        try:
+            from ..controllers.adaptive_mpc import AdaptiveMPCController
+            
+            # Create output file path
+            output_file = f"{getattr(self, 'adaptive_mpc_output_file', 'adaptive_mpc_control.csv')}"
+            output_file = output_file.replace('.csv', f'_replica_{self.replica}.csv')
+            
+            # Create Adaptive MPC Controller
+            self.adaptive_mpc_controller = AdaptiveMPCController(
+                simulation=self,
+                time_tracker=self.time_tracker,
+                temperature_tracker=self.temperature_tracker,
+                target_temperature=getattr(self, 'adaptive_mpc_target_temperature', 100.0),
+                turn_on_time_ps=getattr(self, 'adaptive_mpc_turn_on_time_ps', 0.0),
+                turn_off_time_ps=getattr(self, 'adaptive_mpc_turn_off_time_ps', None),
+                system_id_duration_ps=getattr(self, 'adaptive_mpc_system_id_duration_ps', 50.0),
+                update_interval_ps=getattr(self, 'adaptive_mpc_update_interval_ps', 0.1),
+                prediction_horizon=getattr(self, 'adaptive_mpc_prediction_horizon', 10),
+                control_horizon=getattr(self, 'adaptive_mpc_control_horizon', 5),
+                output_weight=getattr(self, 'adaptive_mpc_output_weight', 100.0),
+                control_effort_weight=getattr(self, 'adaptive_mpc_control_effort_weight', [1.0, 0.1]),
+                rate_penalty_weight=getattr(self, 'adaptive_mpc_rate_penalty_weight', [10.0, 1.0]),
+                lambda_min=getattr(self, 'adaptive_mpc_lambda_min', 0.0),
+                lambda_max=getattr(self, 'adaptive_mpc_lambda_max', 1e-2),
+                T_bath_min=getattr(self, 'adaptive_mpc_T_bath_min', 0.1),
+                T_bath_max=getattr(self, 'adaptive_mpc_T_bath_max', 500.0),
+                delta_lambda_max=getattr(self, 'adaptive_mpc_delta_lambda_max', 1e-4),
+                delta_T_bath_max=getattr(self, 'adaptive_mpc_delta_T_bath_max', 10.0),
+                apply_to=getattr(self, 'adaptive_mpc_apply_to', 'both'),
+                system_id_step_duration_ps=getattr(self, 'adaptive_mpc_system_id_step_duration_ps', 5.0),
+                system_id_seed=getattr(self, 'adaptive_mpc_system_id_seed', 42),
+                rls_forgetting_factor=getattr(self, 'adaptive_mpc_rls_forgetting_factor', 0.995),
+                rls_initial_covariance=getattr(self, 'adaptive_mpc_rls_initial_covariance', 100.0),
+                model_update_interval=getattr(self, 'adaptive_mpc_model_update_interval', 10),
+                empirical_data_file=getattr(self, 'temp_tracker_empirical_data_file', None),
+                output_file=output_file,
+                console_output_period_ps=getattr(self, 'adaptive_mpc_console_output_period_ps', 1.0),
+                regularization_param=getattr(self, 'adaptive_mpc_regularization_param', 1e-3),
+                use_scaling=getattr(self, 'adaptive_mpc_use_scaling', True),
+                debug_mode=getattr(self, 'adaptive_mpc_debug_mode', False)
+            )
+            
+            # Add to simulation operations
+            steps_per_ps = 1.0 / (self.dt_fs * 1e-3)  # Convert fs to ps
+            trigger_steps = max(1, int(getattr(self, 'adaptive_mpc_update_interval_ps', 0.1) * steps_per_ps))
+            
+            adaptive_mpc_updater = hoomd.update.CustomUpdater(
+                action=self.adaptive_mpc_controller,
+                trigger=hoomd.trigger.Periodic(trigger_steps)
+            )
+            self.sim.operations.updaters.append(adaptive_mpc_updater)
+            
+            self.log_info(f"\n Adaptive MPC Controller enabled")
+            self.log_info(f"   Target temperature: {getattr(self, 'adaptive_mpc_target_temperature', 100.0):.2f} K")
+            self.log_info(f"   Turn on time: {getattr(self, 'adaptive_mpc_turn_on_time_ps', 0.0):.2f} ps")
+            self.log_info(f"   System ID duration: {getattr(self, 'adaptive_mpc_system_id_duration_ps', 50.0):.2f} ps")
+            self.log_info(f"   Prediction horizon: {getattr(self, 'adaptive_mpc_prediction_horizon', 10)}")
+            self.log_info(f"   Control horizon: {getattr(self, 'adaptive_mpc_control_horizon', 5)}")
+            self.log_info(f"   Lambda range: [{getattr(self, 'adaptive_mpc_lambda_min', 0.0):.2e}, {getattr(self, 'adaptive_mpc_lambda_max', 1e-2):.2e}]")
+            self.log_info(f"   T_bath range: [{getattr(self, 'adaptive_mpc_T_bath_min', 0.1):.2f}, {getattr(self, 'adaptive_mpc_T_bath_max', 500.0):.2f}] K")
+            self.log_info(f"   Apply to: {getattr(self, 'adaptive_mpc_apply_to', 'both')}")
+            self.log_info(f"   Output file: {output_file}")
+            
+        except Exception as e:
+            import traceback
+            self.log_error(f"Failed to setup Adaptive MPC Controller: {e}")
+            self.log_error(f"Full traceback: {traceback.format_exc()}")
+            self.adaptive_mpc_controller = None
+    
+    def _setup_pid_controller(self):
+        """Set up PID Controller for temperature regulation."""
+        if not getattr(self, 'enable_pid_controller', False):
+            self.pid_controller = None
+            return
+        
+        try:
+            from ..controllers.pid_control import PIDControl
+            
+            # Verify prerequisites
+            if not hasattr(self, 'temperature_tracker') or self.temperature_tracker is None:
+                raise RuntimeError("FATAL: PID controller requires temperature_tracker to be initialized first")
+            if not hasattr(self, 'time_tracker') or self.time_tracker is None:
+                raise RuntimeError("FATAL: PID controller requires time_tracker to be initialized first")
+            if not hasattr(self, 'molecular_thermostat_obj') or self.molecular_thermostat_obj is None:
+                raise RuntimeError("FATAL: PID controller requires molecular_thermostat_obj to be initialized first")
+            if not hasattr(self, 'cavity_thermostat_obj') or self.cavity_thermostat_obj is None:
+                raise RuntimeError("FATAL: PID controller requires cavity_thermostat_obj to be initialized first")
+            
+            # Create output file path
+            output_file = f"{getattr(self, 'pid_output_file', 'pid_control.csv')}"
+            output_file = output_file.replace('.csv', f'_replica_{self.replica}.csv')
+            
+            # Determine if manual gains are provided
+            Kp = getattr(self, 'pid_Kp', None)
+            Ti = getattr(self, 'pid_Ti', None)
+            Td = getattr(self, 'pid_Td', None)
+            
+            # Create PID Controller
+            self.pid_controller = PIDControl(
+                temperature_tracker=self.temperature_tracker,
+                time_tracker=self.time_tracker,
+                simulation=self,
+                molecular_thermostat=self.molecular_thermostat_obj,
+                cavity_thermostat=self.cavity_thermostat_obj,
+                signal_choice=getattr(self, 'pid_signal_choice', 'lj_coulombic'),
+                target_temperature=getattr(self, 'pid_target_temperature', 100.0),
+                self_loop=getattr(self, 'pid_self_loop', False),
+                Kp=Kp,
+                Ti=Ti,
+                Td=Td,
+                auto_tune=getattr(self, 'pid_auto_tune', True),
+                auto_tune_step_size=getattr(self, 'pid_auto_tune_step_size', 20.0),
+                auto_tune_duration_ps=getattr(self, 'pid_auto_tune_duration_ps', 50.0),
+                turn_on_time_ps=getattr(self, 'pid_turn_on_time_ps', 0.0),
+                turn_off_time_ps=getattr(self, 'pid_turn_off_time_ps', None),
+                update_interval_ps=getattr(self, 'pid_update_interval_ps', 0.1),
+                apply_to=getattr(self, 'pid_apply_to', 'both'),
+                T_min=getattr(self, 'pid_T_min', 0.1),
+                T_max=getattr(self, 'pid_T_max', None),
+                rate_limit_K_per_ps=getattr(self, 'pid_rate_limit_K_per_ps', None),
+                derivative_filter_N=getattr(self, 'pid_derivative_filter_N', 10.0),
+                enable_anti_windup=getattr(self, 'pid_enable_anti_windup', True),
+                output_file=output_file,
+                console_output_period_ps=getattr(self, 'pid_console_output_period_ps', 1.0),
+                empirical_data_file=getattr(self, 'temp_tracker_empirical_data_file', None)
+            )
+            
+            # Add to simulation operations
+            steps_per_ps = 1.0 / (self.dt_fs * 1e-3)  # Convert fs to ps
+            trigger_steps = max(1, int(getattr(self, 'pid_update_interval_ps', 0.1) * steps_per_ps))
+            
+            pid_updater = hoomd.update.CustomUpdater(
+                action=self.pid_controller,
+                trigger=hoomd.trigger.Periodic(trigger_steps)
+            )
+            self.sim.operations.updaters.append(pid_updater)
+            
+            self.log_info(f"\n PID Controller enabled")
+            self.log_info(f"   Signal: {getattr(self, 'pid_signal_choice', 'lj_coulombic')}")
+            if getattr(self, 'pid_self_loop', False):
+                self.log_info(f"   Mode: Self-loop (T_setpoint = T_bath)")
+            else:
+                self.log_info(f"   Mode: Setpoint tracking (T* = {getattr(self, 'pid_target_temperature', 100.0):.2f} K)")
+            self.log_info(f"   Turn on time: {getattr(self, 'pid_turn_on_time_ps', 0.0):.2f} ps")
+            if Kp is not None or Ti is not None or Td is not None:
+                self.log_info(f"   Tuning: Manual (Kp={Kp}, Ti={Ti}, Td={Td})")
+            else:
+                self.log_info(f"   Tuning: Auto (step={getattr(self, 'pid_auto_tune_step_size', 20.0):.1f} K, duration={getattr(self, 'pid_auto_tune_duration_ps', 50.0):.1f} ps)")
+            self.log_info(f"   Apply to: {getattr(self, 'pid_apply_to', 'both')}")
+            self.log_info(f"   Output file: {output_file}")
+            
+        except Exception as e:
+            import traceback
+            self.log_error(f"FATAL: Failed to setup PID Controller: {e}")
+            self.log_error(f"Full traceback: {traceback.format_exc()}")
+            raise RuntimeError(f"FATAL: PID controller setup failed: {e}") from e
     
     def _setup_harmonic_reset(self):
         """Set up harmonic bond reset."""
@@ -3172,7 +3903,7 @@ class CavityMDSimulation:
             # Use the same empirical data file as the temperature tracker
             if hasattr(self, 'empirical_data_file') and self.empirical_data_file is not None:
                 from pathlib import Path
-                from ..analysis import EmpiricalTemperatureData
+                from ..controllers.empirical import EmpiricalTemperatureData
                 empirical_path = Path(self.empirical_data_file)
                 if empirical_path.exists():
                     try:
@@ -3314,6 +4045,20 @@ class CavityMDSimulation:
                 self.hdf5_writer.add_temperature_tracker(self.temperature_tracker)
                 self.log_info("  Registered temperature tracker for HDF5 output")
             
+            # Register controllers if available
+            if hasattr(self, 'diffeq_controller') and self.diffeq_controller is not None:
+                self.hdf5_writer.add_controller('diffeq', self.diffeq_controller)
+                self.log_info("  Registered DiffEq controller for HDF5 output")
+            
+            if hasattr(self, 'simple_setpoint_controller') and self.simple_setpoint_controller is not None:
+                self.hdf5_writer.add_controller('simple_setpoint', self.simple_setpoint_controller)
+                self.log_info("  Registered SimpleSetpoint controller for HDF5 output")
+            
+            # Register dipole FDR tracker if available
+            if hasattr(self, 'dipole_fdr_tracker') and self.dipole_fdr_tracker is not None:
+                self.hdf5_writer.add_dipole_tracker(self.dipole_fdr_tracker)
+                self.log_info("  Registered dipole FDR tracker for HDF5 output")
+            
             # Add HDF5 writer as custom updater
             hdf5_updater = hoomd.update.CustomUpdater(
                 action=self.hdf5_writer,
@@ -3328,137 +4073,6 @@ class CavityMDSimulation:
             self.log_error(f"Failed to setup HDF5 output: {e}")
             self.log_error(f"Full traceback: {traceback.format_exc()}")
             self.hdf5_writer = None
-    def _setup_lqr_controller(self):
-        """Set up LQR optimal temperature controller."""
-        if not self.enable_lqr_controller:
-            self.lqr_controller = None
-            return
-        
-        try:
-            from ..controllers import LQRTemperatureController
-            
-            # Create output file path
-            output_file = f"lqr_control_replica_{self.replica}.csv"
-            system_id_file = f"lqr_system_params_replica_{self.replica}.json"
-            
-            # Create standard LQR controller
-            self.lqr_controller = LQRTemperatureController(
-                signal_temperature_method=self.lqr_signal_method,
-                hot_temperature_method=self.lqr_hot_method,
-                time_tracker=self.time_tracker,
-                energy_tracker=getattr(self, 'energy_tracker', None),
-                simulation=self.sim,
-                molecular_thermostat=getattr(self, 'molecular_thermostat_obj', None),
-                cavity_thermostat=getattr(self, 'cavity_thermostat_obj', None),
-                temperature_tracker=getattr(self, 'temperature_tracker', None),
-                target_temperature=self.lqr_target_temperature,
-                dynamic_target=self.lqr_dynamic_target,
-                dynamic_target_method=self.lqr_dynamic_target_method,
-                lqr_weight_signal=self.lqr_weight_signal,
-                lqr_weight_hot=self.lqr_weight_hot,
-                lqr_weight_bath=self.lqr_weight_bath,
-                lqr_weight_integral=self.lqr_weight_integral,
-                lqr_control_effort=self.lqr_control_effort,
-                process_noise_signal=self.lqr_process_noise_signal,
-                process_noise_hot=self.lqr_process_noise_hot,
-                measurement_noise_signal=self.lqr_measurement_noise_signal,
-                measurement_noise_hot=self.lqr_measurement_noise_hot,
-                system_id_mode=self.lqr_system_id_mode,
-                system_id_temp_K=self.lqr_system_id_temp_K,
-                system_id_duration_ps=self.lqr_system_id_duration_ps,
-                system_id_file=system_id_file if self.lqr_system_id_file == 'lqr_system_params.json' else self.lqr_system_id_file,
-                periodic_system_id=self.lqr_periodic_system_id,
-                periodic_system_id_interval_ps=self.lqr_periodic_system_id_interval_ps,
-                # EKF-based adaptation
-                use_ekf_adaptation=self.lqr_use_ekf_adaptation,
-                ekf_update_interval=self.lqr_ekf_update_interval,
-                ekf_process_noise_param=self.lqr_ekf_process_noise_param,
-                ekf_initial_covariance_param=self.lqr_ekf_initial_covariance_param,
-                adaptive_lqr_threshold=self.lqr_adaptive_lqr_threshold,
-                # Gain scheduling
-                enable_gain_scheduling=self.lqr_enable_gain_scheduling,
-                gain_schedule_far_threshold=self.lqr_gain_schedule_far_threshold,
-                gain_schedule_near_threshold=self.lqr_gain_schedule_near_threshold,
-                # T_h low-pass filter
-                th_filter_enabled=self.lqr_th_filter_enabled,
-                th_filter_time_constant=self.lqr_th_filter_time_constant,
-                # Gentle startup
-                gentle_startup_steps=self.lqr_gentle_startup_steps,
-                gentle_startup_min_authority=self.lqr_gentle_startup_min_authority,
-                # Kinetic temperature tracking (3D state)
-                track_kinetic_temp=self.lqr_track_kinetic_temp,
-                weight_kinetic=self.lqr_weight_kinetic,
-                process_noise_kinetic=self.lqr_process_noise_kinetic,
-                measurement_noise_kinetic=self.lqr_measurement_noise_kinetic,
-                # Cross-coupling weights for thermal equilibration
-                cross_coupling_signal_kinetic=self.lqr_cross_coupling_signal_kinetic,
-                cross_coupling_signal_hot=self.lqr_cross_coupling_signal_hot,
-                cross_coupling_hot_kinetic=self.lqr_cross_coupling_hot_kinetic,
-                # Timing and limits
-                turn_on_time_ps=self.lqr_turn_on_time_ps,
-                turn_off_time_ps=self.lqr_turn_off_time_ps,
-                update_interval_ps=self.lqr_update_interval_ps,
-                T_min=self.lqr_T_min,
-                T_max=self.lqr_T_max,
-                apply_to=self.lqr_apply_to,
-                output_file=output_file if self.lqr_output_file == 'lqr_controller.csv' else self.lqr_output_file,
-                empirical_data_file=self.lqr_empirical_data_file or getattr(self, 'temp_tracker_empirical_data_file', None),
-                console_output_period_ps=self.console_output_period_ps
-            )
-            
-            # Add to simulation with appropriate trigger frequency
-            # CRITICAL: With adaptive timestep, dt changes during run!
-            # Use MINIMUM expected dt to ensure frequent enough sampling
-            dt_ps = PhysicalConstants.atomic_units_to_ps(self.sim.operations.integrator.dt)
-            steps_per_ps = 1.0 / dt_ps
-            
-            # For adaptive timestep, assume dt can be up to 50x larger than initial
-            # So divide trigger_steps by 50 to ensure we're called frequently enough
-            # This ensures we get called at least as often as requested
-            nominal_trigger_steps = max(1, int(self.lqr_update_interval_ps * steps_per_ps))
-            adaptive_safety_factor = 50  # Compensate for adaptive timestep growth (conservative)
-            trigger_steps = max(1, nominal_trigger_steps // adaptive_safety_factor)
-            
-            lqr_updater = hoomd.update.CustomUpdater(
-                action=self.lqr_controller,
-                trigger=hoomd.trigger.Periodic(trigger_steps)
-            )
-            self.sim.operations.updaters.append(lqr_updater)
-            
-            self.log_info(f"  Trigger: every {trigger_steps} steps (~{trigger_steps * dt_ps:.4f} ps at current dt)")
-            self.log_info(f"  (Adaptive timestep safety factor: {adaptive_safety_factor}x)")
-            
-            # Log controller type
-            if controller_type == 'adaptive_lqi':
-                self.log_info(f"✓ Adaptive LQI temperature controller enabled (mode-based two-output regulation)")
-            else:
-                self.log_info(f"✓ LQR optimal temperature controller enabled (standard)")
-            
-            self.log_info(f"  Controller type: {controller_type}")
-            self.log_info(f"  Signal method: {self.lqr_signal_method}")
-            self.log_info(f"  Hot method: {self.lqr_hot_method}")
-            self.log_info(f"  Target temperature: {self.lqr_target_temperature:.1f} K (dynamic={self.lqr_dynamic_target})")
-            if controller_type == 'standard':
-                self.log_info(f"  System ID mode: {self.lqr_system_id_mode}")
-            if self.lqr_system_id_mode == 'step':
-                self.log_info(f"  System ID: quench to {self.lqr_system_id_temp_K:.1f} K for {self.lqr_system_id_duration_ps:.1f} ps")
-            if self.lqr_track_kinetic_temp:
-                self.log_info(f"  LQR weights: signal={self.lqr_weight_signal:.1f}, hot={self.lqr_weight_hot:.1f}, kinetic={self.lqr_weight_kinetic:.1f}, integral={self.lqr_weight_integral:.1f}")
-                self.log_info(f"  3D State Augmentation: ENABLED (tracking kinetic temperature)")
-            else:
-                self.log_info(f"  LQR weights: signal={self.lqr_weight_signal:.1f}, hot={self.lqr_weight_hot:.1f}, integral={self.lqr_weight_integral:.1f}")
-            self.log_info(f"  Turn on time: {self.lqr_turn_on_time_ps:.1f} ps")
-            self.log_info(f"  Update interval: {self.lqr_update_interval_ps:.3f} ps")
-            self.log_info(f"  Apply to: {self.lqr_apply_to}")
-            if self.lqr_turn_off_time_ps is not None:
-                self.log_info(f"  Turn off time: {self.lqr_turn_off_time_ps:.1f} ps")
-            
-        except Exception as e:
-            import traceback
-            self.log_error(f"Failed to setup LQR controller: {e}")
-            self.log_error(f"Full traceback: {traceback.format_exc()}")
-            self.lqr_controller = None
-    
     def _setup_temperature_tracker(self):
         """Set up comprehensive temperature tracker."""
         try:
@@ -3477,7 +4091,9 @@ class CavityMDSimulation:
                 molecular_thermostat=getattr(self, 'molecular_thermostat_obj', None),
                 cavity_thermostat=getattr(self, 'cavity_thermostat_obj', None),
                 empirical_data_file=self.temp_tracker_empirical_data_file,
-                debug=False  # Suppress debug output by default
+                debug=False,  # Suppress debug output by default
+                enable_csv_output=False,  # Use HDF5 output via ObservableWriter
+                track_molecular=getattr(self, 'enable_molecular_temps', False)  # Enable molecular tracking if requested
             )
             
             # Add to simulation
@@ -3515,40 +4131,14 @@ class CavityMDSimulation:
             self.temperature_tracker = None
     
     def _setup_molecular_temperature_tracker(self):
-        """Set up molecular temperature decomposition tracker."""
-        try:
-            from .molecular_temperatures import DiatomicMolecularTemperatures
-            
-            # Create output file path
-            output_file = f"molecular_temperatures.csv"
-            
-            # Create molecular temperature tracker
-            self.molecular_temp_tracker = DiatomicMolecularTemperatures(
-                simulation=self.sim,  # Pass HOOMD sim object
-                time_tracker=self.time_tracker,
-                output_period_ps=self.molecular_temps_output_period_ps,
-                debug=False  # Suppress debug output by default
-            )
-            
-            # Add to simulation
-            # Use time-based trigger that works for both adaptive and fixed timestep
-            mol_temp_trigger_steps = max(1, int(self.molecular_temps_output_period_ps * 1000))
-            mol_temp_writer = hoomd.write.CustomWriter(
-                action=self.molecular_temp_tracker,
-                trigger=hoomd.trigger.Periodic(mol_temp_trigger_steps)
-            )
-            self.sim.operations.writers.append(mol_temp_writer)
-            
-            self.log_info(" Molecular temperature decomposition enabled")
-            self.log_info(f"  Output file: {output_file}")
-            self.log_info(f"  Output period: {self.molecular_temps_output_period_ps:.1f} ps")
-            self.log_info(f"  Tracking: T_trans, T_rot, T_vib for O-O and N-N dimers")
-            
-        except Exception as e:
-            import traceback
-            self.log_error(f"Failed to setup molecular temperature tracker: {e}")
-            self.log_error(f"Full traceback: {traceback.format_exc()}")
-            self.molecular_temp_tracker = None
+        """
+        DEPRECATED: Set up molecular temperature decomposition tracker.
+        
+        This method is deprecated. Molecular temperatures are now tracked by
+        TemperatureTracker with track_molecular=True parameter.
+        """
+        self.log_warning("_setup_molecular_temperature_tracker is deprecated. Use TemperatureTracker with track_molecular=True instead.")
+        return
     
     def _update_composite_adaptive_components(self):
         """Update composite variant to use adaptive square wave if requested and temperature tracker is available."""
@@ -3626,7 +4216,9 @@ class CavityMDSimulation:
                 correlation_output_interval_ps=self.dipole_fdr_output_period_ps,
                 exclude_cavity=self.dipole_fdr_exclude_cavity,
                 field_direction=self.dipole_fdr_field_direction,
-                enable_response_measurement=self.enable_dipole_response
+                enable_response_measurement=self.enable_dipole_response,
+                output_period_ps=self.dipole_fdr_output_period_ps,
+                enable_csv_output=False  # Use HDF5 output via ObservableWriter
             )
             
             # Add to simulation
@@ -3723,7 +4315,7 @@ class CavityMDSimulation:
         class ConsoleOutputTracker(hoomd.custom.Action):
             """Time-based console output tracker for accurate timing in both adaptive and fixed timestep modes."""
             
-            def __init__(self, sim, time_tracker, performance_tracker, timestep_formatter, adaptive_action, output_period_ps, coupling_constant, incavity, cavity_force):
+            def __init__(self, sim, time_tracker, performance_tracker, timestep_formatter, adaptive_action, output_period_ps, coupling_constant, incavity, cavity_force, omegac):
                 super().__init__()
                 self.sim = sim
                 self.time_tracker = time_tracker
@@ -3734,26 +4326,34 @@ class CavityMDSimulation:
                 self.coupling_constant = coupling_constant  # Target coupling (fallback)
                 self.incavity = incavity
                 self.cavity_force = cavity_force  # Reference to cavity force for current coupling
+                self.omegac = omegac  # Cavity frequency for epsilon -> lambda conversion
                 self.last_output_time = 0.0
                 self.header_printed = False
                 
             def _get_current_coupling(self):
-                """Get the current coupling value from the cavity force."""
+                """Get the current coupling value (lambda, dimensionless) from the cavity force."""
                 if not self.incavity or self.cavity_force is None:
                     return 0.0
                 
                 try:
-                    # Check if the couplstr is a variant (time-varying) or constant
-                    couplstr_param = self.cavity_force.couplstr
-                    if hasattr(couplstr_param, 'current_value'):
+                    # Get lambda value from the variant (dimensionless)
+                    lambda_param = self.cavity_force.lambda_coupling_variant
+                    lambda_value = None
+                    
+                    if hasattr(lambda_param, 'current_value'):
                         # Time-varying coupling - get current value from variant
-                        return couplstr_param.current_value
-                    elif hasattr(couplstr_param, '__call__'):
+                        lambda_value = lambda_param.current_value
+                    elif hasattr(lambda_param, '__call__'):
                         # It's a variant but may not have current_value - call it with current timestep
-                        return float(couplstr_param(self.sim.timestep))
+                        lambda_value = float(lambda_param(self.sim.timestep))
                     else:
                         # Constant coupling
-                        return float(couplstr_param)
+                        lambda_value = float(lambda_param)
+                    
+                    # Return lambda directly (dimensionless)
+                    # Note: Variants now return lambda directly, NOT epsilon
+                    return lambda_value if lambda_value is not None else 0.0
+                    
                 except Exception:
                     # Fallback to target coupling if we can't get current value
                     return self.coupling_constant
@@ -3791,7 +4391,7 @@ class CavityMDSimulation:
                         # "Timestep.dt_fs"  # Temporarily disabled for testing
                     ]
                     if self.incavity:
-                        header_parts.append("Cavity.coupling_au")
+                        header_parts.append("Cavity.lambda")
                     if self.adaptive_action is not None:
                         header_parts.append("Adaptive.error_tolerance")
                     print(" ".join(f"{h:>15s}" for h in header_parts), flush=True)
@@ -3836,9 +4436,10 @@ class CavityMDSimulation:
             timestep_formatter=self.timestep_formatter,
             adaptive_action=getattr(self, 'adaptive_action', None),
             output_period_ps=self.console_output_period_ps,
-            coupling_constant=self.couplstr,
+            coupling_constant=self.lambda_coupling if self.lambda_coupling is not None else self.couplstr,
             incavity=self.incavity,
-            cavity_force=self.cavity_force
+            cavity_force=self.cavity_force,
+            omegac=self.omegac if hasattr(self, 'omegac') else 1.0
         )
         
         # Add console tracker to simulation (check every step but handle timing internally)
@@ -3851,7 +4452,10 @@ class CavityMDSimulation:
         self.log_info(" Console output setup completed:")
         self.log_info(f"  Output period: {self.console_output_period_ps:.3f} ps (accurate time-based)")
         if self.incavity:
-            self.log_info(f"  Coupling constant column: {self.couplstr:.6e} a.u. (displayed in real-time)")
+            if hasattr(self, 'lambda_coupling') and self.lambda_coupling is not None:
+                self.log_info(f"  Lambda coupling column: {self.lambda_coupling:.6e} (dimensionless) (displayed in real-time)")
+            elif self.couplstr is not None:
+                self.log_info(f"  Coupling constant column: {self.couplstr:.6e} a.u. (displayed in real-time)")
         self.log_info("  Console tracker handles timing internally using ElapsedTimeTracker")
         self.log_info("  Works accurately for both adaptive and fixed timestep modes")
         
@@ -3963,7 +4567,11 @@ class CavityMDSimulation:
         omegac = self.freq / PhysicalConstants.HARTREE_TO_CM_MINUS1
         
         # Determine coupling strength for initial placement
-        initial_couplstr = 0.0 if self.switch_time_ps is not None else self.couplstr
+        # Use the appropriate parameter depending on whether deprecated couplstr or new lambda_coupling was used
+        if self.use_deprecated_couplstr:
+            initial_lambda = 0.0 if self.switch_time_ps is not None else self.couplstr
+        else:
+            initial_lambda = 0.0 if self.switch_time_ps is not None else self.lambda_coupling
 
         if self.finite_q:
             # Allow finite-q photon displacement based on dipole-coupling interaction
@@ -3975,10 +4583,11 @@ class CavityMDSimulation:
                 self.log_info(f"  CavityParticleDisplacer will handle displacement at switch time")
             else:
                 # Original finite-q behavior for constant coupling
-                newpos = -dipmom * initial_couplstr / omegac**2
+                # Formula: q_eq = -(lambda / omegac) * dipole, where lambda is dimensionless
+                newpos = -dipmom * initial_lambda / omegac
                 newpos[-1] = 0.0
                 # Only add thermal fluctuations if coupling is non-zero
-                if initial_couplstr != 0.0:
+                if initial_lambda != 0.0:
                     sigma = np.sqrt(self.kB * self.temperature / omegac**2)
                     newpos = np.random.normal(loc=newpos, scale=sigma, size=3)
                     self.log_info(f"Finite-q mode: Photon displaced by dipole interaction to {newpos} (with thermal fluctuations)")
@@ -3988,7 +4597,7 @@ class CavityMDSimulation:
             # Start photon at origin (q=0 limit)
             newpos = np.array([0.0, 0.0, 0.0])
             # Only add thermal fluctuations if coupling is non-zero
-            if initial_couplstr != 0.0:
+            if initial_lambda != 0.0:
                 sigma = np.sqrt(self.kB * self.temperature / omegac**2)
                 newpos = np.random.normal(loc=newpos, scale=sigma, size=3)
                 self.log_info("q=0 mode: Photon positioned at origin + thermal fluctuations")
@@ -4127,6 +4736,14 @@ class CavityMDSimulation:
             if getattr(self, 'enable_offset_controller', False):
                 self._setup_offset_controller()
             
+            # Set up PID controller now that temperature tracker exists
+            if getattr(self, 'enable_pid_controller', False):
+                self.log_info(f"DEBUG: Attempting to set up PID controller (enable_pid_controller={getattr(self, 'enable_pid_controller', False)})")
+                self._setup_pid_controller()
+                self.log_info("DEBUG: PID controller setup completed")
+            else:
+                self.log_info(f"DEBUG: PID controller NOT enabled (enable_pid_controller={getattr(self, 'enable_pid_controller', False)})")
+            
             # Phase 5: Setup output writers
             self.log_info("=== Phase 5: Setting up output writers ===")
             self.setup_output_writers()
@@ -4194,6 +4811,14 @@ class CavityMDSimulation:
     def cleanup(self):
         """Handle post-simulation cleanup and restore original directory."""
         self.log_info("Cleanup initiated...")
+        
+        # Close HDF5 writer if it exists
+        if hasattr(self, 'hdf5_writer') and self.hdf5_writer is not None:
+            try:
+                self.log_info("Closing HDF5 observable writer...")
+                self.hdf5_writer.close()
+            except Exception as e:
+                self.log_error(f"Error closing HDF5 writer: {e}")
         
         # Finalize F(k,t) logarithmic output if enabled
         print("DEBUG: Cleanup called - checking for fkt_tracker")

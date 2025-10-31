@@ -108,29 +108,40 @@ class AdaptiveTimestepUpdater(hoomd.custom.Action):
         print(f"  Min update interval: {self.min_update_interval} steps", flush=True)
         print(f"  Switch detection tolerance: {self.switch_detection_tolerance} ps", flush=True)
     
-    def _get_current_coupling_strength(self):
-        """Get the current coupling strength from cavity force."""
+    def _get_current_coupling_strength(self, timestep):
+        """
+        Get the current coupling strength from cavity force.
+        
+        Returns epsilon (in atomic units), not lambda.
+        Note: The stored variant is typically a LambdaScaledVariant that already
+        returns epsilon = lambda * omegac, so we don't need to multiply by omegac here.
+        """
         try:
             # Look for cavity force in the integrator's forces
             for force in self.integrator.forces:
-                if hasattr(force, 'couplstr_variant'):
+                if hasattr(force, 'lambda_coupling_variant'):
                     # This is the cavity force - get the variant
-                    coupling_variant = force.couplstr_variant
+                    coupling_variant = force.lambda_coupling_variant
+                    
                     if hasattr(coupling_variant, '__call__'):
                         # It's a variant - call it with current timestep
-                        # Access timestep through the integrator's simulation
-                        if hasattr(self.integrator, 'simulation'):
-                            current_timestep = self.integrator.simulation.timestep
-                        else:
-                            # Fallback - use a reasonable default
-                            current_timestep = 0
-                        return coupling_variant(current_timestep)
+                        # The variant already returns epsilon (lambda * omegac) if it's a LambdaScaledVariant
+                        epsilon = coupling_variant(timestep)
+                        return epsilon
                     else:
                         # It's a constant value
-                        return float(coupling_variant.value) if hasattr(coupling_variant, 'value') else float(coupling_variant)
+                        epsilon = float(coupling_variant.value) if hasattr(coupling_variant, 'value') else float(coupling_variant)
+                        return epsilon
+            
+            # Debug: print what forces we found
+            force_types = [type(f).__name__ for f in self.integrator.forces]
+            print(f"DEBUG: No cavity force found. Available forces: {force_types}", flush=True)
             return None
         except Exception as e:
             # If we can't get coupling strength, return None
+            print(f"WARNING: Could not get coupling strength: {e}", flush=True)
+            import traceback
+            traceback.print_exc()
             return None
 
         # DEBUG: Show key variables for shock dampening
@@ -170,15 +181,23 @@ class AdaptiveTimestepUpdater(hoomd.custom.Action):
         # Dynamic coupling change detection
         if self.dynamic_coupling_detection:
             # Get current coupling value from cavity force
-            current_coupling = self._get_current_coupling_strength()
+            current_coupling = self._get_current_coupling_strength(timestep)
+            
+            # DEBUG: Print every 10000 steps
+            if timestep % 10000 == 0:
+                print(f"DEBUG @ t={timestep}: current_coupling={current_coupling}, last={self.last_coupling_value}", flush=True)
             
             if self.first_coupling_check:
                 # First time - just store the value without triggering shock
                 self.last_coupling_value = current_coupling
                 self.first_coupling_check = False
+                print(f"DEBUG: First coupling check - stored value: {current_coupling}", flush=True)
             elif self.last_coupling_value is not None and current_coupling is not None:
                 coupling_change = abs(current_coupling - self.last_coupling_value)
                 
+                # DEBUG: Print when coupling changes
+                if coupling_change > 1e-10:
+                    print(f"DEBUG @ t={timestep}: Coupling changed by {coupling_change:.6e} (threshold: {self.coupling_change_threshold:.6e})", flush=True)
                 
                 if coupling_change >= self.coupling_change_threshold:
                     # Large coupling change detected!
@@ -187,7 +206,7 @@ class AdaptiveTimestepUpdater(hoomd.custom.Action):
                     self.coupling_shock_detected_time = current_elapsed_time_ps
                     self.coupling_recovery_active = True
                     
-                    print(f"COUPLING SHOCK DETECTED at timestep {timestep}: t = {current_elapsed_time_ps:.6f} ps", flush=True)
+                    print(f"⚡ COUPLING SHOCK DETECTED at timestep {timestep}: t = {current_elapsed_time_ps:.6f} ps", flush=True)
                     print(f"  Coupling change: {self.last_coupling_value:.6e} → {current_coupling:.6e} a.u. (Δ = {coupling_change:.6e})", flush=True)
                     print(f"  Triggering shock dampening (threshold: ±{self.coupling_change_threshold:.2e} a.u.)", flush=True)
                 

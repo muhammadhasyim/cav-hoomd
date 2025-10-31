@@ -175,14 +175,15 @@ class ParticleSetup:
         omegac = constants['omegac_au']
         
         # Determine coupling strength for initial placement
-        initial_couplstr = 0.0 if params.switch_time_ps is not None else params.coupling_strength
+        # Note: params.coupling_strength is lambda (dimensionless)
+        initial_lambda = 0.0 if params.switch_time_ps is not None else params.coupling_strength
         
-        # Calculate photon mass and spring constant
+        # Calculate photon mass
         phmass = 1.0  # Photon mass in atomic units
-        K = phmass * omegac * omegac
         
-        # Calculate new equilibrium position
-        q_eq = -(initial_couplstr / K) * dipmom
+        # Calculate new equilibrium position using lambda
+        # Formula: q_eq = -(lambda / omegac) * dipole
+        q_eq = -(initial_lambda / omegac) * dipmom
         
         # Add some randomness to avoid exact zero position
         if np.allclose(q_eq, 0.0):
@@ -334,7 +335,7 @@ class ForceSetup:
             # Create cavity force with variants
             cavityforce = CavityForce(
                 kvector=np.array([0, 0, 1]),
-                couplstr=coupling_variant,
+                lambda_coupling=coupling_variant,
                 omegac=omegac,
                 dissipation=dissipation_variant
             )
@@ -346,7 +347,7 @@ class ForceSetup:
             
             cavityforce = CavityForce(
                 kvector=np.array([0, 0, 1]),
-                couplstr=params.coupling_strength,
+                lambda_coupling=params.coupling_strength,
                 omegac=omegac,
                 dissipation=params.dissipation
             )

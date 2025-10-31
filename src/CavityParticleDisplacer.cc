@@ -12,11 +12,11 @@ namespace cavitymd
 
 CavityParticleDisplacer::CavityParticleDisplacer(std::shared_ptr<SystemDefinition> sysdef,
                                              std::shared_ptr<Trigger> trigger,
-                                             std::shared_ptr<Variant> couplstr,
+                                             std::shared_ptr<Variant> lambda_coupling,
                                              Scalar omegac,
                                              Scalar phmass)
     : Updater(sysdef, trigger),
-      m_couplstr(couplstr),
+      m_lambda_coupling(lambda_coupling),
       m_omegac(omegac),
       m_phmass(phmass),
       m_has_run(false),
@@ -88,8 +88,8 @@ void CavityParticleDisplacer::update(uint64_t timestep)
     {
     m_exec_conf->msg->notice(1) << "CavityParticleDisplacer::update running at timestep " << timestep << std::endl;
 
-    // Get current coupling strength
-    Scalar g_current = (*m_couplstr)(timestep);
+    // Get current dimensionless coupling parameter (lambda)
+    Scalar lambda_current = (*m_lambda_coupling)(timestep);
     
     // Enhanced logic for all variant types:
     // - For step variants: trigger once on 0 -> non-zero transition
@@ -98,23 +98,23 @@ void CavityParticleDisplacer::update(uint64_t timestep)
     
     bool should_displace = false;
     
-    if (g_current == 0.0) {
+    if (lambda_current == 0.0) {
         // Coupling is currently zero - update state but don't displace
         m_last_coupling = 0.0;
         return;
     }
     
-    if (g_current > 0.0) {
+    if (lambda_current > 0.0) {
         // Coupling is non-zero - check if we need to displace
         if (m_last_coupling == 0.0) {
             // Transition from 0 to non-zero - trigger displacement
             should_displace = true;
-            m_exec_conf->msg->notice(1) << "Coupling transitioned 0 -> " << g_current << "! Triggering finite-q displacement..." << std::endl;
+            m_exec_conf->msg->notice(1) << "Lambda coupling transitioned 0 -> " << lambda_current << "! Triggering finite-q displacement..." << std::endl;
         } else {
             // Coupling was already non-zero - check if we're in step mode  
             if (m_has_run) {
                 // Step variant - already displaced once, don't displace again
-                m_last_coupling = g_current;
+                m_last_coupling = lambda_current;
                 return;
             } else {
                 // Continuous variant (shouldn't happen in practice) - could displace
@@ -124,14 +124,14 @@ void CavityParticleDisplacer::update(uint64_t timestep)
     }
     
     if (!should_displace) {
-        m_last_coupling = g_current;
+        m_last_coupling = lambda_current;
         return;
     }
     
     // Perform the displacement!
     
-    m_exec_conf->msg->notice(1) << "Coupling has switched ON! Performing finite-q displacement..." << std::endl;
-    m_exec_conf->msg->notice(1) << "  Current coupling g: " << g_current << std::endl;
+    m_exec_conf->msg->notice(1) << "Lambda coupling has switched ON! Performing finite-q displacement..." << std::endl;
+    m_exec_conf->msg->notice(1) << "  Current lambda (dimensionless): " << lambda_current << std::endl;
 
     // Get particle data
     ArrayHandle<Scalar4> h_pos(m_pdata->getPositions(), access_location::host, access_mode::readwrite);
@@ -163,14 +163,15 @@ void CavityParticleDisplacer::update(uint64_t timestep)
     vec3<Scalar> dipole_xy(dipole.x, dipole.y, 0);
 
     // Calculate new equilibrium position using current coupling
-    vec3<Scalar> q_eq = - (g_current / m_K) * dipole_xy;
+    // Note: q_eq = -(lambda / omegac) * dipole, where lambda is dimensionless
+    vec3<Scalar> q_eq = - (lambda_current / m_omegac) * dipole_xy;
 
     // Get current cavity position for comparison
     vec3<Scalar> q_photon_old = unwrapped_pos[photon_idx];
 
     m_exec_conf->msg->notice(1) << "CavityParticleDisplacer displacement details:" << std::endl;
     m_exec_conf->msg->notice(1) << "  Timestep: " << timestep << std::endl;
-    m_exec_conf->msg->notice(1) << "  Coupling g: " << g_current << std::endl;
+    m_exec_conf->msg->notice(1) << "  Lambda (dimensionless): " << lambda_current << std::endl;
     m_exec_conf->msg->notice(1) << "  Dipole moment (xy): " << dipole_xy.x << ", " << dipole_xy.y << std::endl;
     m_exec_conf->msg->notice(1) << "  Old cavity position: " << q_photon_old.x << ", " << q_photon_old.y << ", " << q_photon_old.z << std::endl;
     m_exec_conf->msg->notice(1) << "  New equilibrium position (xy only): " << q_eq.x << ", " << q_eq.y << ", " << q_eq.z << std::endl;
@@ -236,7 +237,7 @@ void CavityParticleDisplacer::update(uint64_t timestep)
     m_exec_conf->msg->notice(1) << "All cached data invalidated to ensure energy consistency" << std::endl;
     
     // Update state tracking
-    m_last_coupling = g_current;
+    m_last_coupling = lambda_current;
     
     // Mark as completed so step variants don't run again  
     // (periodic variants will still trigger on future 0->non-zero transitions)
@@ -252,7 +253,7 @@ void export_CavityParticleDisplacer(pybind11::module& m)
         .def(pybind11::init<std::shared_ptr<SystemDefinition>, std::shared_ptr<Trigger>, std::shared_ptr<Variant>, Scalar, Scalar>(),
              pybind11::arg("sysdef"),
              pybind11::arg("trigger"),
-             pybind11::arg("couplstr"),
+             pybind11::arg("lambda_coupling"),
              pybind11::arg("omegac"),
              pybind11::arg("phmass") = 1.0);
     }

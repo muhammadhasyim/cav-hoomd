@@ -6,9 +6,6 @@
 from .timing import Status, TimestepFormatter, ElapsedTimeTracker
 from .trackers import EnergyTracker, PerformanceTracker, TemperatureTracker
 from .autocorr import FieldAutocorrelationTracker, AutocorrelationTracker
-from .empirical import EmpiricalTemperatureData
-from .feedback import EmpiricalTemperatureFeedback, GradientDescentTemperatureFeedback
-from .dual_feedback import DualIndependentTemperatureFeedback
 from .fdr import DipoleMomentFDRTracker
 
 __all__ = [
@@ -25,12 +22,6 @@ __all__ = [
     # Autocorrelation
     'FieldAutocorrelationTracker',
     'AutocorrelationTracker',
-    
-    # Temperature feedback
-    'EmpiricalTemperatureData',
-    'EmpiricalTemperatureFeedback',
-    'GradientDescentTemperatureFeedback',
-    'DualIndependentTemperatureFeedback',
     
     # FDR
     'DipoleMomentFDRTracker',

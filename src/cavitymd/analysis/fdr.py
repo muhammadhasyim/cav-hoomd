@@ -132,7 +132,8 @@ class DipoleMomentFDRTracker(hoomd.custom.Action):
                  exclude_cavity: bool = True,
                  field_direction: Union[List[float], np.ndarray] = [0, 0, 1],
                  enable_response_measurement: bool = False,
-                 output_period_ps: float = 0.1):
+                 output_period_ps: float = 0.1,
+                 enable_csv_output: bool = False):
         
         super().__init__()
         
@@ -143,6 +144,7 @@ class DipoleMomentFDRTracker(hoomd.custom.Action):
         self.exclude_cavity = bool(exclude_cavity)
         self.enable_response_measurement = bool(enable_response_measurement)
         self.output_period_ps = float(output_period_ps)
+        self.enable_csv_output = enable_csv_output
         # Normalize field direction
         self.field_direction = np.array(field_direction, dtype=np.float64)
         field_magnitude = np.linalg.norm(self.field_direction)
@@ -168,11 +170,17 @@ class DipoleMomentFDRTracker(hoomd.custom.Action):
             'times': []         # Time stamps for response data
         }
         self.output_period_ps = float(output_period_ps)
-        # Initialize output file
-        self._initialize_output_file()
+        # Initialize output file (only if CSV enabled)
+        if self.enable_csv_output:
+            self._initialize_output_file()
+        else:
+            self.output_file = None
         
         print(f"DipoleMomentFDRTracker initialized:")
-        print(f"   Output file: {self.output_file}")
+        if self.output_file:
+            print(f"   Output file: {self.output_file}")
+        else:
+            print(f"   CSV output: DISABLED (HDF5 only)")
         print(f"   Max correlation time: {self.max_correlation_time_ps:.1f} ps")
         print(f"   Field direction: {self.field_direction}")
         print(f"   Exclude cavity: {self.exclude_cavity}")
@@ -460,19 +468,20 @@ class DipoleMomentFDRTracker(hoomd.custom.Action):
             self.dipole_history.pop(0)
             self.time_history.pop(0)
         
-        # Log to file
-        try:
-            dipole_magnitude = np.linalg.norm(dipole_moment)
-            with open(self.output_file, 'a', encoding='utf-8') as f:
-                f.write(f"{current_time_ps:.6f},{dipole_moment[0]:.6e},"
-                       f"{dipole_moment[1]:.6e},{dipole_moment[2]:.6e},{dipole_magnitude:.6e}\n")
-        except Exception as e:
-            print(f"Warning: Failed to write dipole moment data: {e}")
+        # Log to file (only if CSV output enabled)
+        if self.enable_csv_output:
+            try:
+                dipole_magnitude = np.linalg.norm(dipole_moment)
+                with open(self.output_file, 'a', encoding='utf-8') as f:
+                    f.write(f"{current_time_ps:.6f},{dipole_moment[0]:.6e},"
+                           f"{dipole_moment[1]:.6e},{dipole_moment[2]:.6e},{dipole_magnitude:.6e}\n")
+            except Exception as e:
+                print(f"Warning: Failed to write dipole moment data: {e}")
         
         # Periodically compute and save autocorrelation (every ~10 ps)
         if len(self.time_history) > 100 and current_time_ps % 10.0 < self.correlation_output_interval_ps:
             self.correlation_times, self.autocorrelation = self._compute_autocorrelation()
-            if len(self.autocorrelation) > 0:
+            if len(self.autocorrelation) > 0 and self.enable_csv_output:
                 self._save_autocorrelation_data(self.correlation_times, self.autocorrelation)
         self.last_update_time = current_time_ps
 

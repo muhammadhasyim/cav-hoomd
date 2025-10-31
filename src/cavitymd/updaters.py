@@ -22,16 +22,16 @@ class CavityParticleDisplacer(Updater):
 
     Args:
         trigger (hoomd.trigger.Trigger): The trigger to activate this updater.
-        couplstr (hoomd.variant.Variant): The coupling strength variant.
+        lambda_coupling (hoomd.variant.Variant): The dimensionless coupling parameter (lambda) variant.
         omegac (float): The cavity frequency.
         phmass (float): The photon mass.
     """
 
-    def __init__(self, trigger, couplstr, omegac, phmass=1.0):
+    def __init__(self, trigger, lambda_coupling, omegac, phmass=1.0):
         super().__init__(trigger)
         
         # Store parameters for later use when attached to simulation
-        self._couplstr = couplstr
+        self._lambda_coupling = lambda_coupling
         self._omegac = omegac
         self._phmass = phmass
         self._cpp_obj = None
@@ -46,7 +46,7 @@ class CavityParticleDisplacer(Updater):
             self._cpp_obj = _cavitymd.CavityParticleDisplacer(
                 self._simulation.state._cpp_sys_def,
                 self.trigger,
-                self._couplstr,
+                self._lambda_coupling,
                 self._omegac,
                 self._phmass
             )

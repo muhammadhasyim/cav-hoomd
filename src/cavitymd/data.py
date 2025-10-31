@@ -159,9 +159,10 @@ class ObservableWriter(hoomd.custom.Action):
         self.molecular_temperature_tracker = None
         self.dipole_tracker = None
         self.density_tracker = None
+        self.controllers = {}  # name -> controller object
         
         # State
-        self.last_output_time = 0.0
+        self.last_output_time = None  # Use None to mark first output
         self.write_count = 0
         self.current_index = 0
         self.lock = threading.Lock()
@@ -197,6 +198,8 @@ class ObservableWriter(hoomd.custom.Action):
         # Create hierarchical group structure
         self.file.create_group('energies')
         self.file.create_group('temperatures')
+        self.file['temperatures'].create_group('molecular')  # For molecular temperature decomposition
+        self.file.create_group('controllers')
         self.file.create_group('order_parameters')
         self.file['order_parameters'].create_group('dipole')
         self.file['order_parameters'].create_group('density')
@@ -324,6 +327,26 @@ class ObservableWriter(hoomd.custom.Action):
             self._create_resizable_dataset('/temperatures', name, description=desc, units=units)
         
         print(f"✓ Temperature tracker registered ({len(temp_components)} components)")
+        
+        # If molecular tracking is enabled, create molecular temperature datasets
+        if hasattr(temperature_tracker, 'track_molecular') and temperature_tracker.track_molecular:
+            molecular_components = [
+                ('translational', 'Translational temperature', 'K'),
+                ('rotational', 'Rotational temperature', 'K'),
+                ('vibrational', 'Vibrational temperature', 'K'),
+                ('total_kinetic', 'Total kinetic temperature', 'K'),
+                ('translational_O2', 'O2 translational temperature', 'K'),
+                ('translational_N2', 'N2 translational temperature', 'K'),
+                ('rotational_O2', 'O2 rotational temperature', 'K'),
+                ('rotational_N2', 'N2 rotational temperature', 'K'),
+                ('vibrational_O2', 'O2 vibrational temperature', 'K'),
+                ('vibrational_N2', 'N2 vibrational temperature', 'K'),
+            ]
+            
+            for name, desc, units in molecular_components:
+                self._create_resizable_dataset('/temperatures/molecular', name, description=desc, units=units)
+            
+            print(f"✓ Molecular temperature tracking enabled ({len(molecular_components)} components)")
     
     def add_molecular_temperature_tracker(self, molecular_temp_tracker):
         """
@@ -421,6 +444,20 @@ class ObservableWriter(hoomd.custom.Action):
         
         print(f"✓ Density tracker registered ({num_wavevectors} wavevectors)")
     
+    def add_controller(self, name: str, controller):
+        """
+        Register a controller for HDF5 output.
+        
+        Parameters
+        ----------
+        name : str
+            Controller name (e.g., 'diffeq', 'simple_setpoint')
+        controller : object
+            Controller instance with control_history attribute
+        """
+        self.controllers[name] = controller
+        print(f"✓ Controller '{name}' registered for HDF5 output")
+    
     def act(self, timestep):
         """
         Write all observable data to HDF5 file.
@@ -429,11 +466,21 @@ class ObservableWriter(hoomd.custom.Action):
         """
         current_time_ps = self.time_tracker.elapsed_time
         
+        # DEBUG: Log first few calls
+        if self.write_count < 3 or timestep % 100000 == 0:
+            print(f"[HDF5 Writer DEBUG] timestep={timestep}, current_time_ps={current_time_ps:.3f}, last_output_time={self.last_output_time}, write_count={self.write_count}")
+        
         # Check if it's time to output
         if not self._should_output(current_time_ps):
+            if self.write_count < 3:
+                print(f"[HDF5 Writer DEBUG] Skipping output: not time yet (current={current_time_ps:.3f}, last={self.last_output_time}, period={self.output_period_ps})")
             return
         
         with self.lock:
+            # DEBUG: Confirm we're writing
+            if self.write_count < 3:
+                print(f"[HDF5 Writer DEBUG] Writing data point {self.current_index} at time {current_time_ps:.3f} ps")
+            
             # Resize all datasets
             new_size = self.current_index + 1
             for ds_path, ds in self.datasets.items():
@@ -466,6 +513,10 @@ class ObservableWriter(hoomd.custom.Action):
             # Write density data
             if self.density_tracker is not None:
                 self._write_density_data(self.current_index)
+            
+            # Write controller data
+            for controller_name, controller in self.controllers.items():
+                self._write_controller_data(self.current_index, controller_name, controller)
             
             # Increment index and write count
             self.current_index += 1
@@ -528,6 +579,27 @@ class ObservableWriter(hoomd.custom.Action):
         for ds_path, value in temp_map.items():
             if ds_path in self.datasets:
                 self.datasets[ds_path][index] = value
+        
+        # Write molecular temperatures if tracking is enabled
+        if hasattr(tt, 'track_molecular') and tt.track_molecular:
+            mol_temps = tt._calculate_molecular_temperatures()
+            
+            molecular_map = {
+                '/temperatures/molecular/translational': mol_temps.get('T_trans', 0.0),
+                '/temperatures/molecular/rotational': mol_temps.get('T_rot', 0.0),
+                '/temperatures/molecular/vibrational': mol_temps.get('T_vib', 0.0),
+                '/temperatures/molecular/total_kinetic': mol_temps.get('T_kinetic_total', 0.0),
+                '/temperatures/molecular/translational_O2': mol_temps.get('T_trans_O2', 0.0),
+                '/temperatures/molecular/translational_N2': mol_temps.get('T_trans_N2', 0.0),
+                '/temperatures/molecular/rotational_O2': mol_temps.get('T_rot_O2', 0.0),
+                '/temperatures/molecular/rotational_N2': mol_temps.get('T_rot_N2', 0.0),
+                '/temperatures/molecular/vibrational_O2': mol_temps.get('T_vib_O2', 0.0),
+                '/temperatures/molecular/vibrational_N2': mol_temps.get('T_vib_N2', 0.0),
+            }
+            
+            for ds_path, value in molecular_map.items():
+                if ds_path in self.datasets:
+                    self.datasets[ds_path][index] = value
     
     def _write_molecular_temperature_data(self, index: int):
         """Write molecular temperature components at given index."""
@@ -572,10 +644,42 @@ class ObservableWriter(hoomd.custom.Action):
             self.datasets['/order_parameters/density/rho_k_real'][index, :] = np.real(rho_k)
             self.datasets['/order_parameters/density/rho_k_imag'][index, :] = np.imag(rho_k)
     
+    def _write_controller_data(self, index: int, controller_name: str, controller):
+        """Write controller data at given index."""
+        if not hasattr(controller, 'control_history') or len(controller.control_history) == 0:
+            return  # No data to write
+        
+        # Get the latest control history entry
+        latest_entry = controller.control_history[-1]
+        
+        # Create controller subgroup if it doesn't exist
+        controller_group_path = f'/controllers/{controller_name}'
+        if controller_group_path not in self.file:
+            self.file.create_group(controller_group_path)
+        
+        # Write all fields from the history entry
+        for key, value in latest_entry.items():
+            if value is None:
+                continue  # Skip None values
+            
+            ds_path = f'{controller_group_path}/{key}'
+            if ds_path not in self.datasets:
+                # Create new dataset
+                self._create_resizable_dataset(
+                    controller_group_path, key,
+                    description=f'{controller_name} {key}',
+                    units=''
+                )
+            
+            # Write value
+            self.datasets[ds_path][index] = value
+    
     def _should_output(self, current_time_ps: float) -> bool:
         """Check if we should output data."""
-        if self.last_output_time is None or self.last_output_time == 0.0:
+        # Always output the first time
+        if self.last_output_time is None:
             return True
+        # Then check time difference
         return (current_time_ps - self.last_output_time) >= self.output_period_ps
     
     def close(self):

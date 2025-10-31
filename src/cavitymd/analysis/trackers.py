@@ -24,7 +24,7 @@ except ImportError:
     HAS_CUPY = False
 
 from ..utils import PhysicalConstants, unwrap_positions
-from .empirical import EmpiricalTemperatureData
+from ..controllers.empirical import EmpiricalTemperatureData
 from .timing import ElapsedTimeTracker
 
 class EnergyTracker(hoomd.custom.Action):
@@ -40,13 +40,14 @@ class EnergyTracker(hoomd.custom.Action):
     """
     
     def __init__(self, simulation, time_tracker, output_period_ps, output_prefix,
-                 force_objects=None, thermostat_objects=None, verbose="quiet"):
+                 force_objects=None, thermostat_objects=None, verbose="quiet", enable_csv_output=False):
         super().__init__()
         self.simulation = simulation
         self.time_tracker = time_tracker
         self.output_period_ps = output_period_ps
         self.output_prefix = output_prefix
         self.last_output_time = 0.0
+        self.enable_csv_output = enable_csv_output
         
         # CRITICAL: Store force and thermostat objects for direct energy access
         self.force_objects = force_objects or {}
@@ -58,20 +59,16 @@ class EnergyTracker(hoomd.custom.Action):
         # Initialize current energy values for logging
         self._initialize_energy_values()
 
-        # Initialize output file with comprehensive header
-        self.output_file = f"{output_prefix}_energy_comprehensive.txt"
-        self._initialize_output_file()
-        
-        # Physical constants (from old working version)
-        self._kB = 3.166811563e-6  # Boltzmann constant in Hartree/K
-        
-        if self.verbose != "quiet":
-            print(f"COMPREHENSIVE EnergyTracker initialized:", flush=True)
-            print(f"  Output file: {self.output_file}", flush=True)
-            print(f"  Force objects: {list(self.force_objects.keys())}", flush=True)
-            print(f"  Thermostat objects: {list(self.thermostat_objects.keys())}", flush=True)
-            print(f"  Output period: {self.output_period_ps:.3f} ps", flush=True)
+        # Initialize output file with comprehensive header (only if CSV output enabled)
+        if self.enable_csv_output:
+            self.output_file = self._initialize_output_file()
+        else:
+            self.output_file = None
     
+    def _initialize_output_file(self):
+        """Initialize CSV output file with headers."""
+        with open(self.output_file, 'w') as f:
+            f.write("# Comprehensive Energy Tracking\n")
     def _get_hoomd_simulation(self):
         """Get the HOOMD simulation object, handling both CavityMDSimulation and direct HOOMD objects."""
         if hasattr(self.simulation, 'sim'):
@@ -83,6 +80,9 @@ class EnergyTracker(hoomd.custom.Action):
 
     def _initialize_energy_values(self):
         """Initialize energy values for logging."""
+        # Physical constants (from old working version)
+        self._kB = 3.166811563e-6  # Boltzmann constant in Hartree/K
+        
         # Current energy components (matching old working version)
         self.current_harmonic_energy = 0.0
         self.current_lj_energy = 0.0
@@ -151,7 +151,7 @@ class EnergyTracker(hoomd.custom.Action):
             if self.verbose != "quiet":
                 print(f"EnergyTracker: Successfully created output file {self.output_file}", flush=True)
         except Exception as e:
-            print(f"EnergyTracker ERROR: Failed to create output file {self.output_file}: {e}", flush=True)
+            raise RuntimeError(f"FATAL: EnergyTracker could not create output file '{self.output_file}': {e}") from e
 
     def act(self, timestep):
         """Track comprehensive energy components at each timestep (based on old working version)."""
@@ -304,8 +304,9 @@ class EnergyTracker(hoomd.custom.Action):
                 self.current_system_total_energy + self.current_total_reservoir_energy
             )
 
-            # === 5. WRITE OUTPUT DATA ===
-            self._write_energy_data(timestep, current_time_ps)
+            # === 5. WRITE OUTPUT DATA (only if CSV output enabled) ===
+            if self.enable_csv_output:
+                self._write_energy_data(timestep, current_time_ps)
 
             if self.verbose == "verbose":
                 print(f"=== END ENERGY TRACKER DEBUG - Timestep {timestep} ===\n", flush=True)
@@ -314,6 +315,7 @@ class EnergyTracker(hoomd.custom.Action):
             print(f"EnergyTracker CRITICAL ERROR at timestep {timestep}: {e}", flush=True)
             import traceback
             traceback.print_exc()
+            raise RuntimeError(f"FATAL: EnergyTracker failed at timestep {timestep}: {e}") from e
 
     def _compute_molecular_kinetic_energy(self):
         """
@@ -453,6 +455,7 @@ class EnergyTracker(hoomd.custom.Action):
             print(f"EnergyTracker ERROR writing data at timestep {timestep}: {e}", flush=True)
             import traceback
             traceback.print_exc()
+            raise RuntimeError(f"FATAL: EnergyTracker could not write data at timestep {timestep}: {e}") from e
 
     def get_instantaneous_energy(self):
         """
@@ -735,7 +738,7 @@ except ImportError:
     HAS_CUPY = False
 
 from ..utils import PhysicalConstants, unwrap_positions
-from .empirical import EmpiricalTemperatureData
+from ..controllers.empirical import EmpiricalTemperatureData
 from .timing import ElapsedTimeTracker
 
 class PerformanceTracker(hoomd.custom.Action):
@@ -848,7 +851,9 @@ class TemperatureTracker(hoomd.custom.Action):
                  molecular_thermostat=None,
                  cavity_thermostat=None,
                  empirical_data_file=None,
-                 debug=False):
+                 debug=False,
+                 enable_csv_output=False,
+                 track_molecular: bool = False):
         
         self.simulation = simulation
         self.time_tracker = time_tracker
@@ -858,6 +863,8 @@ class TemperatureTracker(hoomd.custom.Action):
         self.molecular_thermostat = molecular_thermostat
         self.cavity_thermostat = cavity_thermostat
         self.debug = debug
+        self.enable_csv_output = enable_csv_output
+        self.track_molecular = track_molecular
         
         # Load empirical data for fictive temperature calculations if provided
         self.empirical_data_harmonic = None
@@ -879,7 +886,10 @@ class TemperatureTracker(hoomd.custom.Action):
                     create_plots=True  # Create diagnostic plots
                 )
             except Exception as e:
-                print(f"Warning: Could not load empirical data file {empirical_data_file}: {e}")
+                if empirical_data_file is not None:  # User explicitly provided the file
+                    raise RuntimeError(f"FATAL: Could not load empirical data file '{empirical_data_file}': {e}") from e
+                else:
+                    print(f"Warning: Could not load empirical data file: {e}")
                 print("Empirical fictive temperatures will not be available")
         
         # Tracking state
@@ -893,8 +903,21 @@ class TemperatureTracker(hoomd.custom.Action):
         self.molecular_bath_temperature = None
         self.harmonic_equipartition_temperature = None
         
-        # Initialize output file
-        self._initialize_output_file()
+        # Molecular temperature attributes (when track_molecular=True)
+        self.translational_temp = None
+        self.rotational_temp = None
+        self.vibrational_temp = None
+        self.total_kinetic_temp = None
+        
+        # Initialize molecular tracking if enabled
+        if self.track_molecular:
+            self._initialize_molecular_tracking()
+        
+        # Initialize output file (only if CSV output enabled)
+        if self.enable_csv_output:
+            self.output_file = self._initialize_output_file()
+        else:
+            self.output_file = None
     
     def _initialize_output_file(self):
         """Initialize CSV output file with headers."""
@@ -932,13 +955,24 @@ class TemperatureTracker(hoomd.custom.Action):
         # 6. Calculate harmonic equipartition temperature
         self.harmonic_equipartition_temperature = self._calculate_harmonic_equipartition_temperature()
         
-        # Write to CSV only when needed
-        if self._should_output(current_time_ps):
+        # 7. Calculate molecular temperatures if tracking is enabled
+        if self.track_molecular:
+            mol_temps = self._calculate_molecular_temperatures()
+            self.translational_temp = mol_temps['T_trans']
+            self.rotational_temp = mol_temps['T_rot']
+            self.vibrational_temp = mol_temps['T_vib']
+            self.total_kinetic_temp = mol_temps['T_kinetic_total']
+        
+        # Write to CSV only when enabled
+        if self.enable_csv_output and self._should_output(current_time_ps):
             with open(self.output_file, 'a') as f:
                 f.write(f"{current_time_ps:.6f},{self.kinetic_temperature:.6f},{self.harmonic_fictive_temperature:.6f},"
                        f"{self.lj_coulombic_fictive_temperature:.6f},{self.cavity_bath_temperature:.6f},{self.molecular_bath_temperature:.6f},"
                        f"{self.harmonic_equipartition_temperature:.6f}\n")
             
+            self.last_output_time = current_time_ps
+        elif not self.enable_csv_output and self._should_output(current_time_ps):
+            # Update last output time even when not writing CSV
             self.last_output_time = current_time_ps
     
     def _should_output(self, current_time_ps: float) -> bool:
@@ -984,10 +1018,10 @@ class TemperatureTracker(hoomd.custom.Action):
             return temperature_K
             
         except Exception as e:
-            print(f"Warning: Could not calculate kinetic temperature: {e}")
+            print(f"ERROR: Could not calculate kinetic temperature: {e}")
             import traceback
             traceback.print_exc()
-            return 0.0
+            raise RuntimeError(f"FATAL: Temperature calculation failed for kinetic temperature: {e}") from e
     
     def _calculate_harmonic_fictive_temperature(self) -> float:
         """Calculate harmonic fictive temperature using empirical data."""
@@ -1023,8 +1057,10 @@ class TemperatureTracker(hoomd.custom.Action):
             return temperature_K
             
         except Exception as e:
-            print(f"Warning: Could not calculate harmonic fictive temperature: {e}")
-            return 0.0
+            print(f"ERROR: Could not calculate harmonic fictive temperature: {e}")
+            import traceback
+            traceback.print_exc()
+            raise RuntimeError(f"FATAL: Temperature calculation failed for harmonic fictive temperature: {e}") from e
     
     def _calculate_harmonic_equipartition_temperature(self) -> float:
         """Calculate harmonic fictive temperature using equipartition theorem only.
@@ -1076,10 +1112,10 @@ class TemperatureTracker(hoomd.custom.Action):
             return temperature_K
             
         except Exception as e:
-            print(f"Warning: Could not calculate harmonic equipartition temperature: {e}")
+            print(f"ERROR: Could not calculate harmonic equipartition temperature: {e}")
             import traceback
             traceback.print_exc()
-            return 0.0
+            raise RuntimeError(f"FATAL: Temperature calculation failed for harmonic equipartition temperature: {e}") from e
     
     def _calculate_lj_coul_fictive_temperature(self) -> float:
         """Calculate LJ+Coulombic fictive temperature using empirical data."""
@@ -1103,8 +1139,10 @@ class TemperatureTracker(hoomd.custom.Action):
             return temperature_K
             
         except Exception as e:
-            print(f"Warning: Could not calculate LJ+Coul fictive temperature: {e}")
-            return 0.0
+            print(f"ERROR: Could not calculate LJ+Coul fictive temperature: {e}")
+            import traceback
+            traceback.print_exc()
+            raise RuntimeError(f"FATAL: Temperature calculation failed for LJ+Coul fictive temperature: {e}") from e
     
     def _get_cavity_bath_temperature(self) -> float:
         """Get cavity thermostat temperature."""
@@ -1154,8 +1192,10 @@ class TemperatureTracker(hoomd.custom.Action):
             return temperature_K
             
         except Exception as e:
-            print(f"Warning: Could not get cavity bath temperature: {e}")
-            return 0.0
+            print(f"ERROR: Could not get cavity bath temperature: {e}")
+            import traceback
+            traceback.print_exc()
+            raise RuntimeError(f"FATAL: Temperature calculation failed for cavity bath temperature: {e}") from e
     
     def _get_molecular_bath_temperature(self) -> float:
         """Get molecular thermostat temperature."""
@@ -1205,7 +1245,264 @@ class TemperatureTracker(hoomd.custom.Action):
             return temperature_K
             
         except Exception as e:
-            print(f"Warning: Could not get molecular bath temperature: {e}")
-            return 0.0
+            print(f"ERROR: Could not get molecular bath temperature: {e}")
+            import traceback
+            traceback.print_exc()
+            raise RuntimeError(f"FATAL: Temperature calculation failed for molecular bath temperature: {e}") from e
+    
+    def _initialize_molecular_tracking(self):
+        """Initialize molecular temperature tracking for diatomic molecules."""
+        if not self.track_molecular:
+            return
+        
+        try:
+            # Physical constants
+            self.kB = PhysicalConstants.KB_HARTREE_PER_K  # Hartree/K
+            
+            # Get molecular information from first snapshot
+            with self._get_hoomd_simulation().state.cpu_local_snapshot as snap:
+                # Get bond information
+                bonds = np.array(snap.bonds.group)
+                self.n_molecules = len(bonds)
+                
+                # Store bond topology (particle indices for each dimer)
+                self.bond_pairs = bonds.copy()
+                
+                # Get masses and type IDs
+                masses = np.array(snap.particles.mass)
+                type_ids = np.array(snap.particles.typeid)
+                
+                # Store masses and reduced masses for each molecule
+                self.molecule_masses = np.zeros((self.n_molecules, 2))  # [m1, m2]
+                self.molecule_total_masses = np.zeros(self.n_molecules)  # M = m1 + m2
+                self.molecule_reduced_masses = np.zeros(self.n_molecules)  # μ = m1*m2/(m1+m2)
+                self.molecule_types = np.zeros(self.n_molecules, dtype=int)  # 0=O-O, 1=N-N, 2=O-N
+                
+                for i, (idx1, idx2) in enumerate(self.bond_pairs):
+                    m1 = masses[idx1]
+                    m2 = masses[idx2]
+                    t1 = type_ids[idx1]
+                    t2 = type_ids[idx2]
+                    
+                    self.molecule_masses[i] = [m1, m2]
+                    self.molecule_total_masses[i] = m1 + m2
+                    self.molecule_reduced_masses[i] = (m1 * m2) / (m1 + m2)
+                    
+                    # Determine molecule type
+                    if t1 == 0 and t2 == 0:
+                        self.molecule_types[i] = 0  # O-O
+                    elif t1 == 1 and t2 == 1:
+                        self.molecule_types[i] = 1  # N-N
+                    else:
+                        self.molecule_types[i] = 2  # O-N (mixed)
+                
+                if self.debug:
+                    print(f"Initialized molecular tracking for {self.n_molecules} diatomic molecules")
+                    print(f"  O-O molecules: {np.sum(self.molecule_types == 0)}")
+                    print(f"  N-N molecules: {np.sum(self.molecule_types == 1)}")
+                    print(f"  O-N molecules: {np.sum(self.molecule_types == 2)}")
+        
+        except Exception as e:
+            print(f"ERROR: Could not initialize molecular tracking: {e}")
+            import traceback
+            traceback.print_exc()
+            if self.track_molecular:  # User explicitly requested this
+                raise RuntimeError(f"FATAL: Molecular temperature tracking initialization failed: {e}") from e
+            else:
+                self.track_molecular = False
+    
+    def _calculate_molecular_temperatures(self) -> Dict[str, float]:
+        """
+        Calculate translational, rotational, and vibrational temperatures for diatomic molecules.
+        
+        Returns
+        -------
+        dict
+            Dictionary with temperature values for each component
+        """
+        if not self.track_molecular:
+            return {
+                'T_trans': 0.0, 'T_rot': 0.0, 'T_vib': 0.0, 'T_kinetic_total': 0.0,
+                'T_trans_O2': 0.0, 'T_trans_N2': 0.0,
+                'T_rot_O2': 0.0, 'T_rot_N2': 0.0,
+                'T_vib_O2': 0.0, 'T_vib_N2': 0.0
+            }
+        
+        try:
+            # Get box size from state (not from snapshot)
+            box = np.array(self._get_hoomd_simulation().state.box.L)
+            
+            with self._get_hoomd_simulation().state.cpu_local_snapshot as snap:
+                positions = np.array(snap.particles.position)
+                velocities = np.array(snap.particles.velocity)
+                masses = np.array(snap.particles.mass)
+            
+            # Calculate temperatures for all molecules
+            T_trans, T_rot, T_vib, T_total = self._compute_molecular_temperature_components(
+                positions, velocities, masses, box
+            )
+            
+            # Calculate temperatures for O-O molecules only
+            O2_mask = self.molecule_types == 0
+            if np.any(O2_mask):
+                T_trans_O2, T_rot_O2, T_vib_O2, _ = self._compute_molecular_temperature_components(
+                    positions, velocities, masses, box, molecule_mask=O2_mask
+                )
+            else:
+                T_trans_O2 = T_rot_O2 = T_vib_O2 = 0.0
+            
+            # Calculate temperatures for N-N molecules only
+            N2_mask = self.molecule_types == 1
+            if np.any(N2_mask):
+                T_trans_N2, T_rot_N2, T_vib_N2, _ = self._compute_molecular_temperature_components(
+                    positions, velocities, masses, box, molecule_mask=N2_mask
+                )
+            else:
+                T_trans_N2 = T_rot_N2 = T_vib_N2 = 0.0
+            
+            return {
+                'T_trans': T_trans,
+                'T_rot': T_rot,
+                'T_vib': T_vib,
+                'T_kinetic_total': T_total,
+                'T_trans_O2': T_trans_O2,
+                'T_trans_N2': T_trans_N2,
+                'T_rot_O2': T_rot_O2,
+                'T_rot_N2': T_rot_N2,
+                'T_vib_O2': T_vib_O2,
+                'T_vib_N2': T_vib_N2
+            }
+            
+        except Exception as e:
+            if self.track_molecular and self.debug:
+                print(f"ERROR: Could not calculate molecular temperatures: {e}")
+                import traceback
+                traceback.print_exc()
+            if self.track_molecular:
+                raise RuntimeError(f"FATAL: Molecular temperature calculation failed: {e}") from e
+            return {
+                'T_trans': 0.0, 'T_rot': 0.0, 'T_vib': 0.0, 'T_kinetic_total': 0.0,
+                'T_trans_O2': 0.0, 'T_trans_N2': 0.0,
+                'T_rot_O2': 0.0, 'T_rot_N2': 0.0,
+                'T_vib_O2': 0.0, 'T_vib_N2': 0.0
+            }
+    
+    def _compute_molecular_temperature_components(self, 
+                                                  positions: np.ndarray, 
+                                                  velocities: np.ndarray,
+                                                  masses: np.ndarray,
+                                                  box: np.ndarray,
+                                                  molecule_mask: Optional[np.ndarray] = None) -> Tuple[float, float, float, float]:
+        """
+        Compute translational, rotational, and vibrational temperatures.
+        
+        Parameters
+        ----------
+        positions : np.ndarray
+            Particle positions
+        velocities : np.ndarray
+            Particle velocities
+        masses : np.ndarray
+            Particle masses
+        box : np.ndarray
+            Box dimensions [Lx, Ly, Lz]
+        molecule_mask : np.ndarray, optional
+            Boolean mask to select subset of molecules
+            
+        Returns
+        -------
+        T_trans : float
+            Translational temperature (K)
+        T_rot : float
+            Rotational temperature (K)
+        T_vib : float
+            Vibrational temperature (K)
+        T_total : float
+            Total kinetic temperature (K)
+        """
+        if molecule_mask is None:
+            molecule_mask = np.ones(self.n_molecules, dtype=bool)
+        
+        n_mols = np.sum(molecule_mask)
+        if n_mols == 0:
+            return 0.0, 0.0, 0.0, 0.0
+        
+        # Initialize kinetic energy accumulators
+        KE_trans = 0.0  # Translational KE
+        KE_rot = 0.0    # Rotational KE
+        KE_vib = 0.0    # Vibrational KE
+        KE_total = 0.0  # Total KE (for verification)
+        
+        for i, (idx1, idx2) in enumerate(self.bond_pairs):
+            if not molecule_mask[i]:
+                continue
+            
+            # Get particle data
+            r1 = positions[idx1]
+            r2 = positions[idx2]
+            v1 = velocities[idx1]
+            v2 = velocities[idx2]
+            m1 = masses[idx1]
+            m2 = masses[idx2]
+            M = m1 + m2  # Total mass
+            mu = (m1 * m2) / M  # Reduced mass
+            
+            # Handle periodic boundary conditions for bond vector
+            r12 = r2 - r1
+            r12 = r12 - box * np.round(r12 / box)
+            r12_mag = np.linalg.norm(r12)
+            if r12_mag < 1e-10:
+                continue  # Skip if atoms are on top of each other
+            r12_hat = r12 / r12_mag  # Unit vector along bond
+            
+            # 1. Translational KE: (1/2) * M * v_cm²
+            v_cm = (m1 * v1 + m2 * v2) / M
+            KE_trans += 0.5 * M * np.dot(v_cm, v_cm)
+            
+            # 2. Relative velocity
+            v_rel = v2 - v1
+            
+            # 3. Vibrational KE: motion along bond direction
+            # v_bond = v_rel · r̂  (component of relative velocity along bond)
+            v_bond = np.dot(v_rel, r12_hat)
+            KE_vib += 0.5 * mu * v_bond**2
+            
+            # 4. Rotational KE: motion perpendicular to bond
+            # v_perp = v_rel - v_bond * r̂  (perpendicular component)
+            v_perp = v_rel - v_bond * r12_hat
+            # For rotation: KE_rot = (1/2) * I * ω² = (1/2) * μ * r² * ω²
+            # But ω = v_perp / r, so: KE_rot = (1/2) * μ * v_perp²
+            KE_rot += 0.5 * mu * np.dot(v_perp, v_perp)
+            
+            # Total KE for this molecule (for verification)
+            KE_total += 0.5 * m1 * np.dot(v1, v1) + 0.5 * m2 * np.dot(v2, v2)
+        
+        # Convert kinetic energies to temperatures
+        # For translational: <KE_trans> = (3/2) * N * k_B * T_trans
+        # T_trans = (2 * KE_trans) / (3 * N * k_B)
+        T_trans = (2.0 * KE_trans) / (3.0 * n_mols * self.kB) if n_mols > 0 else 0.0
+        
+        # For rotational: <KE_rot> = N * k_B * T_rot  (2 rotational DOF in 3D)
+        # T_rot = KE_rot / (N * k_B)
+        T_rot = (2.0 * KE_rot) / (2.0 * n_mols * self.kB) if n_mols > 0 else 0.0
+        
+        # For vibrational: <KE_vib> = (1/2) * N * k_B * T_vib  (1 vibrational DOF)
+        # T_vib = (2 * KE_vib) / (N * k_B)
+        T_vib = (2.0 * KE_vib) / (n_mols * self.kB) if n_mols > 0 else 0.0
+        
+        # Total kinetic temperature (from all particle velocities)
+        # <KE_total> = (3/2) * (2N) * k_B * T_total  (2N particles with 3 DOF each)
+        # T_total = (2 * KE_total) / (6 * N * k_B)
+        T_total = (2.0 * KE_total) / (6.0 * n_mols * self.kB) if n_mols > 0 else 0.0
+        
+        if self.debug and molecule_mask is None:  # Only print for all molecules
+            print(f"\nMolecular Temperatures (N={n_mols}):")
+            print(f"  KE_trans = {KE_trans:.6e} Hartree -> T_trans = {T_trans:.2f} K")
+            print(f"  KE_rot   = {KE_rot:.6e} Hartree -> T_rot   = {T_rot:.2f} K")
+            print(f"  KE_vib   = {KE_vib:.6e} Hartree -> T_vib   = {T_vib:.2f} K")
+            print(f"  KE_total = {KE_total:.6e} Hartree -> T_total = {T_total:.2f} K")
+            print(f"  KE sum check: {KE_trans + KE_rot + KE_vib:.6e} vs {KE_total:.6e}")
+        
+        return T_trans, T_rot, T_vib, T_total
 
 

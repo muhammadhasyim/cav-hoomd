@@ -28,16 +28,16 @@ namespace cavitymd
 //! Parameters for cavity force computation
 struct cavity_force_params
 {
-    Scalar omegac;     //!< Cavity frequency in atomic units
-    Scalar couplstr;   //!< Coupling strength in atomic units  
-    Scalar K;          //!< Spring constant (phmass * omegac^2)
-    Scalar phmass;     //!< Photon mass
+    Scalar omegac;           //!< Cavity frequency in atomic units
+    Scalar lambda_coupling;  //!< Dimensionless coupling parameter (lambda, NOT epsilon)
+    Scalar K;                //!< Spring constant (phmass * omegac^2)
+    Scalar phmass;           //!< Photon mass
     
 #ifndef __HIPCC__
-    cavity_force_params() : omegac(0.), couplstr(0.), K(0.), phmass(1.) {}
+    cavity_force_params() : omegac(0.), lambda_coupling(0.), K(0.), phmass(1.) {}
     
-    cavity_force_params(Scalar _omegac, Scalar _couplstr, Scalar _phmass) 
-        : omegac(_omegac), couplstr(_couplstr), phmass(_phmass)
+    cavity_force_params(Scalar _omegac, Scalar _lambda_coupling, Scalar _phmass) 
+        : omegac(_omegac), lambda_coupling(_lambda_coupling), phmass(_phmass)
     {
         K = phmass * omegac * omegac;
     }
@@ -46,7 +46,7 @@ struct cavity_force_params
     {
         pybind11::dict v;
         v["omegac"] = omegac;
-        v["couplstr"] = couplstr;
+        v["lambda_coupling"] = lambda_coupling;
         v["K"] = K;
         v["phmass"] = phmass;
         return v;
@@ -72,14 +72,14 @@ public:
     //! Constructs the compute
     CavityForceCompute(std::shared_ptr<SystemDefinition> sysdef,
                        Scalar omegac,
-                       std::shared_ptr<Variant> couplstr,
+                       std::shared_ptr<Variant> lambda_coupling,
                        Scalar phmass = Scalar(1.0));
 
     //! Destructor
     virtual ~CavityForceCompute();
 
     //! Set parameters
-    void setParams(Scalar omegac, std::shared_ptr<Variant> couplstr, Scalar phmass = Scalar(1.0));
+    void setParams(Scalar omegac, std::shared_ptr<Variant> lambda_coupling, Scalar phmass = Scalar(1.0));
     
     //! Get parameters as dictionary
     pybind11::dict getParams();
@@ -116,8 +116,8 @@ protected:
 
     cavity_force_params m_params;  //!< Force parameters
 
-    //!< Coupling strength variant
-    std::shared_ptr<Variant> m_couplstr;
+    //!< Dimensionless coupling parameter (lambda) variant
+    std::shared_ptr<Variant> m_lambda_coupling;
 
     
     //! Energy components (now protected for GPU access)

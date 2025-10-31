@@ -23,10 +23,10 @@ namespace cavitymd
 //! Parameters for cavity force computation  
 struct cavity_force_params
 {
-    Scalar omegac;     //!< Cavity frequency in atomic units
-    Scalar couplstr;   //!< Coupling strength in atomic units  
-    Scalar K;          //!< Spring constant (phmass * omegac^2)
-    Scalar phmass;     //!< Photon mass
+    Scalar omegac;           //!< Cavity frequency in atomic units
+    Scalar lambda_coupling;  //!< Dimensionless coupling parameter (lambda, NOT epsilon)
+    Scalar K;                //!< Spring constant (phmass * omegac^2)
+    Scalar phmass;           //!< Photon mass
 };
 
 namespace kernel
@@ -161,9 +161,10 @@ __global__ void gpu_compute_forces_optimized(Scalar4* d_force,
                                (shared_q_photon.x * shared_q_photon.x + 
                                 shared_q_photon.y * shared_q_photon.y + 
                                 shared_q_photon.z * shared_q_photon.z);
-        Scalar coupling_energy = params.couplstr * 
+        Scalar coupling_energy = params.lambda_coupling * params.omegac * 
                                (dipole_xy.x * shared_q_photon_xy.x + dipole_xy.y * shared_q_photon_xy.y);
-        Scalar dipole_self_energy = Scalar(0.5) * (params.couplstr * params.couplstr / params.K) *
+        // Dipole self-energy: (1/2) * (epsilon^2 / K) * d^2 = (1/2) * (lambda * omegac)^2 / K * d^2
+        Scalar dipole_self_energy = Scalar(0.5) * (params.lambda_coupling * params.lambda_coupling * params.omegac * params.omegac / params.K) *
                                   (dipole_xy.x * dipole_xy.x + dipole_xy.y * dipole_xy.y);
         
         d_temp_energy[0] = harmonic_energy;
@@ -183,14 +184,14 @@ __global__ void gpu_compute_forces_optimized(Scalar4* d_force,
             
             // Dq = q_photon_xy + (g/K) * dipole_xy
             Scalar3 Dq;
-            Dq.x = shared_q_photon_xy.x + (params.couplstr / params.K) * dipole_xy.x;
-            Dq.y = shared_q_photon_xy.y + (params.couplstr / params.K) * dipole_xy.y;
+            Dq.x = shared_q_photon_xy.x + (params.lambda_coupling / params.omegac) * dipole_xy.x;
+            Dq.y = shared_q_photon_xy.y + (params.lambda_coupling / params.omegac) * dipole_xy.y;
             Dq.z = 0;
             
             // Cavity coupling force = -g * charge * Dq
             Scalar3 force;
-            force.x = -params.couplstr * charge * Dq.x;
-            force.y = -params.couplstr * charge * Dq.y;
+            force.x = -params.lambda_coupling * params.omegac * charge * Dq.x;
+            force.y = -params.lambda_coupling * params.omegac * charge * Dq.y;
             force.z = Scalar(0.0);
             
             d_force[idx].x = force.x;
@@ -200,8 +201,8 @@ __global__ void gpu_compute_forces_optimized(Scalar4* d_force,
         } else if ((int)idx == photon_idx) { // Cavity particle
             // Force = -K * q_photon - g * dipole_xy
             Scalar3 photon_force;
-            photon_force.x = -params.K * shared_q_photon.x - params.couplstr * dipole_xy.x;
-            photon_force.y = -params.K * shared_q_photon.y - params.couplstr * dipole_xy.y;
+            photon_force.x = -params.K * shared_q_photon.x - params.lambda_coupling * params.omegac * dipole_xy.x;
+            photon_force.y = -params.K * shared_q_photon.y - params.lambda_coupling * params.omegac * dipole_xy.y;
             photon_force.z = -params.K * shared_q_photon.z;
             
             d_force[idx].x = photon_force.x;
@@ -255,14 +256,14 @@ __global__ void gpu_compute_cavity_force_kernel_legacy(Scalar4* d_force,
             
             // Dq = q_photon_xy + (g/K) * dipole_xy
             Scalar3 Dq;
-            Dq.x = shared_q_photon_xy.x + (params.couplstr / params.K) * dipole_xy.x;
-            Dq.y = shared_q_photon_xy.y + (params.couplstr / params.K) * dipole_xy.y;
+            Dq.x = shared_q_photon_xy.x + (params.lambda_coupling / params.omegac) * dipole_xy.x;
+            Dq.y = shared_q_photon_xy.y + (params.lambda_coupling / params.omegac) * dipole_xy.y;
             Dq.z = 0;
             
             // Cavity coupling force = -g * charge * Dq
             Scalar3 force;
-            force.x = -params.couplstr * charge * Dq.x;
-            force.y = -params.couplstr * charge * Dq.y;
+            force.x = -params.lambda_coupling * params.omegac * charge * Dq.x;
+            force.y = -params.lambda_coupling * params.omegac * charge * Dq.y;
             force.z = Scalar(0.0);
             
             d_force[idx].x = force.x;
@@ -272,8 +273,8 @@ __global__ void gpu_compute_cavity_force_kernel_legacy(Scalar4* d_force,
         } else { // Photon particle (type == L_typeid)
             // Force = -K * q_photon - g * dipole_xy
             Scalar3 photon_force;
-            photon_force.x = -params.K * shared_q_photon.x - params.couplstr * dipole_xy.x;
-            photon_force.y = -params.K * shared_q_photon.y - params.couplstr * dipole_xy.y;
+            photon_force.x = -params.K * shared_q_photon.x - params.lambda_coupling * params.omegac * dipole_xy.x;
+            photon_force.y = -params.K * shared_q_photon.y - params.lambda_coupling * params.omegac * dipole_xy.y;
             photon_force.z = -params.K * shared_q_photon.z;
             
             d_force[idx].x = photon_force.x;
@@ -415,13 +416,13 @@ __global__ void gpu_compute_cavity_force_kernel(Scalar4* d_force,
         
         // Correct formula: Dq = q_photon_xy + (g/K) * dipole_xy
         Scalar3 Dq;
-        Dq.x = shared_q_photon_xy.x + (params.couplstr / params.K) * dipole_xy.x;
-        Dq.y = shared_q_photon_xy.y + (params.couplstr / params.K) * dipole_xy.y;
+        Dq.x = shared_q_photon_xy.x + (params.lambda_coupling / params.omegac) * dipole_xy.x;
+        Dq.y = shared_q_photon_xy.y + (params.lambda_coupling / params.omegac) * dipole_xy.y;
         Dq.z = 0;
         
         Scalar3 force;
-        force.x = -params.couplstr * charge * Dq.x;
-        force.y = -params.couplstr * charge * Dq.y;
+        force.x = -params.lambda_coupling * params.omegac * charge * Dq.x;
+        force.y = -params.lambda_coupling * params.omegac * charge * Dq.y;
         force.z = Scalar(0.0);
         
         d_force[idx].x = force.x;
@@ -436,8 +437,8 @@ __global__ void gpu_compute_cavity_force_kernel(Scalar4* d_force,
 #endif
         
         Scalar3 photon_force;
-        photon_force.x = -params.K * shared_q_photon.x - params.couplstr * dipole_xy.x;
-        photon_force.y = -params.K * shared_q_photon.y - params.couplstr * dipole_xy.y;
+        photon_force.x = -params.K * shared_q_photon.x - params.lambda_coupling * params.omegac * dipole_xy.x;
+        photon_force.y = -params.K * shared_q_photon.y - params.lambda_coupling * params.omegac * dipole_xy.y;
         photon_force.z = -params.K * shared_q_photon.z;
         
         d_force[idx].x = photon_force.x;
@@ -447,8 +448,9 @@ __global__ void gpu_compute_cavity_force_kernel(Scalar4* d_force,
         // Energy computation - write energies every time since they should be the same
         {
             Scalar harmonic_energy = Scalar(0.5) * params.K * (shared_q_photon.x * shared_q_photon.x + shared_q_photon.y * shared_q_photon.y + shared_q_photon.z * shared_q_photon.z);
-            Scalar coupling_energy = params.couplstr * (dipole_xy.x * shared_q_photon_xy.x + dipole_xy.y * shared_q_photon_xy.y);
-            Scalar dipole_self_energy = Scalar(0.5) * params.couplstr * params.couplstr / params.K * (dipole_xy.x * dipole_xy.x + dipole_xy.y * dipole_xy.y);
+            Scalar coupling_energy = params.lambda_coupling * params.omegac * (dipole_xy.x * shared_q_photon_xy.x + dipole_xy.y * shared_q_photon_xy.y);
+            // Dipole self-energy: (1/2) * (epsilon^2 / K) * d^2 = (1/2) * (lambda * omegac)^2 / K * d^2
+            Scalar dipole_self_energy = Scalar(0.5) * params.lambda_coupling * params.lambda_coupling * params.omegac * params.omegac / params.K * (dipole_xy.x * dipole_xy.x + dipole_xy.y * dipole_xy.y);
             
             // Always write energies since they should be the same regardless of particle indexing
 #ifdef CAVITY_DEBUG_VERBOSE
@@ -505,9 +507,10 @@ __global__ void gpu_compute_cavity_forces_and_energies(Scalar4* d_force,
                                (shared_q_photon.x * shared_q_photon.x + 
                                 shared_q_photon.y * shared_q_photon.y + 
                                 shared_q_photon.z * shared_q_photon.z);
-        Scalar coupling_energy = params.couplstr * 
+        Scalar coupling_energy = params.lambda_coupling * params.omegac * 
                                (dipole_xy.x * shared_q_photon_xy.x + dipole_xy.y * shared_q_photon_xy.y);
-        Scalar dipole_self_energy = Scalar(0.5) * (params.couplstr * params.couplstr / params.K) *
+        // Dipole self-energy: (1/2) * (epsilon^2 / K) * d^2 = (1/2) * (lambda * omegac)^2 / K * d^2
+        Scalar dipole_self_energy = Scalar(0.5) * (params.lambda_coupling * params.lambda_coupling * params.omegac * params.omegac / params.K) *
                                   (dipole_xy.x * dipole_xy.x + dipole_xy.y * dipole_xy.y);
         
         d_temp_energy[0] = harmonic_energy;
@@ -527,14 +530,14 @@ __global__ void gpu_compute_cavity_forces_and_energies(Scalar4* d_force,
             
             // Dq = q_photon_xy + (g/K) * dipole_xy
             Scalar3 Dq;
-            Dq.x = shared_q_photon_xy.x + (params.couplstr / params.K) * dipole_xy.x;
-            Dq.y = shared_q_photon_xy.y + (params.couplstr / params.K) * dipole_xy.y;
+            Dq.x = shared_q_photon_xy.x + (params.lambda_coupling / params.omegac) * dipole_xy.x;
+            Dq.y = shared_q_photon_xy.y + (params.lambda_coupling / params.omegac) * dipole_xy.y;
             Dq.z = 0;
             
             // Cavity coupling force = -g * charge * Dq
             Scalar3 force;
-            force.x = -params.couplstr * charge * Dq.x;
-            force.y = -params.couplstr * charge * Dq.y;
+            force.x = -params.lambda_coupling * params.omegac * charge * Dq.x;
+            force.y = -params.lambda_coupling * params.omegac * charge * Dq.y;
             force.z = Scalar(0.0);
             
             d_force[idx].x = force.x;
@@ -544,8 +547,8 @@ __global__ void gpu_compute_cavity_forces_and_energies(Scalar4* d_force,
         } else if ((int)idx == photon_idx) { // Cavity particle
             // Force = -K * q_photon - g * dipole_xy
             Scalar3 photon_force;
-            photon_force.x = -params.K * shared_q_photon.x - params.couplstr * dipole_xy.x;
-            photon_force.y = -params.K * shared_q_photon.y - params.couplstr * dipole_xy.y;
+            photon_force.x = -params.K * shared_q_photon.x - params.lambda_coupling * params.omegac * dipole_xy.x;
+            photon_force.y = -params.K * shared_q_photon.y - params.lambda_coupling * params.omegac * dipole_xy.y;
             photon_force.z = -params.K * shared_q_photon.z;
             
             d_force[idx].x = photon_force.x;

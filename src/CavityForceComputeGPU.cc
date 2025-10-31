@@ -25,14 +25,14 @@ namespace cavitymd
 
 /*! \param sysdef SystemDefinition containing the ParticleData to compute forces on
     \param omegac Cavity frequency in atomic units
-    \param couplstr Coupling strength in atomic units
+    \param lambda_coupling Dimensionless coupling parameter (lambda)
     \param phmass Photon mass (default 1.0)
 */
 CavityForceComputeGPU::CavityForceComputeGPU(std::shared_ptr<SystemDefinition> sysdef,
                                              Scalar omegac,
-                                             std::shared_ptr<Variant> couplstr,
+                                             std::shared_ptr<Variant> lambda_coupling,
                                              Scalar phmass)
-    : CavityForceCompute(sysdef, omegac, couplstr, phmass)
+    : CavityForceCompute(sysdef, omegac, lambda_coupling, phmass)
 {
     m_exec_conf->msg->notice(5) << "Constructing CavityForceComputeGPU" << std::endl;
     
@@ -96,7 +96,7 @@ void CavityForceComputeGPU::computeForces(uint64_t timestep)
     }
     
     // Update parameters from variants
-    m_params.couplstr = (*m_couplstr)(timestep);
+    m_params.lambda_coupling = (*m_lambda_coupling)(timestep);
     
     unsigned int N = m_pdata->getN();
     
@@ -249,7 +249,7 @@ void export_CavityForceComputeGPU(pybind11::module& m)
     pybind11::class_<CavityForceComputeGPU, CavityForceCompute, std::shared_ptr<CavityForceComputeGPU>>(
         m, "CavityForceComputeGPU")
         .def(pybind11::init<std::shared_ptr<SystemDefinition>, Scalar, std::shared_ptr<Variant>, Scalar>(),
-             pybind11::arg("sysdef"), pybind11::arg("omegac"), pybind11::arg("couplstr"), 
+             pybind11::arg("sysdef"), pybind11::arg("omegac"), pybind11::arg("lambda_coupling"), 
              pybind11::arg("phmass") = 1.0);
 }
 } // end namespace detail

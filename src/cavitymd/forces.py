@@ -74,8 +74,9 @@ class CavityForce(hoomd.md.force.Force):
     kvector : array_like
         Cavity mode wave vector (shape: (3,)). Currently not used but kept for compatibility 
         with future multimode implementations.
-    couplstr : float or hoomd.variant.Variant
-        Coupling strength :math:`\tilde{\varepsilon}_{0,\lambda}` in atomic units. 
+    lambda_coupling : float or hoomd.variant.Variant
+        Dimensionless coupling parameter :math:`\lambda`. The effective coupling strength
+        in atomic units is computed as :math:`\varepsilon = \lambda \cdot \omega_c`.
         Can be time-varying using hoomd.variant objects for dynamic coupling experiments.
     omegac : float
         Cavity frequency :math:`\omega_{0,\lambda}` in atomic units (Hartree).
@@ -116,8 +117,8 @@ class CavityForce(hoomd.md.force.Force):
     >>> from hoomd.cavitymd.forces import CavityForce
     >>> cavity_force = CavityForce(
     ...     kvector=np.array([0, 0, 1]),
-    ...     couplstr=0.001,  # 1e-3 a.u.
-    ...     omegac=0.00913,  # 2000 cm⁻¹ in a.u.
+    ...     lambda_coupling=0.001,  # Dimensionless
+    ...     omegac=0.00913,  # 2000 cm⁻¹ in a.u., epsilon = 0.001 * 0.00913 = 9.13e-6 a.u.
     ...     phmass=1.0
     ... )
     
@@ -131,7 +132,7 @@ class CavityForce(hoomd.md.force.Force):
     ... )
     >>> cavity_force = CavityForce(
     ...     kvector=np.array([0, 0, 1]),
-    ...     couplstr=coupling_variant,
+    ...     lambda_coupling=coupling_variant,
     ...     omegac=0.00913,
     ...     dissipation=0.0001  # Add damping
     ... )
@@ -167,31 +168,32 @@ class CavityForce(hoomd.md.force.Force):
     
     def __init__(self, 
                  kvector: Union[List[float], np.ndarray], 
-                 couplstr: Union[float, hoomd.variant.Variant], 
+                 lambda_coupling: Union[float, hoomd.variant.Variant], 
                  omegac: float, 
                  phmass: float = 1.0) -> None:
         # Initialize the base class FIRST - this creates empty _param_dict and _typeparam_dict
         super().__init__()
         
         # Handle variant parameters - convert to variants if needed
-        if isinstance(couplstr, (int, float)):
-            self.couplstr_variant = Constant(float(couplstr))
+        # Note: lambda_coupling is dimensionless, epsilon = lambda * omegac
+        if isinstance(lambda_coupling, (int, float)):
+            self.lambda_coupling_variant = Constant(float(lambda_coupling))
             self.uses_variant_coupling = False
-        elif hasattr(couplstr, '__call__'):  # It's a variant
-            self.couplstr_variant = couplstr
-            self.uses_variant_coupling = not isinstance(couplstr, Constant)
+        elif hasattr(lambda_coupling, '__call__'):  # It's a variant
+            self.lambda_coupling_variant = lambda_coupling
+            self.uses_variant_coupling = not isinstance(lambda_coupling, Constant)
         else:
-            raise ValueError("couplstr must be a number or hoomd.variant.Variant")
+            raise ValueError("lambda_coupling must be a number or hoomd.variant.Variant")
 
         # Now set up parameter dictionaries using the proper HOOMD methods
         param_dict = hoomd.data.parameterdicts.ParameterDict(
             kvector=hoomd.data.typeconverter.to_type_converter([float, float, float]),
-            couplstr=hoomd.variant.Variant,
+            lambda_coupling=hoomd.variant.Variant,
             omegac=float,
             phmass=float
         )
         param_dict['kvector'] = list(kvector)
-        param_dict['couplstr'] = self.couplstr_variant
+        param_dict['lambda_coupling'] = self.lambda_coupling_variant
         param_dict['omegac'] = omegac
         param_dict['phmass'] = phmass
         
@@ -209,9 +211,11 @@ class CavityForce(hoomd.md.force.Force):
     
         print(f"CavityForce initialized using {self._implementation} implementation")
         if self.uses_variant_coupling:
-            print(f"  Using time-varying coupling strength")
+            print(f"  Using time-varying lambda coupling (dimensionless)")
         else:
-            print(f"  Using constant coupling strength: {self.couplstr_variant.value}")
+            epsilon = self.lambda_coupling_variant.value * omegac
+            print(f"  Using constant lambda coupling: {self.lambda_coupling_variant.value} (dimensionless)")
+            print(f"  Effective epsilon: {epsilon:.6e} a.u.")
     
     def _attach_hook(self):
         """Called when force is attached to simulation"""
@@ -227,7 +231,7 @@ class CavityForce(hoomd.md.force.Force):
                             self._force_impl = _cavitymd.CavityForceComputeGPU(
                                 self._simulation.state._cpp_sys_def,
                                 self.omegac,
-                                self.couplstr_variant,
+                                self.lambda_coupling_variant,
                                 self.phmass
                             )
                             self._implementation = "cuda"
@@ -240,7 +244,7 @@ class CavityForce(hoomd.md.force.Force):
                         self._force_impl = _cavitymd.CavityForceCompute(
                             self._simulation.state._cpp_sys_def,
                             self.omegac,
-                            self.couplstr_variant,
+                            self.lambda_coupling_variant,
                             self.phmass
                         )
                         self._implementation = "cpp"
@@ -250,7 +254,7 @@ class CavityForce(hoomd.md.force.Force):
                     self._force_impl = _cavitymd.CavityForceCompute(
                         self._simulation.state._cpp_sys_def,
                         self.omegac,
-                        self.couplstr_variant,
+                        self.lambda_coupling_variant,
                         self.phmass
                     )
                     print(f"CPU CavityForceCompute initialized successfully")
@@ -442,6 +446,6 @@ class CavityForce(hoomd.md.force.Force):
                 setattr(self, key, value)
                 # Update implementation if needed
                 if self._force_impl and hasattr(self._force_impl, 'setParams'):
-                    self._force_impl.setParams(self.omegac, self.couplstr, self.phmass)
+                    self._force_impl.setParams(self.omegac, self.lambda_coupling_variant, self.phmass)
             else:
                 raise ValueError(f"Unknown parameter: {key}") 
