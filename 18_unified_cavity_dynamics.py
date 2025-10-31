@@ -781,13 +781,6 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
         bool: True if the experiment was successful, False otherwise
     """
     try:
-        # Create job directory name based on replica
-        job_dir = f"replica_{replica}"
-        
-        # Create the job directory if it doesn't exist
-        import os
-        os.makedirs(job_dir, exist_ok=True)
-        
         # Handle backward compatibility between coupling and lambda_coupling
         if coupling is not None and lambda_coupling != 1e-3:
             raise ValueError("Cannot specify both --coupling (deprecated) and --lambda-coupling simultaneously")
@@ -798,6 +791,55 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
             effective_lambda_coupling = coupling / omegac
         else:
             effective_lambda_coupling = lambda_coupling
+        
+        # Determine controller type for directory naming
+        controller_type = "nocontrol"
+        if enable_pid_controller:
+            if pid_self_loop:
+                controller_type = "pid_selfloop"
+            else:
+                controller_type = "pid"
+        elif enable_diffeq_controller:
+            if diffeq_enable_pi_control:
+                controller_type = "diffeq_pi"
+            elif diffeq_enable_bias_cancellation:
+                controller_type = "diffeq_biascancel"
+            else:
+                controller_type = "diffeq"
+        elif enable_lqr_controller:
+            controller_type = "lqr"
+        elif enable_lqg_controller:
+            controller_type = "lqg"
+        elif enable_adaptive_mpc_controller:
+            controller_type = "mpc"
+        elif enable_gd_feedback:
+            controller_type = "gd"
+        elif enable_dual_feedback:
+            controller_type = "dual"
+        elif enable_offset_controller:
+            controller_type = "offset"
+        elif enable_simple_setpoint_controller:
+            controller_type = "setpoint"
+        elif enable_quench_controller:
+            controller_type = "quench"
+        
+        # Create descriptive job directory name
+        # Format: <coupling_type>_lambda<value>_<controller>
+        # Example: constant_lambda0.025_diffeq
+        # Note: If multiple replicas need the same parameters, use different output directories
+        lambda_str = f"{effective_lambda_coupling:.4f}".rstrip('0').rstrip('.')
+        job_dir = f"{coupling_variant_type}_lambda{lambda_str}_{controller_type}"
+        
+        # Create the job directory if it doesn't exist
+        import os
+        os.makedirs(job_dir, exist_ok=True)
+        
+        print(f"Output directory: {job_dir}")
+        print(f"  Coupling type: {coupling_variant_type}")
+        print(f"  Lambda coupling: {effective_lambda_coupling}")
+        print(f"  Controller: {controller_type}")
+        print(f"  Replica: {replica}")
+        print()
         
         sim = CavityMDSimulation(
             # Required parameters (must be first)
