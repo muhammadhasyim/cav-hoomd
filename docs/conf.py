@@ -23,14 +23,32 @@ sys.path.insert(0, str(project_root))
 sys.path.insert(0, str(project_root / 'src'))
 sys.path.insert(0, str(project_root / 'examples'))
 
-# Check if we're running on Read the Docs
+# Check if we need to mock imports (either on RTD or any CI environment without HOOMD)
 on_rtd = (os.environ.get('READTHEDOCS') == 'True' or 
           os.environ.get('RTD_ENV_NAME') is not None or
           'readthedocs' in os.environ.get('HOSTNAME', '').lower())
 
-print(f"On RTD: {on_rtd}")
+# Also check if we're in GitHub Actions or if HOOMD is not available
+in_ci = (os.environ.get('CI') == 'true' or 
+         os.environ.get('GITHUB_ACTIONS') == 'true')
 
-if on_rtd:
+# Try to import HOOMD to see if it's available
+try:
+    import hoomd as _test_hoomd
+    hoomd_available = True
+    del _test_hoomd
+except ImportError:
+    hoomd_available = False
+
+# Need mocking if on RTD, in CI, or HOOMD not available
+needs_mocking = on_rtd or in_ci or not hoomd_available
+
+print(f"On RTD: {on_rtd}")
+print(f"In CI: {in_ci}")
+print(f"HOOMD available: {hoomd_available}")
+print(f"Needs mocking: {needs_mocking}")
+
+if needs_mocking:
     print("Setting up simplified plugin imports for Read the Docs...")
     
     # Mock only the C++ extensions (the compiled .so files)
@@ -157,7 +175,8 @@ if on_rtd:
     
     print(" Plugin setup complete")
 else:
-    print("Local environment - no mocking needed")
+    print("Local environment with HOOMD installed - no mocking needed")
+    print("Plugins will be imported directly from installed HOOMD")
 
 # -- Path setup (redundant but kept for clarity) ------------------------------
 
@@ -513,8 +532,7 @@ def setup(app):
     app.add_css_file('custom.css')
     
     # Set up the documentation build environment
-    if on_rtd:
-        print("Sphinx setup: Running on Read the Docs")
-        # Additional RTD-specific setup can go here
+    if needs_mocking:
+        print("Sphinx setup: Running in CI/RTD environment with mocking")
     else:
-        print("Sphinx setup: Running locally") 
+        print("Sphinx setup: Running locally with full HOOMD installation") 
