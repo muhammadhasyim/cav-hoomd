@@ -49,7 +49,7 @@ print(f"HOOMD available: {hoomd_available}")
 print(f"Needs mocking: {needs_mocking}")
 
 if needs_mocking:
-    print("Setting up simplified plugin imports for Read the Docs...")
+    print("Setting up simplified plugin imports for documentation build...")
     
     # Mock only the C++ extensions (the compiled .so files)
     from unittest.mock import MagicMock
@@ -59,9 +59,17 @@ if needs_mocking:
     sys.modules['bussi_reservoir._bussi_reservoir'] = MagicMock()
     print(" Mocked C++ extensions")
     
-    # Import HOOMD (available via conda)
-    import hoomd
-    print(" HOOMD base package imported")
+    # Try to import HOOMD (available via conda on RTD, but not in GitHub Actions)
+    try:
+        import hoomd
+        print(" HOOMD base package imported from conda")
+    except ImportError:
+        # HOOMD not available - create a minimal mock
+        print(" HOOMD not available - creating mock base package")
+        from types import ModuleType
+        hoomd = ModuleType('hoomd')
+        sys.modules['hoomd'] = hoomd
+        print(" Created mock HOOMD base package")
     
     # Import our plugins directly and register them in the hoomd namespace
     try:
