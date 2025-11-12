@@ -2,7 +2,7 @@
 Time-Varying Coupling
 =======================
 
-This guide provides detailed practical instructions for running and analyzing time-varying coupling experiments.
+Comprehensive guide to dynamic coupling protocols using all available variant types.
 
 .. contents:: In this Guide
    :local:
@@ -15,638 +15,652 @@ This guide provides detailed practical instructions for running and analyzing ti
 Overview
 ========
 
-Time-varying coupling allows you to study non-equilibrium cavity-molecule dynamics by changing the coupling strength during simulation.
+Cavity HOOMD provides a complete **variant system** for time-dependent coupling protocols, enabling sophisticated non-equilibrium experiments and realistic modeling of pump-probe dynamics.
 
-**Why Use Time-Varying Coupling?**
+**Available Variant Types:**
+
+1. **Basic Variants**: ConstantVariant, StepVariant
+2. **Periodic Variants**: PeriodicVariant, SquareWaveVariant
+3. **Decay Variants**: ExponentialDecayVariant, DecayingSquareWaveVariant
+4. **Adaptive Variants**: AdaptiveSquareWaveVariant, ExponentialWaveVariant
+5. **Scaling Variants**: LambdaScaledVariant
+
+Why Use Time-Varying Coupling?
+-------------------------------
 
 - Model pump-probe experiments
-- Study non-equilibrium relaxation
-- Investigate sudden coupling activation
-- Analyze energy redistribution dynamics
+- Study non-equilibrium relaxation dynamics
+- Investigate sudden coupling activation/deactivation
+- Analyze energy redistribution and thermalization
 - Simulate realistic experimental protocols
+- Control system temperature via coupling modulation
 
-**Key Concept:**
+Basic Variants
+==============
 
-Instead of constant coupling :math:`g`, the coupling becomes time-dependent :math:`g(t)`.
+ConstantVariant
+---------------
 
-Step Function Coupling
-=======================
+**Fixed coupling throughout simulation:**
 
-The most common protocol: coupling switches instantly from 0 to a target value.
+.. code-block:: python
 
-Basic Example
--------------
+   from cavitymd.variants import ConstantVariant
+   from cavitymd.forces import CavityForce
+   
+   # Constant coupling
+   coupling = ConstantVariant(value=0.001)
+   
+   cavity_force = CavityForce(
+       kvector=[0, 0, 1],
+       couplstr=coupling,
+       omegac=omega_c,
+       phmass=1.0
+   )
 
-**Command:**
+**Use when**: Standard equilibrium simulations with fixed coupling.
 
-.. code-block:: bash
+StepVariant
+-----------
 
-   python examples/05_advanced_run.py \
-       --coupling 1e-3 \
-       --switch-time 10.0 \
-       --runtime 500 \
-       --temperature 100
+**Instantaneous switch at specified time:**
+
+.. code-block:: python
+
+   from cavitymd.variants import StepVariant
+   
+   # Switch coupling at t = 10 ps
+   coupling = StepVariant(
+       target_value=0.001,
+       switch_time_ps=10.0,
+       time_tracker=time_tracker
+   )
 
 **Protocol:**
 
 .. math::
 
    g(t) = \begin{cases}
-   0 & \text{if } t < 10 \text{ ps} \\
-   10^{-3} & \text{if } t \geq 10 \text{ ps}
+   0 & t < t_{\text{switch}} \\
+   g_0 & t \geq t_{\text{switch}}
    \end{cases}
 
-**Timeline:**
-
-1. **t = 0-10 ps:** Equilibration without cavity (free molecular dynamics)
-2. **t = 10 ps:** Coupling switches ON instantaneously
-3. **t = 10-500 ps:** Evolution with cavity coupling active
-
-Expected Behavior
------------------
-
-**Before Switch (t < 10 ps):**
-
-- Pure molecular dynamics
-- No cavity energy
-- No coupling energy
-- System equilibrates at target temperature
-
-**At Switch (t = 10 ps):**
-
-- Instantaneous parameter change
-- Cavity particle may jump (finite-q mode)
-- Energy redistributes between molecular and cavity DOF
-- Total energy conserved
-
-**After Switch (t > 10 ps):**
-
-- Coupled molecular-cavity dynamics
-- Energy oscillates between molecules and cavity
-- System approaches new equilibrium
-- Observables may show transient behavior
-
-Analyzing Switch Dynamics
---------------------------
-
-**Load and visualize:**
-
-.. code-block:: python
-
-   import numpy as np
-   import matplotlib.pyplot as plt
-   
-   # Load energy data
-   data = np.loadtxt('cavity_coupling_1e-03_switch_10.0ps/prod-1_energy_tracker.txt',
-                     skiprows=1, delimiter='\t')
-   
-   time = data[:, 0]
-   E_kinetic = data[:, 1]
-   E_potential = data[:, 2]
-   E_cavity = data[:, 3]
-   E_coupling = data[:, 4]
-   E_self = data[:, 5]
-   E_total = data[:, 6]
-   
-   # Find switch point
-   switch_idx = np.argmin(np.abs(time - 10.0))
-   
-   # Create figure
-   fig, axes = plt.subplots(3, 1, figsize=(12, 10))
-   
-   # Plot 1: Total energy (conservation check)
-   axes[0].plot(time, E_total, 'k-', linewidth=2)
-   axes[0].axvline(10.0, color='r', linestyle='--', alpha=0.7, 
-                   label='Switch time')
-   axes[0].set_ylabel('Total Energy', fontsize=12)
-   axes[0].set_title('Energy Conservation Check', fontsize=14)
-   axes[0].legend()
-   axes[0].grid(True, alpha=0.3)
-   
-   # Plot 2: Molecular vs Cavity energy
-   axes[1].plot(time, E_kinetic + E_potential, label='Molecular', linewidth=2)
-   axes[1].plot(time, E_cavity, label='Cavity', linewidth=2)
-   axes[1].axvline(10.0, color='r', linestyle='--', alpha=0.7)
-   axes[1].set_ylabel('Energy', fontsize=12)
-   axes[1].set_title('Energy Partitioning', fontsize=14)
-   axes[1].legend()
-   axes[1].grid(True, alpha=0.3)
-   
-   # Plot 3: Cavity-related terms
-   axes[2].plot(time, E_cavity, label='Cavity harmonic', linewidth=2)
-   axes[2].plot(time, E_coupling, label='Coupling', linewidth=2)
-   axes[2].plot(time, E_self, label='Self-energy', linewidth=2)
-   axes[2].axvline(10.0, color='r', linestyle='--', alpha=0.7)
-   axes[2].set_xlabel('Time (ps)', fontsize=12)
-   axes[2].set_ylabel('Energy', fontsize=12)
-   axes[2].set_title('Cavity Energy Components', fontsize=14)
-   axes[2].legend()
-   axes[2].grid(True, alpha=0.3)
-   
-   plt.tight_layout()
-   plt.savefig('switch_dynamics.png', dpi=300)
-   plt.show()
-
-**Quantifying the response:**
-
-.. code-block:: python
-
-   # Calculate energy transfer
-   E_mol_before = (E_kinetic + E_potential)[switch_idx-100:switch_idx].mean()
-   E_mol_after = (E_kinetic + E_potential)[switch_idx+100:switch_idx+200].mean()
-   E_cav_after = E_cavity[switch_idx+100:switch_idx+200].mean()
-   
-   energy_transferred = E_mol_before - E_mol_after
-   cavity_fraction = E_cav_after / (E_mol_after + E_cav_after) * 100
-   
-   print(f"Energy transferred to cavity: {energy_transferred:.2f}")
-   print(f"Cavity energy fraction: {cavity_fraction:.1f}%")
-   
-   # Relaxation time
-   # Fit exponential decay to approach equilibrium
-   from scipy.optimize import curve_fit
-   
-   def exponential(t, A, tau, offset):
-       return A * np.exp(-t/tau) + offset
-   
-   # Use coupling energy as observable
-   t_fit = time[switch_idx:switch_idx+1000] - time[switch_idx]
-   E_fit = E_coupling[switch_idx:switch_idx+1000]
-   
-   try:
-       popt, _ = curve_fit(exponential, t_fit, E_fit, 
-                          p0=[E_fit[0], 10.0, E_fit[-100:].mean()])
-       tau_relax = popt[1]
-       print(f"Relaxation time: {tau_relax:.2f} ps")
-   except:
-       print("Could not fit relaxation time")
-
-Cavity Particle Jump (Finite-q Mode)
--------------------------------------
-
-**In finite-q mode, cavity particles jump at switch time.**
+**Command-line usage:**
 
 .. code-block:: bash
 
    python examples/05_advanced_run.py \
        --coupling 1e-3 \
        --switch-time 10.0 \
-       --finite-q \
        --runtime 500
 
-**Observing the jump:**
+**Applications**:
+- Pump-probe simulations
+- Sudden quench experiments
+- Coupling activation studies
 
-.. code-block:: python
+Periodic Variants
+=================
 
-   import gsd.hoomd
-   
-   # Load trajectory
-   traj = gsd.hoomd.open('cavity_coupling_1e-03_switch_10.0ps/prod-1.gsd')
-   
-   # Extract cavity positions
-   cavity_x_positions = []
-   times = []
-   
-   for frame in traj:
-       # Cavity particles are last 2 particles
-       cavity_particle = frame.particles.position[-2]  # X-polarization
-       cavity_x_positions.append(cavity_particle[0])
-       times.append(frame.configuration.step * 0.001)  # Convert to ps
-   
-   cavity_x_positions = np.array(cavity_x_positions)
-   times = np.array(times)
-   
-   # Plot
-   plt.figure(figsize=(12, 6))
-   plt.plot(times, cavity_x_positions, linewidth=2)
-   plt.axvline(10.0, color='r', linestyle='--', linewidth=2, 
-               alpha=0.7, label='Switch time')
-   plt.xlabel('Time (ps)', fontsize=14)
-   plt.ylabel('Cavity X Position', fontsize=14)
-   plt.title('Cavity Particle Jump at Switch', fontsize=16)
-   plt.legend(fontsize=12)
-   plt.grid(True, alpha=0.3)
-   plt.tight_layout()
-   plt.savefig('cavity_jump.png', dpi=300)
-   plt.show()
+PeriodicVariant
+---------------
 
-**Why does it jump?**
-
-The equilibrium position changes from :math:`\vec{q}=0` (g=0) to:
-
-.. math::
-
-   \vec{q}_{\text{eq}} = -\frac{g}{K} \vec{D}_{\text{total}}
-
-where :math:`\vec{D}_{\text{total}}` is the total molecular dipole moment at t=10 ps.
-
-Multiple Switch Times
----------------------
-
-**Comparing different switch times:**
-
-.. code-block:: bash
-
-   # Early switch (fast response)
-   python examples/05_advanced_run.py --coupling 1e-3 --switch-time 1.0 --runtime 500
-   
-   # Medium switch (standard)
-   python examples/05_advanced_run.py --coupling 1e-3 --switch-time 10.0 --runtime 500
-   
-   # Late switch (long equilibration)
-   python examples/05_advanced_run.py --coupling 1e-3 --switch-time 100.0 --runtime 500
-
-**Analysis:**
-
-.. code-block:: python
-
-   switch_times = [1.0, 10.0, 100.0]
-   colors = ['blue', 'green', 'red']
-   
-   plt.figure(figsize=(12, 6))
-   
-   for switch_time, color in zip(switch_times, colors):
-       dir_name = f'cavity_coupling_1e-03_switch_{switch_time}ps'
-       data = np.loadtxt(f'{dir_name}/prod-1_energy_tracker.txt',
-                        skiprows=1, delimiter='\t')
-       
-       time = data[:, 0]
-       E_coupling = data[:, 4]
-       
-       plt.plot(time, E_coupling, color=color, linewidth=2,
-               label=f'Switch at {switch_time} ps')
-       plt.axvline(switch_time, color=color, linestyle='--', alpha=0.5)
-   
-   plt.xlabel('Time (ps)', fontsize=14)
-   plt.ylabel('Coupling Energy', fontsize=14)
-   plt.title('Effect of Switch Time on Coupling Energy', fontsize=16)
-   plt.legend(fontsize=12)
-   plt.grid(True, alpha=0.3)
-   plt.tight_layout()
-   plt.savefig('switch_time_comparison.png', dpi=300)
-   plt.show()
-
-Common Protocols
-================
-
-Exponential Decay
------------------
-
-**Simulates cavity mode decay or detuning.**
-
-**Python API (required):**
-
-.. code-block:: python
-
-   from cavitymd.variants import ExponentialDecayVariant
-   from hoomd.cavitymd.forces import CavityForce
-   
-   # Create decay variant
-   decay_variant = ExponentialDecayVariant(
-       initial_value=1e-3,      # Starting coupling
-       final_value=1e-4,        # Final coupling (10x weaker)
-       decay_time_ps=40.0,      # Decay timescale
-       start_time_ps=10.0,      # When decay starts
-       dt_ps=0.001              # Simulation timestep
-   )
-   
-   # Create cavity force with variant
-   cavity_force = CavityForce(
-       kvector=[0, 0, 0],
-       couplstr=decay_variant,
-       omegac=0.01,
-       phmass=1.0
-   )
-   
-   # ... rest of simulation setup ...
-
-**Decay function:**
-
-.. math::
-
-   g(t) = g_{\text{final}} + (g_{\text{initial}} - g_{\text{final}}) e^{-(t-t_0)/\tau}
-
-for :math:`t \geq t_0`, where :math:`\tau` is the decay time.
-
-Square Wave (Periodic On-Off)
-------------------------------
-
-**Alternating coupling for pulsed experiments.**
-
-**Python API:**
-
-.. code-block:: python
-
-   from cavitymd.variants import SquareWaveVariant
-   
-   # Create square wave
-   square_wave = SquareWaveVariant(
-       amplitude=1e-3,        # Coupling strength when ON
-       period_ps=20.0,        # Total period (ON + OFF)
-       duty_cycle=0.5,        # 50% ON, 50% OFF
-       dt_ps=0.001
-   )
-   
-   cavity_force = CavityForce(
-       kvector=[0, 0, 0],
-       couplstr=square_wave,
-       omegac=0.01,
-       phmass=1.0
-   )
-
-**Pattern:**
-
-- t=0-10 ps: g = 1e-3 (ON)
-- t=10-20 ps: g = 0 (OFF)
-- t=20-30 ps: g = 1e-3 (ON)
-- ...
-
-Sinusoidal Modulation
-----------------------
-
-**Smoothly varying coupling.**
-
-**Python API:**
+**Sinusoidal modulation:**
 
 .. code-block:: python
 
    from cavitymd.variants import PeriodicVariant
    
-   # Create sinusoidal modulation
-   periodic = PeriodicVariant(
-       amplitude=5e-4,           # Amplitude of oscillation
-       frequency_cm=100.0,       # Modulation frequency
-       phase_rad=0.0,            # Initial phase
-       offset=5e-4,              # DC offset (average coupling)
-       dt_ps=0.001
-   )
-   
-   cavity_force = CavityForce(
-       kvector=[0, 0, 0],
-       couplstr=periodic,
-       omegac=0.01,
-       phmass=1.0
+   # Sine wave modulation
+   coupling = PeriodicVariant(
+       amplitude=0.001,
+       frequency_hz=1e12,      # 1 THz
+       phase=0.0,              # Initial phase
+       offset=0.0005,          # DC offset
+       time_tracker=time_tracker
    )
 
-**Function:**
+**Protocol:**
 
 .. math::
 
-   g(t) = g_0 + A \sin(2\pi f t + \phi)
+   g(t) = A \sin(2\pi f t + \phi) + g_{\text{offset}}
 
-where:
-- :math:`g_0` = offset
-- :math:`A` = amplitude
-- :math:`f` = frequency
-- :math:`\phi` = phase
+**Parameters**:
+- ``amplitude``: Oscillation amplitude
+- ``frequency_hz``: Modulation frequency (Hz)
+- ``phase``: Initial phase (radians)
+- ``offset``: DC offset (mean coupling)
 
-Analyzing Non-Equilibrium Data
-===============================
+**Applications**:
+- AC-driven cavity coupling
+- Frequency response analysis
+- Floquet engineering
 
-Time-Resolved Observable
-------------------------
-
-**Computing running averages:**
+**Example - Temperature control via modulation:**
 
 .. code-block:: python
 
-   def running_average(data, window_size):
-       """Calculate running average with given window size."""
-       cumsum = np.cumsum(np.insert(data, 0, 0))
-       return (cumsum[window_size:] - cumsum[:-window_size]) / window_size
-   
-   # Load temperature data
-   data = np.loadtxt('molecular_temps.csv', skiprows=1, delimiter=',')
-   time = data[:, 0]
-   T_vib = data[:, 3]
-   
-   # Apply running average (10 ps window)
-   window_size = int(10.0 / (time[1] - time[0]))
-   T_vib_smooth = running_average(T_vib, window_size)
-   time_smooth = time[window_size//2:-window_size//2+1]
-   
-   # Plot
-   plt.figure(figsize=(12, 6))
-   plt.plot(time, T_vib, alpha=0.3, label='Raw')
-   plt.plot(time_smooth, T_vib_smooth, linewidth=2, label='10 ps average')
-   plt.axvline(10.0, color='r', linestyle='--', label='Switch')
-   plt.xlabel('Time (ps)')
-   plt.ylabel('Vibrational Temperature (K)')
-   plt.legend()
-   plt.grid(True, alpha=0.3)
-   plt.show()
+   # Modulate coupling to control heating/cooling
+   coupling = PeriodicVariant(
+       amplitude=0.0005,
+       frequency_hz=5e11,  # 0.5 THz
+       offset=0.001,
+       time_tracker=time_tracker
+   )
 
-Transient Response Time
+SquareWaveVariant
+-----------------
+
+**Square wave modulation with controllable duty cycle:**
+
+.. code-block:: python
+
+   from cavitymd.variants import SquareWaveVariant
+   
+   # Square wave coupling
+   coupling = SquareWaveVariant(
+       amplitude=0.001,
+       frequency_hz=1e12,      # 1 THz period
+       duty_cycle=0.5,         # 50% on, 50% off
+       phase_offset=0.0,
+       time_tracker=time_tracker
+   )
+
+**Protocol:**
+
+.. math::
+
+   g(t) = \begin{cases}
+   A & \text{if } (t \mod T) < T \cdot d \\
+   0 & \text{otherwise}
+   \end{cases}
+
+where :math:`T = 1/f` and :math:`d` is duty cycle.
+
+**Parameters**:
+- ``amplitude``: Coupling when "on"
+- ``frequency_hz``: Switching frequency
+- ``duty_cycle``: Fraction of period with coupling ON (0-1)
+- ``phase_offset``: Phase shift
+
+**Applications**:
+- Pulsed coupling experiments
+- Intermittent cavity exposure
+- Duty-cycle-dependent heating studies
+
+**Example - Pulsed protocol:**
+
+.. code-block:: python
+
+   # 10% duty cycle: short pulses
+   coupling = SquareWaveVariant(
+       amplitude=0.01,      # Strong when on
+       frequency_hz=1e12,
+       duty_cycle=0.1,      # On 10% of time
+       time_tracker=time_tracker
+   )
+
+Decay Variants
+==============
+
+ExponentialDecayVariant
 -----------------------
 
-**Measuring equilibration time after switch:**
+**Exponential decay from initial to final value:**
 
 .. code-block:: python
 
-   from scipy.optimize import curve_fit
+   from cavitymd.variants import ExponentialDecayVariant
    
-   # Exponential approach to equilibrium
-   def approach_equilibrium(t, A, tau, T_eq):
-       return T_eq + A * np.exp(-t/tau)
-   
-   # Extract post-switch data
-   switch_time = 10.0
-   mask = (time > switch_time) & (time < switch_time + 100.0)
-   t_fit = time[mask] - switch_time
-   T_fit = T_vib[mask]
-   
-   # Fit
-   try:
-       popt, pcov = curve_fit(approach_equilibrium, t_fit, T_fit,
-                             p0=[T_fit[0]-T_fit[-1], 20.0, T_fit[-1]])
-       
-       A, tau, T_eq = popt
-       A_err, tau_err, T_eq_err = np.sqrt(np.diag(pcov))
-       
-       print(f"Equilibration time: {tau:.2f} ± {tau_err:.2f} ps")
-       print(f"Equilibrium temperature: {T_eq:.2f} ± {T_eq_err:.2f} K")
-       
-       # Plot fit
-       t_theory = np.linspace(0, 100, 1000)
-       T_theory = approach_equilibrium(t_theory, A, tau, T_eq)
-       
-       plt.figure(figsize=(10, 6))
-       plt.plot(t_fit, T_fit, 'o', alpha=0.5, label='Data')
-       plt.plot(t_theory, T_theory, 'r-', linewidth=2, 
-               label=f'Fit (τ={tau:.1f} ps)')
-       plt.xlabel('Time after switch (ps)')
-       plt.ylabel('Temperature (K)')
-       plt.legend()
-       plt.grid(True, alpha=0.3)
-       plt.show()
-       
-   except Exception as e:
-       print(f"Fit failed: {e}")
+   # Exponentially decaying coupling
+   coupling = ExponentialDecayVariant(
+       initial_value=0.01,         # Strong initial coupling
+       final_value=0.001,          # Weak final coupling
+       decay_constant_ps=20.0,     # Time constant
+       start_time_ps=10.0,         # Start decay
+       time_tracker=time_tracker
+   )
 
-Energy Flow Analysis
---------------------
+**Protocol:**
 
-**Tracking energy flow between subsystems:**
+.. math::
+
+   g(t) = \begin{cases}
+   g_0 & t < t_0 \\
+   g_f + (g_0 - g_f) e^{-(t-t_0)/\tau} & t \geq t_0
+   \end{cases}
+
+**Parameters**:
+- ``initial_value``: Starting coupling
+- ``final_value``: Asymptotic coupling
+- ``decay_constant_ps``: Time constant τ
+- ``start_time_ps``: When decay begins
+
+**Applications**:
+- Gradual coupling reduction
+- Adiabatic switching
+- Cooling protocols
+
+**Example - Adiabatic turn-off:**
 
 .. code-block:: python
 
-   # Load energy data
-   data = np.loadtxt('prod-1_energy_tracker.txt', skiprows=1, delimiter='\t')
-   
-   time = data[:, 0]
-   E_molecular = data[:, 1] + data[:, 2]  # Kinetic + potential
-   E_cavity = data[:, 3]  # Cavity harmonic
-   
-   # Calculate energy flow rate
-   dt = time[1] - time[0]
-   dE_mol_dt = np.gradient(E_molecular, dt)
-   dE_cav_dt = np.gradient(E_cavity, dt)
-   
-   # Find switch point
-   switch_idx = np.argmin(np.abs(time - 10.0))
-   
-   # Plot around switch
-   plot_range = slice(switch_idx-500, switch_idx+2000)
-   
-   fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8))
-   
-   # Energy
-   ax1.plot(time[plot_range], E_molecular[plot_range], 
-           label='Molecular', linewidth=2)
-   ax1.plot(time[plot_range], E_cavity[plot_range], 
-           label='Cavity', linewidth=2)
-   ax1.axvline(10.0, color='r', linestyle='--', alpha=0.7)
-   ax1.set_ylabel('Energy', fontsize=12)
-   ax1.set_title('Energy Distribution', fontsize=14)
-   ax1.legend()
-   ax1.grid(True, alpha=0.3)
-   
-   # Energy flow rate
-   ax2.plot(time[plot_range], dE_mol_dt[plot_range], 
-           label='Molecular dE/dt', linewidth=2)
-   ax2.plot(time[plot_range], dE_cav_dt[plot_range], 
-           label='Cavity dE/dt', linewidth=2)
-   ax2.axvline(10.0, color='r', linestyle='--', alpha=0.7)
-   ax2.axhline(0, color='k', linestyle=':', alpha=0.5)
-   ax2.set_xlabel('Time (ps)', fontsize=12)
-   ax2.set_ylabel('Energy Flow Rate', fontsize=12)
-   ax2.set_title('Energy Exchange Rate', fontsize=14)
-   ax2.legend()
-   ax2.grid(True, alpha=0.3)
-   
-   plt.tight_layout()
-   plt.show()
+   # Slowly reduce coupling to final state
+   coupling = ExponentialDecayVariant(
+       initial_value=0.005,
+       final_value=0.0,       # Turn off completely
+       decay_constant_ps=50.0,  # Slow decay
+       start_time_ps=100.0,
+       time_tracker=time_tracker
+   )
 
-Troubleshooting
-===============
+DecayingSquareWaveVariant
+--------------------------
 
-Energy Conservation Issues
----------------------------
+**Square wave with exponentially decaying amplitude:**
 
-**Problem:** Energy drifts after switch.
+.. code-block:: python
 
-**Solutions:**
-
-1. **Reduce timestep:**
+   from cavitymd.variants import DecayingSquareWaveVariant
    
-   Smaller timestep improves energy conservation.
+   # Decaying pulsed coupling
+   coupling = DecayingSquareWaveVariant(
+       initial_amplitude=0.01,
+       final_amplitude=0.001,
+       frequency_hz=1e12,
+       duty_cycle=0.5,
+       decay_constant_ps=30.0,
+       start_time_ps=10.0,
+       time_tracker=time_tracker
+   )
 
-2. **Check initial configuration:**
+**Protocol:**
+
+.. math::
+
+   A(t) = A_f + (A_0 - A_f) e^{-(t-t_0)/\tau}
+
+   g(t) = \begin{cases}
+   A(t) & \text{during "on" phase} \\
+   0 & \text{during "off" phase}
+   \end{cases}
+
+**Applications**:
+- Decaying pulse trains
+- Realistic laser pulse sequences
+- Progressive weakening of modulation
+
+Adaptive Variants
+=================
+
+AdaptiveSquareWaveVariant
+--------------------------
+
+**Square wave with temperature-dependent amplitude:**
+
+.. code-block:: python
+
+   from cavitymd.variants import AdaptiveSquareWaveVariant
    
-   Ensure molecules are well-equilibrated before switch.
+   # Temperature-adaptive coupling
+   coupling = AdaptiveSquareWaveVariant(
+       base_amplitude=0.001,
+       frequency_hz=1e12,
+       duty_cycle=0.5,
+       temperature_tracker=temp_tracker,
+       target_temperature=100.0,
+       adaptation_gain=0.1,      # Feedback strength
+       time_tracker=time_tracker
+   )
 
-3. **Verify switch implementation:**
+**Protocol:**
+
+.. math::
+
+   A(t) = A_{\text{base}} \times \left[1 + K \cdot \frac{T_{\text{target}} - T(t)}{T_{\text{target}}}\right]
+
+Square wave amplitude adapts based on temperature error.
+
+**Parameters**:
+- ``base_amplitude``: Nominal amplitude
+- ``target_temperature``: Desired temperature
+- ``adaptation_gain``: Feedback strength K
+- ``temperature_tracker``: Source of T(t)
+
+**Applications**:
+- Automatic temperature control
+- Self-regulating systems
+- Adaptive heating/cooling
+
+**Example - Temperature stabilization:**
+
+.. code-block:: python
+
+   # Coupling increases when cold, decreases when hot
+   coupling = AdaptiveSquareWaveVariant(
+       base_amplitude=0.001,
+       target_temperature=100.0,
+       adaptation_gain=0.2,      # Strong feedback
+       temperature_tracker=temp_tracker,
+       time_tracker=time_tracker
+   )
+
+ExponentialWaveVariant
+----------------------
+
+**Exponential modulation patterns:**
+
+.. code-block:: python
+
+   from cavitymd.variants import ExponentialWaveVariant
    
-   In finite-q mode, cavity particle must jump correctly.
+   # Exponentially modulated coupling
+   coupling = ExponentialWaveVariant(
+       amplitude=0.001,
+       growth_rate=0.1,          # Growth/decay rate
+       frequency_hz=1e12,
+       time_tracker=time_tracker
+   )
 
-Unexpected Dynamics
+**Protocol:**
+
+.. math::
+
+   g(t) = A \cdot e^{\alpha t} \cdot \sin(2\pi f t)
+
+**Applications**:
+- Growing/decaying oscillations
+- Chirped pulses
+- Exponentially ramped protocols
+
+Scaling Variants
+================
+
+LambdaScaledVariant
 -------------------
 
-**Problem:** System behavior doesn't make physical sense.
+**Automatic scaling by cavity frequency for physical units:**
 
-**Checklist:**
+.. code-block:: python
 
-1. **Verify switch time in output:**
+   from cavitymd.variants import LambdaScaledVariant
    
-   Check that coupling actually switches at intended time.
-
-2. **Check coupling strength:**
+   # Lambda coupling (dimensionless)
+   lambda_variant = StepVariant(target_value=0.05, switch_time_ps=10.0, time_tracker=time_tracker)
    
-   Very strong coupling (>10⁻²) may cause numerical instability.
-
-3. **Equilibration before switch:**
+   # Automatically scaled: epsilon = lambda * omega_c
+   coupling = LambdaScaledVariant(
+       lambda_variant=lambda_variant,
+       omega_c=omega_cavity  # In atomic units
+   )
    
-   System should be at equilibrium before coupling switches.
+   cavity_force = CavityForce(
+       kvector=[0, 0, 1],
+       couplstr=coupling,  # Uses scaled value
+       omegac=omega_c,
+       phmass=1.0
+   )
 
-4. **Thermostat settings:**
+**Purpose**: Maintain physical meaning when changing cavity frequency.
+
+**Relation**:
+
+.. math::
+
+   \epsilon(t) = \lambda(t) \cdot \omega_c
+
+where λ is dimensionless coupling strength.
+
+Composite Variants
+==================
+
+Combine Multiple Protocols
+---------------------------
+
+**Sequential composition:**
+
+.. code-block:: python
+
+   from cavitymd import CompositeVariant
+   from cavitymd.variants import StepVariant, ExponentialDecayVariant
    
-   Thermostats affect relaxation dynamics.
-
-Numerical Instabilities
------------------------
-
-**Problem:** NaN energies or particle overlaps after switch.
-
-**Solutions:**
-
-1. **Smaller timestep:**
+   # Phase 1: Step up
+   step_up = StepVariant(target_value=0.01, switch_time_ps=10.0, time_tracker=time_tracker)
    
-   Reduce from 0.001 ps to 0.0005 ps or smaller.
-
-2. **Gradual switch:**
+   # Phase 2: Decay down
+   decay = ExponentialDecayVariant(
+       initial_value=0.01,
+       final_value=0.001,
+       decay_constant_ps=20.0,
+       start_time_ps=50.0,
+       time_tracker=time_tracker
+   )
    
-   Use exponential approach instead of step function.
+   # Combine
+   coupling = CompositeVariant(
+       variants=[step_up, decay],
+       transition_times=[10.0, 50.0]
+   )
 
-3. **Check cavity frequency:**
+**Weighted combination:**
+
+.. code-block:: python
+
+   # Superpose two frequencies
+   coupling1 = PeriodicVariant(amplitude=0.0005, frequency_hz=1e12, time_tracker=time_tracker)
+   coupling2 = PeriodicVariant(amplitude=0.0003, frequency_hz=2e12, time_tracker=time_tracker)
    
-   Very high frequencies require smaller timesteps.
+   coupling = CompositeVariant(
+       variants=[coupling1, coupling2],
+       weights=[1.0, 1.0],  # Equal weight
+       operation='add'
+   )
+
+Practical Examples
+==================
+
+Example 1: Pump-Probe Simulation
+---------------------------------
+
+**Protocol**: Strong pulse, then weak coupling
+
+.. code-block:: python
+
+   from cavitymd.variants import DecayingSquareWaveVariant
+   
+   # Strong initial pulse train, decaying to weak coupling
+   coupling = DecayingSquareWaveVariant(
+       initial_amplitude=0.01,    # Strong pump
+       final_amplitude=0.0005,    # Weak probe
+       frequency_hz=5e11,
+       duty_cycle=0.3,
+       decay_constant_ps=10.0,
+       start_time_ps=5.0,
+       time_tracker=time_tracker
+   )
+   
+   # Run simulation
+   sim.run(100000)  # 100 ps
+
+Example 2: Temperature Control
+-------------------------------
+
+**Protocol**: Adaptive square wave maintains 100K
+
+.. code-block:: python
+
+   from cavitymd.variants import AdaptiveSquareWaveVariant
+   from cavitymd.analysis import TemperatureTracker
+   
+   # Setup temperature tracking
+   temp_tracker = TemperatureTracker(sim, time_tracker)
+   
+   # Adaptive coupling for temperature control
+   coupling = AdaptiveSquareWaveVariant(
+       base_amplitude=0.001,
+       target_temperature=100.0,
+       adaptation_gain=0.15,
+       frequency_hz=1e12,
+       duty_cycle=0.5,
+       temperature_tracker=temp_tracker,
+       time_tracker=time_tracker
+   )
+   
+   # Coupling automatically adjusts to maintain T = 100K
+   sim.run(500000)
+
+Example 3: Adiabatic Switching
+-------------------------------
+
+**Protocol**: Slowly ramp coupling on, then off
+
+.. code-block:: python
+
+   from cavitymd.variants import ExponentialDecayVariant
+   from cavitymd import CompositeVariant
+   
+   # Ramp up (inverse decay)
+   ramp_up = ExponentialDecayVariant(
+       initial_value=0.0,
+       final_value=0.005,
+       decay_constant_ps=30.0,
+       start_time_ps=10.0,
+       time_tracker=time_tracker
+   )
+   
+   # Hold constant
+   constant = ConstantVariant(value=0.005)
+   
+   # Ramp down
+   ramp_down = ExponentialDecayVariant(
+       initial_value=0.005,
+       final_value=0.0,
+       decay_constant_ps=30.0,
+       start_time_ps=200.0,
+       time_tracker=time_tracker
+   )
+   
+   # Sequential protocol
+   coupling = CompositeVariant(
+       variants=[ramp_up, constant, ramp_down],
+       transition_times=[10.0, 100.0, 200.0]
+   )
 
 Best Practices
 ==============
 
-1. **Always run control simulations:**
-   
-   Compare with constant coupling at same parameters.
+Choosing the Right Variant
+---------------------------
 
-2. **Verify energy conservation:**
-   
-   Total energy should not drift more than 0.01%.
+**Decision tree:**
 
-3. **Allow sufficient equilibration:**
-   
-   Let system equilibrate >50 ps before switch.
+1. **Fixed coupling?** → ConstantVariant
+2. **Sudden change?** → StepVariant
+3. **Periodic?** 
+   - Smooth: PeriodicVariant
+   - Pulsed: SquareWaveVariant
+4. **Gradual change?** → ExponentialDecayVariant
+5. **Need adaptation?** → AdaptiveSquareWaveVariant
+6. **Complex protocol?** → CompositeVariant
 
-4. **Multiple replicas:**
-   
-   Run several independent simulations for statistics.
+Time Scale Considerations
+--------------------------
 
-5. **Document parameters:**
-   
-   Record all parameters: coupling, switch time, thermostats, etc.
+**Match time scales to physics:**
 
-6. **Check phase space:**
-   
-   Visualize trajectories to spot anomalies.
+- **Step changes**: Instantaneous compared to molecular timescales
+- **Periodic modulation**: Match molecular vibrational periods (0.01-1 ps)
+- **Exponential decay**: Choose τ >> molecular relaxation time for adiabatic
+- **Adaptive feedback**: Update interval ~ 0.1-1 ps
 
-7. **Save frequently:**
+**Example:**
+
+.. code-block:: python
+
+   # For molecular vibration ~20 cm⁻¹ (~1.5 ps period)
    
-   Output trajectory at high frequency around switch.
+   # Too fast (non-adiabatic)
+   decay = ExponentialDecayVariant(..., decay_constant_ps=0.1)
+   
+   # Good (adiabatic)
+   decay = ExponentialDecayVariant(..., decay_constant_ps=15.0)
+
+Analysis and Visualization
+---------------------------
+
+**Plot coupling vs time:**
+
+.. code-block:: python
+
+   import matplotlib.pyplot as plt
+   
+   # Extract coupling history
+   times = []
+   couplings = []
+   
+   for timestep in range(sim.timestep, final_timestep):
+       t_ps = timestep * sim.dt * 0.001  # Convert to ps
+       g_t = coupling_variant.compute(t_ps)
+       times.append(t_ps)
+       couplings.append(g_t)
+   
+   # Plot
+   plt.plot(times, couplings)
+   plt.xlabel('Time (ps)')
+   plt.ylabel('Coupling Strength (a.u.)')
+   plt.title('Time-Varying Coupling Protocol')
+
+**Monitor energy during protocol:**
+
+.. code-block:: python
+
+   # Load energy tracker data
+   data = np.loadtxt('energy_tracker.txt')
+   time = data[:, 0]
+   total_energy = data[:, -1]
+   
+   # Plot energy conservation
+   plt.plot(time, total_energy - total_energy[0])
+   plt.xlabel('Time (ps)')
+   plt.ylabel('$\\Delta E$ (a.u.)')
+   plt.axvline(x=10.0, color='r', linestyle='--', label='Switch')
+
+Troubleshooting
+===============
+
+Common Issues
+-------------
+
+**1. Energy not conserved:**
+
+- Check if thermostat is interfering
+- Verify timestep is small enough
+- Ensure variant is properly configured
+
+**2. Unphysical coupling values:**
+
+- Check amplitude/target_value is reasonable
+- Verify units (atomic units for coupling)
+- Monitor for numerical overflow
+
+**3. Adaptive variant not converging:**
+
+- Reduce adaptation_gain
+- Increase update_interval
+- Check temperature_tracker is working
+
+**4. Composite variant conflicts:**
+
+- Verify transition times are ordered
+- Check variants don't contradict
+- Test each variant individually first
 
 Next Steps
 ==========
 
-You now know how to:
-
-- Run step function coupling experiments
-- Handle cavity particle jumps in finite-q mode
-- Implement various coupling protocols
-- Analyze non-equilibrium dynamics
-- Troubleshoot common issues
-
-Continue to:
-
-- :doc:`../part2_theory/time_varying_coupling` for theoretical details
-- :doc:`../part2_theory/energy_conservation` for energy conservation theory
-- :doc:`../part3_advanced/fdr_temperature` for non-equilibrium temperature measurement
-- :doc:`analysis_tools` for general analysis techniques
-
+- :doc:`running_simulations` for basic simulation setup
+- :doc:`analysis_tools` for analyzing results
+- :doc:`../part2_theory/time_varying_coupling` for theoretical background
+- :doc:`../part3_advanced/controllers` for advanced control strategies
+- :doc:`../api/index` for complete API reference
