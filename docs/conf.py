@@ -147,7 +147,7 @@ if needs_mocking:
         mock_bussi = ModuleType('bussi_reservoir')
         
         # Create mock submodules and classes
-        for submodule in ['analysis', 'forces', 'simulation', 'utils', 'variants', 'updaters', 'controllers', 'data']:
+        for submodule in ['analysis', 'forces', 'simulation', 'utils', 'variants', 'updaters', 'controllers', 'data', 'experiment']:
             mock_submodule = ModuleType(f'cavitymd.{submodule}')
             setattr(mock_cavitymd, submodule, mock_submodule)
             sys.modules[f'hoomd.cavitymd.{submodule}'] = mock_submodule
@@ -182,6 +182,10 @@ if needs_mocking:
                 mock_submodule.SimpleSetpointController = type('SimpleSetpointController', (), {})
             elif submodule == 'data':
                 mock_submodule.ObservableWriter = type('ObservableWriter', (), {})
+                mock_submodule.ObservableReader = type('ObservableReader', (), {})
+            elif submodule == 'experiment':
+                mock_submodule.ExperimentManager = type('ExperimentManager', (), {})
+                mock_submodule.ParameterSweep = type('ParameterSweep', (), {})
             elif submodule == 'utils':
                 mock_submodule.PhysicalConstants = type('PhysicalConstants', (), {})
                 mock_submodule.unwrap_positions = lambda x, y, z: x
