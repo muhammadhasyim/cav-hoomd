@@ -68,8 +68,15 @@ if needs_mocking:
         print(" HOOMD not available - creating mock base package")
         from types import ModuleType
         hoomd = ModuleType('hoomd')
+        
+        # Add version attribute that plugins check
+        hoomd_version = ModuleType('hoomd.version')
+        hoomd_version.version = '4.8.2'  # Match the required version
+        hoomd.version = hoomd_version
         sys.modules['hoomd'] = hoomd
-        print(" Created mock HOOMD base package")
+        sys.modules['hoomd.version'] = hoomd_version
+        
+        print(" Created mock HOOMD base package with version info")
     
     # Import our plugins directly and register them in the hoomd namespace
     try:
@@ -140,7 +147,7 @@ if needs_mocking:
         mock_bussi = ModuleType('bussi_reservoir')
         
         # Create mock submodules and classes
-        for submodule in ['analysis', 'forces', 'simulation', 'utils', 'variants', 'updaters']:
+        for submodule in ['analysis', 'forces', 'simulation', 'utils', 'variants', 'updaters', 'controllers', 'data']:
             mock_submodule = ModuleType(f'cavitymd.{submodule}')
             setattr(mock_cavitymd, submodule, mock_submodule)
             sys.modules[f'hoomd.cavitymd.{submodule}'] = mock_submodule
@@ -159,17 +166,33 @@ if needs_mocking:
                 mock_submodule.FieldAutocorrelationTracker = type('FieldAutocorrelationTracker', (), {})
                 mock_submodule.EnergyTracker = type('EnergyTracker', (), {})
                 mock_submodule.DipoleAutocorrelation = type('DipoleAutocorrelation', (), {})
+                mock_submodule.DipoleMomentFDRTracker = type('DipoleMomentFDRTracker', (), {})
                 mock_submodule.PerformanceTracker = type('PerformanceTracker', (), {})
+                mock_submodule.TemperatureTracker = type('TemperatureTracker', (), {})
+                mock_submodule.CavityModeTracker = type('CavityModeTracker', (), {})
             elif submodule == 'variants':
                 mock_submodule.StepVariant = type('StepVariant', (), {})
                 mock_submodule.ConstantVariant = type('ConstantVariant', (), {})
             elif submodule == 'updaters':
                 mock_submodule.CavityParticleDisplacer = type('CavityParticleDisplacer', (), {})
+            elif submodule == 'controllers':
+                mock_submodule.AdaptiveMPCController = type('AdaptiveMPCController', (), {})
+                mock_submodule.DiffEqController = type('DiffEqController', (), {})
+                mock_submodule.PIDControl = type('PIDControl', (), {})
+                mock_submodule.SimpleSetpointController = type('SimpleSetpointController', (), {})
+            elif submodule == 'data':
+                mock_submodule.ObservableWriter = type('ObservableWriter', (), {})
             elif submodule == 'utils':
                 mock_submodule.PhysicalConstants = type('PhysicalConstants', (), {})
                 mock_submodule.unwrap_positions = lambda x, y, z: x
                 mock_submodule.get_slurm_info = lambda: {}
                 mock_submodule.parse_replicas = lambda x: [1]
+        
+        # Add top-level mock classes (these appear directly under cavitymd)
+        mock_cavitymd.CompositeVariant = type('CompositeVariant', (), {})
+        mock_cavitymd.FDRIntegration = type('FDRIntegration', (), {})
+        mock_cavitymd.FDRTemperatureEstimator = type('FDRTemperatureEstimator', (), {})
+        mock_cavitymd.FDRWorkflow = type('FDRWorkflow', (), {})
         
         # Add mock BussiReservoir
         mock_bussi.BussiReservoir = type('BussiReservoir', (), {})
