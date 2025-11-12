@@ -82,6 +82,13 @@ if needs_mocking:
         sys.modules['hoomd'] = hoomd
         sys.modules['hoomd.version'] = hoomd_version
         
+        # Create logging submodule (used by plugins)
+        hoomd_logging = ModuleType('hoomd.logging')
+        hoomd_logging.Logger = type('Logger', (), {})
+        hoomd_logging.log = lambda *args, **kwargs: None
+        hoomd.logging = hoomd_logging
+        sys.modules['hoomd.logging'] = hoomd_logging
+        
         # Create bussi_reservoir submodule structure
         hoomd_bussi = ModuleType('hoomd.bussi_reservoir')
         hoomd_bussi.__package__ = 'hoomd.bussi_reservoir'
@@ -92,7 +99,7 @@ if needs_mocking:
         sys.modules['hoomd.bussi_reservoir'] = hoomd_bussi
         sys.modules['hoomd.bussi_reservoir.thermostats'] = hoomd_bussi_thermostats
         
-        print(" Created mock HOOMD base package with version info and bussi_reservoir")
+        print(" Created mock HOOMD base package with version info, logging, and bussi_reservoir")
     
     # Import our plugins directly and register them in the hoomd namespace
     try:
@@ -163,7 +170,7 @@ if needs_mocking:
         mock_bussi = ModuleType('bussi_reservoir')
         
         # Create mock submodules and classes
-        for submodule in ['analysis', 'forces', 'simulation', 'utils', 'variants', 'updaters', 'controllers', 'data', 'experiment', 'state_manager']:
+        for submodule in ['analysis', 'forces', 'simulation', 'utils', 'variants', 'updaters', 'controllers', 'data', 'experiment', 'state_manager', 'validation']:
             mock_submodule = ModuleType(f'cavitymd.{submodule}')
             setattr(mock_cavitymd, submodule, mock_submodule)
             sys.modules[f'hoomd.cavitymd.{submodule}'] = mock_submodule
@@ -193,6 +200,7 @@ if needs_mocking:
                 mock_submodule.ConstantVariant = type('ConstantVariant', (), {})
             elif submodule == 'updaters':
                 mock_submodule.CavityParticleDisplacer = type('CavityParticleDisplacer', (), {})
+                mock_submodule.HarmonicBondReset = type('HarmonicBondReset', (), {})
             elif submodule == 'controllers':
                 mock_submodule.AdaptiveMPCController = type('AdaptiveMPCController', (), {})
                 mock_submodule.DiffEqController = type('DiffEqController', (), {})
@@ -207,6 +215,9 @@ if needs_mocking:
             elif submodule == 'state_manager':
                 mock_submodule.StateManager = type('StateManager', (), {})
                 mock_submodule.StateValidator = type('StateValidator', (), {})
+            elif submodule == 'validation':
+                mock_submodule.Validator = type('Validator', (), {})
+                mock_submodule.validate_system = lambda *args, **kwargs: True
             elif submodule == 'utils':
                 mock_submodule.PhysicalConstants = type('PhysicalConstants', (), {})
                 mock_submodule.unwrap_positions = lambda x, y, z: x
