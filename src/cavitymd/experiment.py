@@ -21,6 +21,7 @@ import numpy as np
 from .simulation import CavityMDSimulation
 from .validation import CavitySimulationParams
 from .analysis import PhysicalConstants
+from .utils import format_coupling_strength
 
 
 class CavityMDExperiment:
@@ -261,13 +262,13 @@ class CavityMDExperiment:
         """
         if self.params.incavity:
             # For cavity simulations, include coupling strength in directory name
-            coupling_str = f"{self.params.coupling_strength:.0e}".replace("-", "neg").replace("+", "pos")
+            coupling_str = format_coupling_strength(self.params.coupling_strength)
             if self.params.switch_time_ps is not None:
                 # Include switch time in directory name for time-varying simulations
                 switch_str = f"_switch_{self.params.switch_time_ps}ps"
-                exp_dir = Path(f"cavity_coupling_{coupling_str}{switch_str}")
+                exp_dir = Path(f"{coupling_str}{switch_str}")
             else:
-                exp_dir = Path(f"cavity_coupling_{coupling_str}")
+                exp_dir = Path(f"{coupling_str}")
         else:
             # For non-cavity simulations
             exp_dir = Path("no_cavity")

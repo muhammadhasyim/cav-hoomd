@@ -16,8 +16,6 @@ Key Features:
 - Thread-safe operations
 - ~10-100x smaller file sizes vs text files
 - Fast random access to any observable
-
-Author: CavityMD Development Team
 """
 
 import h5py
@@ -193,7 +191,7 @@ class ObservableWriter(hoomd.custom.Action):
         # Store metadata as attributes
         self.file.attrs['format_version'] = '1.0'
         self.file.attrs['output_period_ps'] = self.output_period_ps
-        self.file.attrs['creation_time'] = np.string_(np.datetime64('now').astype(str))
+        self.file.attrs['creation_time'] = np.bytes_(np.datetime64('now').astype(str), 'utf-8')
         
         # Create hierarchical group structure
         self.file.create_group('energies')

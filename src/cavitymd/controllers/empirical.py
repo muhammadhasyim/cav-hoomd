@@ -241,6 +241,8 @@ class EmpiricalTemperatureData:
             Whether to display plot interactively. Default: False
         """
         try:
+            import matplotlib
+            matplotlib.use('Agg')  # Use non-interactive backend for headless systems
             import matplotlib.pyplot as plt
             import matplotlib.style
             

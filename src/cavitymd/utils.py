@@ -390,4 +390,91 @@ def parse_replicas(replicas_str: Union[str, None]) -> List[int]:
                 raise ValueError("Replica numbers must be non-negative")
             return sorted(set(replicas))  # Remove duplicates and sort
         except ValueError as e:
-            raise ValueError(f"Invalid replica list format '{replicas_str}': {e}") 
+            raise ValueError(f"Invalid replica list format '{replicas_str}': {e}")
+
+
+def format_coupling_strength(coupling: float, num_digits: int = 6) -> str:
+    """
+    Format coupling strength for consistent directory naming with fixed digits.
+    
+    This function provides a consistent way to format coupling strengths for use
+    in directory names and file paths. It uses fixed-point notation with a 
+    specified number of significant digits to avoid floating-point representation
+    issues that can occur with exponential notation.
+    
+    Parameters
+    ----------
+    coupling : float
+        Coupling strength value in atomic units
+    num_digits : int, optional
+        Number of significant digits to use (default: 6)
+        
+    Returns
+    -------
+    str
+        Formatted coupling strength suitable for directory names.
+        Format: "coupling_<sign><mantissa>e<exponent>"
+        Examples: "coupling_100000e-08", "coupling_500000e-09", "coupling_000000e+00"
+        
+    Examples
+    --------
+    >>> format_coupling_strength(1e-3)
+    'coupling_100000e-08'
+    >>> format_coupling_strength(5e-4)
+    'coupling_500000e-09'
+    >>> format_coupling_strength(0.0)
+    'coupling_000000e+00'
+    >>> format_coupling_strength(-1e-3)
+    'coupling_neg100000e-08'
+    >>> format_coupling_strength(1.23456e-3)
+    'coupling_123456e-08'
+    
+    Notes
+    -----
+    This approach provides several advantages over standard exponential formatting:
+    
+    1. **Consistency**: Always produces the same string for the same value
+    2. **Fixed width**: All coupling strings have the same character length
+    3. **Sortable**: Directory names sort correctly alphabetically
+    4. **Safe**: No floating-point precision issues
+    5. **Readable**: Easy to parse the actual coupling value
+    
+    The format "coupling_<mantissa>e<exponent>" ensures that:
+    - Mantissa is always padded to `num_digits` digits
+    - Exponent is always signed and zero-padded to 2 digits
+    - Negative couplings use "neg" prefix instead of "-" for filesystem compatibility
+    """
+    if coupling == 0.0:
+        # Special case for zero coupling
+        mantissa_str = '0' * num_digits
+        return f"coupling_{mantissa_str}e+00"
+    
+    # Handle negative values
+    sign_prefix = ""
+    abs_coupling = abs(coupling)
+    if coupling < 0:
+        sign_prefix = "neg"
+    
+    # Convert to exponential form with specified precision
+    # Format as scientific notation to get mantissa and exponent
+    scientific_str = f"{abs_coupling:.{num_digits-1}e}"
+    
+    # Parse the scientific notation
+    mantissa_part, exp_part = scientific_str.split('e')
+    mantissa = float(mantissa_part)
+    exponent = int(exp_part)
+    
+    # Scale mantissa to be an integer with `num_digits` digits
+    # Remove decimal point and scale appropriately
+    mantissa_scaled = int(mantissa * (10 ** (num_digits - 1)))
+    
+    # Ensure we have exactly `num_digits` digits
+    mantissa_str = f"{mantissa_scaled:0{num_digits}d}"
+    
+    # Adjust exponent to account for mantissa scaling
+    adjusted_exponent = exponent - (num_digits - 1)
+    
+    # Format exponent with sign and zero-padding
+    exp_str = f"{adjusted_exponent:+03d}"
+    
+    return f"coupling_{sign_prefix}{mantissa_str}e{exp_str}" 

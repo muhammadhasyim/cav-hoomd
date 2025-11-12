@@ -15,9 +15,6 @@ Features:
 - Anti-windup for integral term
 - Filtered derivative for noise rejection
 - Output constraints and rate limiting
-
-Author: CavityMD Development Team
-Date: 2025-10-30
 """
 
 import numpy as np

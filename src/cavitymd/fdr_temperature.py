@@ -16,9 +16,6 @@ Scientific References:
 - Fluctuation-Dissipation Theorem and harmonic oscillator theory
 - Non-equilibrium statistical mechanics
 - Cavity quantum electrodynamics and polariton physics
-
-Author: Computational Chemistry Team
-Date: 2025
 """
 
 from typing import Optional, Union, Tuple, Dict, Any, Callable

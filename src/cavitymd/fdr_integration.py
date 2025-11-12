@@ -10,9 +10,6 @@ Key Features:
 - Integration with existing analysis workflows
 - Support for multiple observables (dipole, vibrational modes)
 - CPU/GPU agnostic operation
-
-Author: Computational Chemistry Team
-Date: 2025
 """
 
 from typing import Optional, Dict, Any, List, Callable, Union

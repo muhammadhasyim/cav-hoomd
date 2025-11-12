@@ -9,9 +9,6 @@ The controller operates in three phases:
 1. Pre-initialization: No control action
 2. System identification: Apply randomized step changes to identify linear model
 3. Control: Run MPC with online model adaptation via RLS
-
-Author: AI Assistant
-Date: 2025-10-30
 """
 
 import numpy as np

@@ -1527,7 +1527,7 @@ class CavityMDSimulation:
                             # Activate the controller
                             controller_data['setup_func']()
                             controller_data['activated'] = True
-                            self.simulation.log_info(f"✅ Delayed controller activated: {controller_data['controller_name']} at t = {current_time_ps:.2f} ps")
+                            self.simulation.log_info(f"Delayed controller activated: {controller_data['controller_name']} at t = {current_time_ps:.2f} ps")
                         except Exception as e:
                             self.simulation.log_error(f"Failed to activate delayed controller {controller_data['controller_name']}: {e}")
         
@@ -1725,7 +1725,7 @@ class CavityMDSimulation:
         if self.incavity:
             self.log_info(f"  Frequency: {self.freq} cm^-1")
             if self.use_deprecated_couplstr:
-                self.log_info(f"  ⚠️  DEPRECATED: Coupling strength (couplstr): {self.couplstr} a.u.")
+                self.log_info(f"  DEPRECATED: Coupling strength (couplstr): {self.couplstr} a.u.")
             else:
                 self.log_info(f"  Lambda coupling: {self.lambda_coupling}")
                 self.log_info(f"  Epsilon (lambda * omega_c): {self.lambda_coupling * self.omegac:.6e} a.u.")
@@ -1764,7 +1764,7 @@ class CavityMDSimulation:
         if self.use_deprecated_couplstr:
             # Using deprecated couplstr - use it directly as epsilon
             base_coupling = self.couplstr
-            self.log_info(f"⚠️  DEPRECATED: Using couplstr={base_coupling} a.u. directly (not scaled by omega_c)")
+            self.log_info(f"DEPRECATED: Using couplstr={base_coupling} a.u. directly (not scaled by omega_c)")
             self.log_info(f"    Please migrate to lambda_coupling parameter for future compatibility")
         else:
             # Using new lambda_coupling - will be scaled by omega_c
@@ -4073,6 +4073,15 @@ class CavityMDSimulation:
             self.log_error(f"Failed to setup HDF5 output: {e}")
             self.log_error(f"Full traceback: {traceback.format_exc()}")
             self.hdf5_writer = None
+            # CRITICAL: If HDF5 output was explicitly requested, abort simulation
+            # Don't continue silently when a requested feature fails
+            self.log_error("\n" + "="*60)
+            self.log_error("SIMULATION ABORTED: HDF5 output setup failed")
+            self.log_error("="*60)
+            self.log_error("HDF5 output was explicitly enabled but could not be initialized.")
+            self.log_error("The simulation cannot continue without this requested feature.")
+            self.log_error("Please fix the error above and try again.")
+            raise RuntimeError(f"HDF5 output setup failed: {e}") from e
     def _setup_temperature_tracker(self):
         """Set up comprehensive temperature tracker."""
         try:
@@ -4194,7 +4203,7 @@ class CavityMDSimulation:
                 # Replace the fixed square wave with adaptive
                 composite_variant.variants[i] = adaptive_variant
                 
-                self.log_info("✅ Updated composite coupling to use adaptive square wave:")
+                self.log_info("Updated composite coupling to use adaptive square wave:")
                 self.log_info(f"   Target amplitude: {self.composite_square_amplitude:.2e} a.u.")
                 self.log_info(f"   Target temperature: {target_temperature:.1f} K (from {temp_source})")
                 self.log_info(f"   Temperature tracker connected successfully")

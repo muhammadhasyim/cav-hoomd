@@ -315,6 +315,8 @@ class RelaxationTimeModel:
             return
             
         try:
+            import matplotlib
+            matplotlib.use('Agg')  # Use non-interactive backend for headless systems
             import matplotlib.pyplot as plt
             
             # Load original data
