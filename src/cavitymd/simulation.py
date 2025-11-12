@@ -1427,7 +1427,7 @@ class CavityMDSimulation:
                 )
                 self.sim.operations.updaters.append(energy_updater)
                 
-                self.log_info(f"✅ Energy tracker setup completed with time-based output:")
+                self.log_info(f"Energy tracker setup completed with time-based output:")
                 self.log_info(f"  Output period: {energy_output_period_ps:.3f} ps (accurate timing)")
                 self.log_info(f"  Tracker handles timing internally using ElapsedTimeTracker")
                 if max_energy_output_time_ps:
@@ -1498,7 +1498,7 @@ class CavityMDSimulation:
                 # Add F(k,t) data to logger
                 logger[('F(k,t)', 'current_autocorr')] = (self.density_corr_tracker, 'current_autocorr', 'scalar')
                 
-                self.log_info("✅ F(k,t) tracker successfully enabled with time-based output:")
+                self.log_info("F(k,t) tracker successfully enabled with time-based output:")
                 self.log_info(f"  Output period: {fkt_output_period_ps:.3f} ps (accurate timing)")
                 self.log_info(f"  Reference interval: {fkt_reference_interval_ps:.3f} ps")
                 self.log_info(f"  Tracker handles timing internally using ElapsedTimeTracker")
@@ -1546,7 +1546,7 @@ class CavityMDSimulation:
                 # Add dipole autocorrelation data to logger
                 logger[('Dipole', 'current_autocorr')] = (self.dipole_autocorr_tracker, 'current_autocorr', 'scalar')
                 
-                self.log_info("✅ Dipole autocorrelation tracker successfully enabled with time-based output:")
+                self.log_info("Dipole autocorrelation tracker successfully enabled with time-based output:")
                 self.log_info(f"  Output period: {self.dipole_output_period_ps:.3f} ps (accurate timing)")
                 self.log_info(f"  Reference interval: {self.dipole_reference_interval_ps:.3f} ps")
                 self.log_info(f"  Tracker handles timing internally using ElapsedTimeTracker")
@@ -1588,7 +1588,7 @@ class CavityMDSimulation:
                 # Add to simulation operations
                 self.sim.operations.updaters.append(zero_momentum)
                 
-                self.log_info("✅ Momentum zeroing successfully enabled:")
+                self.log_info("Momentum zeroing successfully enabled:")
                 self.log_info(f"  Trigger period: every {zero_momentum_steps} steps")
                 self.log_info(f"  Target period: {self.zero_momentum_period_ps:.3f} ps")
                 self.log_info("  Prevents center-of-mass drift during simulation")
@@ -1606,7 +1606,7 @@ class CavityMDSimulation:
         if hasattr(self, 'adaptive_action') and self.adaptive_action is not None:
             console_items.append("adaptive_error_tolerance")
         
-        self.log_info("✅ TRACKING AND LOGGING SETUP COMPLETED:")
+        self.log_info("TRACKING AND LOGGING SETUP COMPLETED:")
         self.log_info("  All output systems now use precise time-based periods")
         
         # Log detailed summary of what's enabled
@@ -1807,7 +1807,7 @@ class CavityMDSimulation:
         )
         self.sim.operations.updaters.append(console_updater)
         
-        self.log_info("✅ Console output setup completed:")
+        self.log_info("Console output setup completed:")
         self.log_info(f"  Output period: {self.console_output_period_ps:.3f} ps (accurate time-based)")
         if self.incavity:
             self.log_info(f"  Coupling constant column: {self.couplstr:.6e} a.u. (displayed in real-time)")
@@ -1816,11 +1816,11 @@ class CavityMDSimulation:
         
         # Log final setup summary
         if self.error_tolerance > 0:
-            self.log_info("✅ FIXED: Console output now uses precise time-based logic")
+            self.log_info("FIXED: Console output now uses precise time-based logic")
             self.log_info("  Both console and energy tracker use accurate timing")
             self.log_info("  GSD output timing may vary slightly but is less critical")
         else:
-            self.log_info("✅ Time-based console output setup for fixed timestep mode")
+            self.log_info("Time-based console output setup for fixed timestep mode")
             self.log_info("  Provides consistent behavior across all timestep modes")
 
     def setup_simulation(self):
@@ -2243,9 +2243,9 @@ class CavityMDSimulation:
                 self.log_info(f"Maximum particle velocity magnitude: {max_velocity_magnitude:.6e} a.u.")
                 
                 if max_velocity_magnitude > 1e-12:
-                    self.log_info("✅ Forced thermalization successful - Bussi thermostat should work now")
+                    self.log_info("Forced thermalization successful - Bussi thermostat should work now")
                 else:
-                    self.log_error("❌ Forced thermalization failed - velocities are still zero!")
+                    self.log_error("ERROR: Forced thermalization failed - velocities are still zero!")
                     raise RuntimeError("Unable to initialize non-zero velocities for Bussi thermostat")
 
 
