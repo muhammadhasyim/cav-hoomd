@@ -56,10 +56,75 @@ Where:
 
 **Properties:**
 
-- ✓ Exact canonical ensemble
-- ✓ Fast equilibration
-- ✓ Minimal perturbation to dynamics
-- ✓ Works for small systems
+- Exact canonical ensemble
+- Fast equilibration
+- Minimal perturbation to dynamics
+- Works for small systems
+
+Detailed Derivation
+~~~~~~~~~~~~~~~~~~~
+
+The Bussi-Parrinello thermostat is derived by analyzing standard Langevin dynamics where each particle experiences independent friction and noise:
+
+.. math::
+
+   \dot{\mathbf{R}}_i = \frac{\mathbf{P}_i}{M_i}, \quad \dot{\mathbf{P}}_i = -\nabla_{\mathbf{R}_i} V - \gamma_\mathrm{b} \mathbf{P}_i + \sqrt{2M_i\gamma_\mathrm{b}k_BT}\,\boldsymbol{\eta}_i(t)
+
+where :math:`\boldsymbol{\eta}_i(t)` are independent white noise processes with :math:`\langle\boldsymbol{\eta}_i(t)\boldsymbol{\eta}_j(t')\rangle = \boldsymbol{\delta}_{ij}\delta(t-t')`.
+
+**Energy Evolution:**
+
+Calculating the time derivative of total energy :math:`H(t)` using the Ito chain rule and summing over all noise terms yields:
+
+.. math::
+
+   \dot{H}(t) = -\frac{K(t) - \bar{K}}{\tau_\mathrm{b}} + 2\sqrt{\frac{K(t)\bar{K}}{3N\tau_\mathrm{b}}}\,\eta(t)
+
+where :math:`\bar{K} = \frac{3}{2}Nk_BT`, :math:`\tau_\mathrm{b} = (2\gamma_\mathrm{b})^{-1}`, and :math:`\eta(t)` is a single global white noise emerging from the sum of :math:`3N` independent noise terms.
+
+**Key Observation:**
+
+Only the total kinetic energy :math:`K` appears in the energy evolution. We can design an alternative stochastic force :math:`\mathbf{G}_i` that depends globally on :math:`K` and reproduces the same rate of energy exchange while minimizing perturbations to individual particle trajectories.
+
+**Minimizing Disturbance:**
+
+Quantify the disturbance on kinetic energy as:
+
+.. math::
+
+   D = \sum_{i=1}^N \frac{|\mathbf{G}_i|^2}{2M_i}
+
+and minimize it subject to the constraint that :math:`\dot{H}(t)` matches the Langevin result. Geometrically, the constraint forces :math:`\mathbf{G}_i` to be parallel to each momentum vector:
+
+.. math::
+
+   \mathbf{G}_i = \mathbf{P}_i \left[-\gamma_K + \sqrt{2D_K}\,\eta(t)\right]
+
+where the scalar functions :math:`\gamma_K` and :math:`D_K` depend on the total kinetic energy :math:`K` and are determined by matching the energy evolution:
+
+.. math::
+
+   \dot{H} = -2\gamma_K K + 2D_K K + 2\sqrt{2D_K}\,K\,\eta(t)
+
+Enforcing equality with the Langevin energy equation gives:
+
+.. math::
+
+   \gamma_K = \frac{1}{2\tau_\mathrm{b}}\left(1 - \left(1 - \frac{1}{3N}\right)\frac{\bar{K}}{K}\right)
+
+.. math::
+
+   D_K = \frac{\bar{K}}{3N\tau_\mathrm{b}K}
+
+**Equations of Motion:**
+
+.. math::
+
+   \dot{\mathbf{R}}_i = \frac{\mathbf{P}_i}{M_i}, \quad \dot{\mathbf{P}}_i = -\nabla_{\mathbf{R}_i} V - \gamma_K \mathbf{P}_i + \sqrt{2D_K}\,\mathbf{P}_i\eta(t)
+
+**Physical Interpretation:**
+
+This thermostat samples the canonical ensemble exactly while preserving short-time velocity autocorrelation functions, which are critical for maintaining correct microscopic dynamics in supercooled liquids. For a single degree of freedom (:math:`N=1`), it reduces to standard Langevin dynamics, whereas in many-particle systems, the global coupling reduces dynamical artifacts from bath coupling.
 
 Parameters
 ----------
@@ -143,6 +208,53 @@ Where:
 **Integration schemes:**
 
 Various algorithms exist (BBK, BAOAB, etc.). HOOMD uses optimized schemes.
+
+Caldeira-Leggett Cavity Bath Model
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Even in high-quality optical cavities, photons are lost due to radiative losses through imperfect mirrors. We model this dissipation through coupling with a thermal electromagnetic environment outside the cavity.
+
+**Bath Hamiltonian:**
+
+Following the Caldeira-Leggett approach, couple the cavity mode coordinate :math:`q_\mathrm{c}` (frequency :math:`\omega_\mathrm{c}`, unit mass) linearly to a continuum of bath oscillators:
+
+.. math::
+
+   H_\mathrm{b} = \sum_b \left[ \frac{p_b^2}{2} + \frac{\omega_b^2}{2} \left( x_b - \frac{c_b}{\omega_b^2} q_\alpha \right)^2 \right]
+
+where :math:`(x_b, p_b)` are bath oscillator coordinates with frequencies :math:`\omega_b` and coupling constants :math:`c_b`.
+
+**Generalized Langevin Equation:**
+
+Integrating out the bath degrees of freedom yields:
+
+.. math::
+
+   \ddot{q}_\alpha(t) + \omega_\alpha^2 q_\alpha(t) + \int_0^t dt'\,G(t-t')\,\dot{q}_\alpha(t') = \eta_\alpha(t)
+
+where the memory kernel and noise correlation are related through the spectral density:
+
+.. math::
+
+   J(\omega) = \frac{\pi}{2} \sum_b \frac{c_b^2}{\omega_b} \delta(\omega - \omega_b)
+
+with the friction kernel and noise correlations:
+
+.. math::
+
+   G(t) = \frac{2}{\pi} \int_0^\infty d\omega\,\frac{J(\omega)}{\omega}\cos(\omega t), \quad \langle\eta_\mathrm{c}(t)\eta_\mathrm{c}(t')\rangle = k_BT\,G(t-t')
+
+**Markovian Limit:**
+
+In the Ohmic, Markovian limit where :math:`J(\omega) \approx \gamma_\mathrm{c}\omega` with a high-frequency cutoff, the memory kernel becomes instantaneous, :math:`G(t) \approx 2\gamma_\mathrm{c}\delta(t)`, yielding standard Langevin dynamics.
+
+**Cavity Lifetime:**
+
+The lifetime of the cavity :math:`\tau_\mathrm{c}` is related to the damping rate through :math:`\gamma_\mathrm{c} = 1/(2\tau_\mathrm{c})`. When coupling is turned on, :math:`q_\mathrm{c} \to q_\mathrm{c} + \lambda\mu_\alpha/\omega_\mathrm{c}`, the damping and noise statistics remain unchanged while the deterministic force acquires the coupling term.
+
+**Physical Interpretation:**
+
+This model captures the essential physics of cavity dissipation: photons leak out through mirrors, and thermal photons leak in from the environment. The balance between these processes maintains the cavity at temperature :math:`T`.
 
 Parameters
 ----------

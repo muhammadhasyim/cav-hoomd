@@ -42,6 +42,132 @@ This approach is valid when:
 | Validity                | T → 0, few photons      | T > 0, many photons     |
 +-------------------------+-------------------------+-------------------------+
 
+Theoretical Foundation
+======================
+
+Hamiltonian Derivation Overview
+---------------------------------
+
+The cavity-molecule Hamiltonian in Cavity HOOMD is derived from quantum electrodynamics and reduced to a classical form through several approximations. This section provides a high-level overview; see :doc:`cavity_forces` for the complete derivation.
+
+**Starting Point: Minimal Coupling Hamiltonian**
+
+The quantum description begins with charged particles (electrons and nuclei) coupled to the electromagnetic field through the vector potential:
+
+.. math::
+
+   \hat{H} = \hat{H}_\mathrm{M} + \hat{H}_\mathrm{EM}
+
+where the matter Hamiltonian includes kinetic energy with minimal coupling:
+
+.. math::
+
+   \hat{H}_\mathrm{M} = \sum_i \frac{|\hat{\mathbf{P}}_i - Z_i e \hat{\mathbf{A}}(\mathbf{R}_i)|^2}{2M_i} + \sum_j \frac{|\hat{\mathbf{p}}_j + e \hat{\mathbf{A}}(\mathbf{r}_j)|^2}{2m_j} + \hat{V}
+
+and the electromagnetic field energy is:
+
+.. math::
+
+   \hat{H}_\mathrm{EM} = \frac{\epsilon_0}{2} \int d^3\mathbf{r} \left( |\hat{\mathbf{E}}|^2 + c^2|\hat{\mathbf{B}}|^2 \right)
+
+**Key Approximations:**
+
+1. **Coulomb Gauge**: :math:`\nabla \cdot \hat{\mathbf{A}} = 0`, electromagnetic fields are purely transverse
+
+2. **Mode Expansion**: The vector potential is expanded in cavity normal modes with frequencies :math:`\omega_\ell = \ell \pi c / L`
+
+3. **Uniform Field Approximation**: Since molecular length scales :math:`\ll` cavity length, :math:`\hat{\mathbf{A}}(\mathbf{r}) \approx \hat{\mathbf{A}}(0)` is spatially uniform
+
+4. **Gauge Transformations**: Two unitary transformations are applied:
+   
+   - Remove vector potential from kinetic energy (length gauge)
+   - 90° phase rotation (coordinate displacement form)
+
+5. **Pauli-Fierz Form**: After transformations, the Hamiltonian becomes:
+
+.. math::
+
+   \hat{H}_\mathrm{PF} = \hat{H}_\mathrm{M} + \frac{1}{2}\sum_{\ell,\alpha} \left[ \hat{p}_{\ell,\alpha}^2 + \omega_\ell^2 \left( \hat{q}_{\ell,\alpha} + \frac{\lambda \hat{\mu}_\alpha}{\omega_\ell} \right)^2 \right]
+
+where :math:`\lambda = 1/\sqrt{\epsilon_0 V}` is the light-matter coupling strength and :math:`\hat{\mu}_\alpha` is the molecular dipole moment operator.
+
+Cavity Born-Oppenheimer Approximation
+---------------------------------------
+
+**Timescale Separation:**
+
+Electrons move much faster than nuclei, but electromagnetic modes typically match nuclear vibrational timescales. We therefore:
+
+1. **Solve electronic structure separately** for nuclear positions :math:`\{\mathbf{R}_i\}` and cavity coordinates :math:`\{q_{\ell,\alpha}\}`:
+
+.. math::
+
+   \hat{H}_\mathrm{e} |\psi_g\rangle = V_\mathrm{BO}(\{\mathbf{R}_i, q_{\ell,\alpha}\}) |\psi_g\rangle
+
+2. **Invoke adiabatic approximation**: Since cavity modes are typically far off-resonant from electronic transitions:
+
+.. math::
+
+   V_\mathrm{BO}(\{\mathbf{R}_i, q_{\ell,\alpha}\}) \approx V_\mathrm{BO}(\{\mathbf{R}_i\})
+
+This avoids treating polaritonic potential energy surfaces while retaining cavity effects on nuclear dynamics.
+
+Classical Limit and Mean-Field Approximation
+----------------------------------------------
+
+**From Quantum to Classical:**
+
+Treating slower degrees of freedom (nuclei and photons) classically, the potential energy becomes:
+
+.. math::
+
+   V(\{\mathbf{R}_i, q_{\ell,\alpha}\}) = V_\mathrm{BO}(\{\mathbf{R}_i\}) + \sum_{\ell,\alpha} \left[ \frac{\omega_\ell^2 q_{\ell,\alpha}^2}{2} + \lambda \omega_\ell \langle\psi_g|\hat{\mu}_\alpha|\psi_g\rangle q_{\ell,\alpha} + \frac{\lambda^2}{2}\langle\psi_g|\hat{\mu}_\alpha^2|\psi_g\rangle \right]
+
+**Mean-Field Treatment:**
+
+The quantum fluctuation term :math:`\langle\psi_g|\hat{\mu}_\alpha^2|\psi_g\rangle` is approximated by its classical mean-field value:
+
+.. math::
+
+   \langle\psi_g|\hat{\mu}_\alpha^2|\psi_g\rangle \approx \left(\langle\psi_g|\hat{\mu}_\alpha|\psi_g\rangle\right)^2 = \mu_\alpha^2
+
+where :math:`\mu_\alpha(\{\mathbf{R}_i\})` is the classical dipole moment.
+
+**Final Classical Hamiltonian:**
+
+.. math::
+
+   H = \sum_i \frac{\mathbf{P}_i^2}{2M_i} + V_\mathrm{BO}(\{\mathbf{R}_i\}) + \sum_{\ell,\alpha} \left[ \frac{p_{\ell,\alpha}^2}{2} + \frac{\omega_\ell^2}{2}\left(q_{\ell,\alpha} + \frac{\lambda\mu_\alpha}{\omega_\ell}\right)^2 \right]
+
+This is the starting point for cavity molecular dynamics simulations.
+
+Single-Mode vs Multi-Mode Treatment
+-------------------------------------
+
+**Single-Mode Approximation:**
+
+In Cavity HOOMD, we typically retain only the lowest-frequency electromagnetic mode:
+
+.. math::
+
+   \omega_{\ell=1} = \frac{2\pi c}{L} = \omega_\mathrm{c}
+
+**Justification:**
+
+- **Energy scale separation**: Higher modes have :math:`\omega_\ell > \omega_c` and are off-resonant with molecular vibrations
+- **Coupling strength**: Higher modes couple more weakly due to larger frequency denominators
+- **Computational efficiency**: Single mode reduces degrees of freedom from :math:`\mathcal{O}(N_\text{modes})` to :math:`\mathcal{O}(1)`
+
+**Multi-Mode Considerations:**
+
+Multi-mode treatment is necessary when:
+
+- Multiple cavity modes are near-resonant with molecular transitions
+- Studying mode-selective effects
+- Investigating multimode interference phenomena
+
+The formalism in :doc:`cavity_forces` naturally extends to multiple modes.
+
 Scope and Applicability
 ========================
 

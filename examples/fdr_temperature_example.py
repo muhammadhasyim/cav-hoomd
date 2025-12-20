@@ -23,6 +23,8 @@ Date: 2025
 
 import numpy as np
 import hoomd
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend for headless systems
 import matplotlib.pyplot as plt
 from pathlib import Path
 import logging
