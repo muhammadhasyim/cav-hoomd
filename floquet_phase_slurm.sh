@@ -29,8 +29,8 @@ LAMBDA_COUPLING=${1:-0.025}
 INITIAL_TEMP=${2:-300.0}
 RUNTIME=${3:-20000.0}
 
-# The replica ID is the SLURM array task ID
-REPLICA=${SLURM_ARRAY_TASK_ID}
+# The replica ID is the SLURM array task ID (default to 0 for local runs)
+REPLICA=${SLURM_ARRAY_TASK_ID:-0}
 
 # Create log directory if it doesn't exist
 mkdir -p slurm_logs
@@ -60,8 +60,9 @@ echo ""
 # Set OpenMP threads
 export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
 
-# Change to submission directory
-cd ${SLURM_SUBMIT_DIR}
+# Change to examples directory (works both locally and on SLURM)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "${SLURM_SUBMIT_DIR:-${SCRIPT_DIR}/examples}"
 
 # Run the simulation
 python3 18_unified_cavity_dynamics.py \

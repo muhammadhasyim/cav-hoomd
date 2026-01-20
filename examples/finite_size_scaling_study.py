@@ -328,8 +328,9 @@ def run_single_replica(args, n_molecules: int, replica: int) -> int:
         energy_output_period_ps=args.energy_output_period_ps,
         gsd_output_period_ps=gsd_period,
         seed=args.seed,
-        # Two-phase protocol
+        # Two-phase protocol: coupling starts at 0 and switches to target at switch_time_ps
         switch_time_ps=args.switch_time_ps,
+        coupling_variant_type='step',  # Use step function for equilibration without coupling
         dissipation=dissipation,
         # Adaptive timestepping
         error_tolerance=args.error_tolerance,

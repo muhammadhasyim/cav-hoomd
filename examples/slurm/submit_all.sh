@@ -24,7 +24,8 @@ set -e
 # ============================================================
 
 # Physical parameters
-COLLECTIVE_COUPLING=0.07      # Target collective coupling g (a.u.)
+# lambda = 0.07 at N=250 means g = 0.07 * sqrt(250) = 1.107 a.u.
+COLLECTIVE_COUPLING=1.107     # Target collective coupling g (a.u.)
 RUNTIME_PS=3000.0             # Total simulation time (ps)
 SWITCH_TIME_PS=1000.0         # Time to turn on coupling (ps)
 TEMPERATURE=100.0             # Temperature (K)
