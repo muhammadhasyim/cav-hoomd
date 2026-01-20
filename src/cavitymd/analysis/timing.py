@@ -153,11 +153,12 @@ class ElapsedTimeTracker(hoomd.custom.Action):
         # Update last timestep for next iteration
         self.last_timestep = timestep
         
-        # Check if we've reached the runtime and exit if so
+        # Check if we've reached the runtime and signal to stop
         if PhysicalConstants.atomic_units_to_ps(self.total_time) >= self.runtime:
             print(f"Runtime {self.runtime} ps reached. Exiting simulation.")
-            import sys
-            sys.exit(0)
+            # Raise StopIteration to signal simulation should stop
+            # This will be caught by the simulation.run() loop
+            raise StopIteration("Runtime reached")
 
     @hoomd.logging.log(category="scalar")
     def elapsed_time(self):

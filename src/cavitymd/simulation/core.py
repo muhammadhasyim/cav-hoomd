@@ -4028,11 +4028,13 @@ class CavityMDSimulation:
             self.log_info(f"SWMR mode: Enabled (concurrent read access)")
             self.log_info(f"{'='*60}\n")
             
-            # Create HDF5 writer
+            # Create HDF5 writer with runtime for SWMR pre-allocation
             self.hdf5_writer = ObservableWriter(
                 output_file=self.hdf5_output_file,
                 time_tracker=self.time_tracker,
-                output_period_ps=self.hdf5_output_period_ps
+                output_period_ps=self.hdf5_output_period_ps,
+                enable_swmr=True,
+                runtime_ps=self.runtime_ps
             )
             
             # Register energy tracker if available
@@ -4759,7 +4761,11 @@ class CavityMDSimulation:
             
             # Phase 6: Run simulation
             self.log_info("=== Phase 6: Running simulation ===")
-            self.run_simulation()
+            try:
+                self.run_simulation()
+            except StopIteration:
+                # Normal exit when runtime is reached
+                self.log_info("Simulation runtime reached - normal exit")
             
             # Phase 7: Cleanup
             self.log_info("=== Phase 7: Cleanup ===")

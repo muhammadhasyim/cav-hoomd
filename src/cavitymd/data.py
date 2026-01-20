@@ -138,8 +138,17 @@ class ObservableWriter(hoomd.custom.Action):
                  compression: Optional[str] = 'gzip',
                  compression_level: int = 4,
                  enable_swmr: bool = True,
-                 flush_interval: int = 10):
+                 flush_interval: int = 10,
+                 runtime_ps: float = None):
+        """
+        Initialize the ObservableWriter.
         
+        Parameters
+        ----------
+        runtime_ps : float, optional
+            Expected runtime in ps. Used to pre-allocate datasets for SWMR mode.
+            If not provided, datasets will be resized dynamically (SWMR disabled).
+        """
         super().__init__()
         
         self.output_file = Path(output_file)
@@ -148,8 +157,23 @@ class ObservableWriter(hoomd.custom.Action):
         self.chunk_size = chunk_size
         self.compression = compression
         self.compression_level = compression_level if compression == 'gzip' else None
-        self.enable_swmr = enable_swmr
         self.flush_interval = flush_interval
+        self.runtime_ps = runtime_ps
+        
+        # For SWMR mode, we need to pre-allocate datasets
+        # If runtime is provided, calculate expected size; otherwise disable SWMR
+        if enable_swmr and runtime_ps is not None:
+            self.enable_swmr = True
+            # Pre-allocate with 20% buffer for safety
+            self.preallocated_size = int(1.2 * runtime_ps / output_period_ps) + 100
+        elif enable_swmr and runtime_ps is None:
+            print("WARNING: SWMR mode requested but runtime_ps not provided.")
+            print("         SWMR requires pre-allocated datasets. Disabling SWMR.")
+            self.enable_swmr = False
+            self.preallocated_size = None
+        else:
+            self.enable_swmr = False
+            self.preallocated_size = None
         
         # Trackers
         self.energy_tracker = None
@@ -164,6 +188,7 @@ class ObservableWriter(hoomd.custom.Action):
         self.write_count = 0
         self.current_index = 0
         self.lock = threading.Lock()
+        self.swmr_activated = False  # Track if SWMR has been activated
         
         # Datasets dictionary
         self.datasets = {}
@@ -177,6 +202,8 @@ class ObservableWriter(hoomd.custom.Action):
         print(f"  Chunk size: {self.chunk_size}")
         print(f"  Compression: {self.compression}")
         print(f"  SWMR mode: {self.enable_swmr}")
+        if self.preallocated_size:
+            print(f"  Pre-allocated size: {self.preallocated_size} data points")
         print(f"  Flush interval: {self.flush_interval}")
     
     def _initialize_hdf5_file(self):
@@ -233,18 +260,31 @@ class ObservableWriter(hoomd.custom.Action):
         """
         group = self.file[group_path]
         
-        # Determine maxshape (unlimited first dimension for time)
-        if len(shape) == 1:
-            maxshape = (None,)
-            chunks = (self.chunk_size,)
+        # Determine initial shape - pre-allocate if SWMR mode is enabled
+        if self.preallocated_size is not None:
+            # Pre-allocate for SWMR mode
+            if len(shape) == 1:
+                initial_shape = (self.preallocated_size,)
+                maxshape = (None,)  # Still allow growth if needed
+                chunks = (self.chunk_size,)
+            else:
+                initial_shape = (self.preallocated_size,) + shape[1:]
+                maxshape = (None,) + shape[1:]
+                chunks = (self.chunk_size,) + shape[1:]
         else:
-            maxshape = (None,) + shape[1:]
-            chunks = (self.chunk_size,) + shape[1:]
+            # Dynamic resizing mode
+            initial_shape = shape
+            if len(shape) == 1:
+                maxshape = (None,)
+                chunks = (self.chunk_size,)
+            else:
+                maxshape = (None,) + shape[1:]
+                chunks = (self.chunk_size,) + shape[1:]
         
         # Create dataset
         ds = group.create_dataset(
             name,
-            shape=shape,
+            shape=initial_shape,
             maxshape=maxshape,
             chunks=chunks,
             dtype=np.float64,
@@ -479,15 +519,36 @@ class ObservableWriter(hoomd.custom.Action):
             if self.write_count < 3:
                 print(f"[HDF5 Writer DEBUG] Writing data point {self.current_index} at time {current_time_ps:.3f} ps")
             
-            # Resize all datasets
-            new_size = self.current_index + 1
-            for ds_path, ds in self.datasets.items():
-                if ds_path == '/order_parameters/density/wavevectors':
-                    continue  # Skip static wavevector dataset
-                if len(ds.shape) == 1:
-                    ds.resize((new_size,))
-                else:
-                    ds.resize((new_size,) + ds.shape[1:])
+            # Resize datasets only if not pre-allocated (SWMR mode uses pre-allocation)
+            if self.preallocated_size is None:
+                # Dynamic resizing mode
+                new_size = self.current_index + 1
+                for ds_path, ds in self.datasets.items():
+                    if ds_path == '/order_parameters/density/wavevectors':
+                        continue  # Skip static wavevector dataset
+                    if len(ds.shape) == 1:
+                        ds.resize((new_size,))
+                    else:
+                        ds.resize((new_size,) + ds.shape[1:])
+            else:
+                # Pre-allocated mode - check if we need to extend (shouldn't happen normally)
+                if self.current_index >= self.preallocated_size:
+                    # Extend by another chunk - but only if SWMR is not yet activated
+                    if not self.swmr_activated:
+                        new_size = self.current_index + self.chunk_size
+                        print(f"[HDF5 Writer] Extending pre-allocated datasets to {new_size}")
+                        for ds_path, ds in self.datasets.items():
+                            if ds_path == '/order_parameters/density/wavevectors':
+                                continue
+                            if len(ds.shape) == 1:
+                                ds.resize((new_size,))
+                            else:
+                                ds.resize((new_size,) + ds.shape[1:])
+                        self.preallocated_size = new_size
+                    else:
+                        print(f"[HDF5 Writer] WARNING: Ran out of pre-allocated space and SWMR is active!")
+                        print(f"         Current index: {self.current_index}, pre-allocated: {self.preallocated_size}")
+                        return  # Skip this write to avoid corruption
             
             # Write time
             self.datasets['time'][self.current_index] = current_time_ps
@@ -525,9 +586,10 @@ class ObservableWriter(hoomd.custom.Action):
             if self.write_count % self.flush_interval == 0:
                 self.file.flush()
                 # Enable SWMR mode after first flush (if not already enabled)
-                if self.enable_swmr and not self.file.swmr_mode:
+                if self.enable_swmr and not self.swmr_activated:
                     try:
                         self.file.swmr_mode = True
+                        self.swmr_activated = True
                         print("✓ SWMR mode enabled - file can now be read concurrently")
                     except Exception as e:
                         print(f"Warning: Could not enable SWMR mode: {e}")

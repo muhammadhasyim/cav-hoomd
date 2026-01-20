@@ -15,15 +15,15 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-if [ "$HOOMD_VERSION" != "5.2.0" ]; then
+if [ "$HOOMD_VERSION" != "5.2.0" ] && [ "$HOOMD_VERSION" != "5.4.0" ]; then
     echo "ERROR: HOOMD-blue version mismatch."
-    echo "Required: 5.2.0"
+    echo "Required: 5.2.0 or 5.4.0"
     echo "Found: $HOOMD_VERSION"
-    echo "Please install exact HOOMD-blue 5.2.0 following the documentation."
+    echo "Please install HOOMD-blue 5.2.0 or 5.4.0 following the documentation."
     exit 1
 fi
 
-echo "✓ HOOMD-blue version $HOOMD_VERSION confirmed"
+echo "HOOMD-blue version $HOOMD_VERSION confirmed"
 
 # Parse command line arguments
 ENABLE_GPU=ON

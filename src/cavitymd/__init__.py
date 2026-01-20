@@ -35,14 +35,22 @@ on_rtd = (os.environ.get('READTHEDOCS') == 'True' or
           os.environ.get('RTD_ENV_NAME') is not None or
           'readthedocs' in os.environ.get('HOSTNAME', '').lower())
 
+_ALLOWED_HOOMD_VERSIONS = ["5.2.0", "5.4.0"]
+
 if not on_rtd:
     # Only enforce strict version checking when not building documentation
-    if hoomd.version.version != _REQUIRED_HOOMD_VERSION:
+    if hoomd.version.version not in _ALLOWED_HOOMD_VERSIONS:
         raise ImportError(
             f"HOOMD-blue version mismatch: "
-            f"CavityMD requires exactly version {_REQUIRED_HOOMD_VERSION}, "
+            f"CavityMD requires version {_REQUIRED_HOOMD_VERSION}, "
             f"but found version {hoomd.version.version}. "
             f"Please install HOOMD-blue {_REQUIRED_HOOMD_VERSION} from source."
+        )
+    elif hoomd.version.version != _REQUIRED_HOOMD_VERSION:
+        import warnings
+        warnings.warn(
+            f"Using HOOMD {hoomd.version.version} instead of tested version {_REQUIRED_HOOMD_VERSION}. "
+            f"Some features may not work as expected."
         )
 else:
     # On RTD, allow compatible versions but warn about version differences
