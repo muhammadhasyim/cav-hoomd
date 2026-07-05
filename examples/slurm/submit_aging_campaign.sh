@@ -33,13 +33,14 @@ ENERGY_OUTPUT_PERIOD=1.0 # ps between energy data points
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CAV_HOOMD_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 EXAMPLES_DIR="$CAV_HOOMD_DIR/examples"
-INPUT_GSD="$CAV_HOOMD_DIR/cooling-0.gsd"    # 250 dimers, T=100K, box=40 Bohr
+INPUT_GSD="$CAV_HOOMD_DIR/examples/init-0.gsd"  # 250 dimers + cavity particle, T=100K, box=40 Bohr
 OUTPUT_BASE="/scratch/mh7373/projects/cav-hoomd/aging_weak_lambda"
 CONDA_ENV="hoomd"                            # micromamba env with HOOMD 5.4.0 + plugin
 MINIFORGE="/scratch/mh7373/miniforge3"
 
 # ── SLURM settings ────────────────────────────────────────────────────
-PARTITION="a100_chem"
+PARTITION="a100_chemistry"
+ACCOUNT="torch_pr_283_chemistry"
 GRES="gpu:a100:1"
 CPUS=4
 MEM="16G"
@@ -117,6 +118,7 @@ for LAM in "${LAMBDAS[@]}"; do
 #!/bin/bash
 #SBATCH --job-name=${JOB_NAME}
 #SBATCH --partition=${PARTITION}
+#SBATCH --account=${ACCOUNT}
 #SBATCH --gres=${GRES}
 #SBATCH --cpus-per-task=${CPUS}
 #SBATCH --mem=${MEM}
@@ -170,6 +172,7 @@ python "\${EXAMPLES_DIR}/05_advanced_run.py" \\
     --frame -1 \\
     --device GPU \\
     --gpu-id 0 \\
+    --fixed-timestep --timestep 1.0 \\
     --enable-energy-tracker \\
     --energy-output-period-ps ${ENERGY_OUTPUT_PERIOD} \\
     --enable-fkt \\
@@ -179,10 +182,7 @@ python "\${EXAMPLES_DIR}/05_advanced_run.py" \\
     --fkt-max-refs ${FKT_MAX_REFS} \\
     --fkt-output-period-ps ${FKT_OUTPUT_PERIOD} \\
     --gsd-output-period-ps 999999 \\
-    --console-output-period-ps 75.0 \\
-    --error-tolerance 5.0 \\
-    --initial-fraction 1e-5 \\
-    --time-constant-ps 50.0
+    --console-output-period-ps 100.0
 
 RC=\$?
 if [[ \$RC -eq 0 ]]; then
