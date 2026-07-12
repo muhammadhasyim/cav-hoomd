@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -18,6 +19,25 @@ from examples.slurm.aging_campaign_planner import (
     write_manifest,
 )
 from examples.slurm.aging_campaign_status import fkt_file_path, run_dir
+
+
+@pytest.fixture
+def fake_sbatch_environment(
+    tmp_path: Path,
+) -> tuple[dict[str, str], Path]:
+    """Prevent every submission-script test from reaching real SLURM."""
+    fake_bin = tmp_path / "fake-sbatch-bin"
+    fake_bin.mkdir()
+    marker = tmp_path / "sbatch-called"
+    fake_sbatch = fake_bin / "sbatch"
+    fake_sbatch.write_text(
+        f"#!/bin/bash\ntouch {marker}\nexit 99\n",
+        encoding="utf-8",
+    )
+    fake_sbatch.chmod(0o755)
+    environment = os.environ.copy()
+    environment["PATH"] = f"{fake_bin}:{environment['PATH']}"
+    return environment, marker
 
 
 def _write_complete_replica(
@@ -245,6 +265,7 @@ def test_campaign_plan_summary_reports_valid_selected_and_groups(
             "valid": 0,
             "invalid": 3,
             "target_valid": 2,
+            "needed": 2,
             "selected": 2,
             "selected_replicas": [0, 1],
             "groups": 1,
@@ -271,3 +292,273 @@ def test_planner_supports_direct_cli_invocation() -> None:
 
     assert result.returncode == 0, result.stderr
     assert "--target-valid" in result.stdout
+
+
+def test_submit_script_dry_run_generates_combined_packed_array(
+    tmp_path: Path,
+    fake_sbatch_environment: tuple[dict[str, str], Path],
+) -> None:
+    repository = Path(__file__).parents[1]
+    script = repository / "examples" / "slurm" / "submit_aging_campaign.sh"
+    generated = tmp_path / "generated"
+    output_base = tmp_path / "outputs"
+    environment, sbatch_marker = fake_sbatch_environment
+
+    result = subprocess.run(
+        [
+            "bash",
+            str(script),
+            "--dry-run",
+            "--plan-id",
+            "test-plan",
+            "--output-base",
+            str(output_base),
+            "--generated-dir",
+            str(generated),
+            "--target-valid",
+            "2",
+            "--max-replica-id",
+            "3",
+            "--lam",
+            "0.03",
+        ],
+        cwd=repository,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert not sbatch_marker.exists()
+    plan_directory = generated / "aging_packed_test-plan"
+    manifest = plan_directory / "manifest.tsv"
+    sbatch_file = plan_directory / "job.sbatch"
+    assert manifest.read_text(encoding="utf-8") == "0p03\t0.03\t0\t1\n"
+    sbatch_text = sbatch_file.read_text(encoding="utf-8")
+    assert "#SBATCH --array=0-0%4" in sbatch_text
+    assert "#SBATCH --cpus-per-task=8" in sbatch_text
+    assert "#SBATCH --mem=32G" in sbatch_text
+    assert "#SBATCH --time=03:00:00" in sbatch_text
+    assert "#SBATCH --gres=gpu:a100:1" in sbatch_text
+    assert "run_packed_aging_task.py" in sbatch_text
+    assert "target=2" in result.stdout
+    assert "needed=2" in result.stdout
+    assert "groups=1" in result.stdout
+    assert "resources=gres:gpu:a100:1 cpus:8 memory:32G" in result.stdout
+    assert "walltime=03:00:00 concurrent_tasks=4" in result.stdout
+    assert "Dry run: no job submitted" in result.stdout
+
+    syntax = subprocess.run(
+        ["bash", "-n", str(sbatch_file)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert syntax.returncode == 0, syntax.stderr
+
+
+def test_submit_script_refuses_empty_production_plan(
+    tmp_path: Path,
+    fake_sbatch_environment: tuple[dict[str, str], Path],
+) -> None:
+    repository = Path(__file__).parents[1]
+    script = repository / "examples" / "slurm" / "submit_aging_campaign.sh"
+    environment, sbatch_marker = fake_sbatch_environment
+
+    result = subprocess.run(
+        [
+            "bash",
+            str(script),
+            "--plan-id",
+            "empty-plan",
+            "--output-base",
+            str(tmp_path / "outputs"),
+            "--generated-dir",
+            str(tmp_path / "generated"),
+            "--target-valid",
+            "0",
+            "--max-replica-id",
+            "3",
+            "--lam",
+            "0.03",
+        ],
+        cwd=repository,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "Refusing to submit an empty plan" in result.stderr
+    assert not sbatch_marker.exists()
+
+
+def test_submit_script_handles_relative_paths_spaces_and_all_lambdas(
+    tmp_path: Path,
+    fake_sbatch_environment: tuple[dict[str, str], Path],
+) -> None:
+    repository = Path(__file__).parents[1]
+    script = repository / "examples" / "slurm" / "submit_aging_campaign.sh"
+    output_base = tmp_path / "output data"
+    output_base.mkdir()
+    invalid_run = run_dir(output_base, 0.03)
+    invalid_run.mkdir(parents=True)
+    h5_path = invalid_run / "observables_replica_0.h5"
+    gsd_path = invalid_run / "prod-0.gsd"
+    fkt_path = fkt_file_path(invalid_run, 0, 0)
+    h5_path.write_bytes(b"partial")
+    gsd_path.write_bytes(b"partial-gsd")
+    fkt_path.write_text("# partial\n", encoding="utf-8")
+    generated = tmp_path / "generated plans"
+    relative_output = os.path.relpath(output_base, repository)
+    relative_generated = os.path.relpath(generated, repository)
+    environment, sbatch_marker = fake_sbatch_environment
+
+    result = subprocess.run(
+        [
+            "bash",
+            str(script),
+            "--dry-run",
+            "--plan-id",
+            "all-lambdas",
+            "--output-base",
+            relative_output,
+            "--generated-dir",
+            relative_generated,
+            "--target-valid",
+            "1",
+            "--max-replica-id",
+            "1",
+        ],
+        cwd=repository,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert not sbatch_marker.exists()
+    assert h5_path.read_bytes() == b"partial"
+    assert gsd_path.read_bytes() == b"partial-gsd"
+    assert fkt_path.read_text(encoding="utf-8") == "# partial\n"
+    plan_directory = generated / "aging_packed_all-lambdas"
+    manifest = plan_directory / "manifest.tsv"
+    sbatch_file = plan_directory / "job.sbatch"
+    assert len(manifest.read_text(encoding="utf-8").splitlines()) == 5
+    sbatch_text = sbatch_file.read_text(encoding="utf-8")
+    assert "#SBATCH --array=0-4%4" in sbatch_text
+    assert str(manifest.resolve()).replace(" ", "\\ ") in sbatch_text
+    assert str(output_base.resolve()).replace(" ", "\\ ") in sbatch_text
+
+
+def test_submit_script_refuses_to_overwrite_plan_files(
+    tmp_path: Path,
+    fake_sbatch_environment: tuple[dict[str, str], Path],
+) -> None:
+    repository = Path(__file__).parents[1]
+    script = repository / "examples" / "slurm" / "submit_aging_campaign.sh"
+    generated = tmp_path / "generated"
+    command = [
+        "bash",
+        str(script),
+        "--dry-run",
+        "--plan-id",
+        "immutable",
+        "--output-base",
+        str(tmp_path / "outputs"),
+        "--generated-dir",
+        str(generated),
+        "--target-valid",
+        "1",
+        "--max-replica-id",
+        "1",
+        "--lam",
+        "0.03",
+    ]
+    environment, sbatch_marker = fake_sbatch_environment
+
+    first = subprocess.run(
+        command,
+        cwd=repository,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    second = subprocess.run(
+        command,
+        cwd=repository,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert first.returncode == 0, first.stderr
+    assert second.returncode != 0
+    assert "already exists" in second.stderr
+    assert not sbatch_marker.exists()
+
+
+@pytest.mark.parametrize("invalid_lambda", ["0.02", "nan"])
+def test_submit_script_rejects_noncampaign_lambda(
+    tmp_path: Path,
+    invalid_lambda: str,
+    fake_sbatch_environment: tuple[dict[str, str], Path],
+) -> None:
+    repository = Path(__file__).parents[1]
+    script = repository / "examples" / "slurm" / "submit_aging_campaign.sh"
+    environment, sbatch_marker = fake_sbatch_environment
+
+    result = subprocess.run(
+        [
+            "bash",
+            str(script),
+            "--dry-run",
+            "--lam",
+            invalid_lambda,
+            "--generated-dir",
+            str(tmp_path / "generated"),
+        ],
+        cwd=repository,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "campaign coupling" in result.stderr
+    assert not sbatch_marker.exists()
+
+
+def test_submit_script_rejects_option_as_missing_value(
+    tmp_path: Path,
+    fake_sbatch_environment: tuple[dict[str, str], Path],
+) -> None:
+    repository = Path(__file__).parents[1]
+    script = repository / "examples" / "slurm" / "submit_aging_campaign.sh"
+    environment, sbatch_marker = fake_sbatch_environment
+
+    result = subprocess.run(
+        [
+            "bash",
+            str(script),
+            "--output-base",
+            "--dry-run",
+            "--generated-dir",
+            str(tmp_path / "generated"),
+        ],
+        cwd=repository,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "--output-base requires a value" in result.stderr
+    assert not sbatch_marker.exists()

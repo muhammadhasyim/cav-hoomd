@@ -334,6 +334,10 @@ def campaign_plan_summary(plan: CampaignPlan) -> list[dict[str, object]]:
             "valid": lambda_plan.scan.n_complete,
             "invalid": lambda_plan.scan.n_missing,
             "target_valid": lambda_plan.target_valid,
+            "needed": max(
+                0,
+                lambda_plan.target_valid - lambda_plan.scan.n_complete,
+            ),
             "selected": len(lambda_plan.selected_replicas),
             "selected_replicas": list(lambda_plan.selected_replicas),
             "groups": len(lambda_plan.groups),
