@@ -18,6 +18,7 @@ from examples.slurm.run_packed_aging_task import (
     ReplicaProcessSpec,
     build_simulation_command,
     child_environment,
+    collect_simulator_provenance,
     read_manifest_task,
     replica_locks,
     run_concurrent_processes,
@@ -351,6 +352,21 @@ def test_build_simulation_command_sets_stable_seed_and_replica(
     assert command[command.index("--replicas") + 1] == "17"
     assert command[command.index("--seed") + 1] == "18"
     assert command[command.index("--gpu-id") + 1] == "0"
+    assert command[command.index("--coupling-type") + 1] == "step"
+
+
+def test_collect_simulator_provenance_hashes_executed_sources() -> None:
+    repository = Path(__file__).parents[1]
+    provenance = collect_simulator_provenance(
+        python_executable=Path(sys.executable),
+        simulation_script=repository / "examples" / "05_advanced_run.py",
+    )
+
+    assert Path(provenance["python_executable"]).is_absolute()
+    assert Path(provenance["simulation_script"]).is_file()
+    assert Path(provenance["cavitymd_core"]).is_file()
+    assert len(provenance["simulation_script_sha256"]) == 64
+    assert len(provenance["cavitymd_core_sha256"]) == 64
 
 
 def test_replica_locks_exclude_duplicate_writer(tmp_path: Path) -> None:
@@ -399,7 +415,7 @@ def test_main_skips_complete_replicas_without_cleanup(
     monkeypatch.setattr(
         packed_runner,
         "is_complete_replica",
-        lambda _directory, _replica: True,
+        lambda _directory, _replica, **_kwargs: True,
     )
     monkeypatch.setattr(
         packed_runner,
@@ -438,11 +454,21 @@ def test_main_postvalidates_both_children_after_process_failure(
     )
     validation_calls = {4: 0, 5: 0}
 
-    def fake_validation(_directory: Path, replica: int) -> bool:
+    validation_protocol_flags: list[bool] = []
+
+    def fake_validation(
+        _directory: Path,
+        replica: int,
+        **kwargs: object,
+    ) -> bool:
         validation_calls[replica] += 1
+        validation_protocol_flags.append(
+            bool(kwargs.get("require_step_protocol"))
+        )
         return validation_calls[replica] > 1 and replica == 4
 
     cleaned: list[int] = []
+    marked: list[tuple[int, float, float, int, dict[str, str]]] = []
     events: list[str] = []
 
     @contextmanager
@@ -461,6 +487,26 @@ def test_main_postvalidates_both_children_after_process_failure(
         "cleanup_replica_artifacts",
         lambda _directory, replica: cleaned.append(replica) or [],
     )
+    monkeypatch.setattr(
+        packed_runner,
+        "write_protocol_marker",
+        lambda _directory, replica, *, lam, switch_time_ps, seed, provenance: (
+            marked.append((replica, lam, switch_time_ps, seed, provenance))
+        ),
+    )
+    provenance = {
+        "python_executable": "/env/bin/python",
+        "simulation_script": "/repo/examples/05_advanced_run.py",
+        "simulation_script_sha256": "a" * 64,
+        "cavitymd_core": "/env/core.py",
+        "cavitymd_core_sha256": "b" * 64,
+    }
+    monkeypatch.setattr(
+        packed_runner,
+        "collect_simulator_provenance",
+        lambda **_kwargs: provenance,
+        raising=False,
+    )
     monkeypatch.setattr(packed_runner, "replica_locks", fake_locks)
 
     def fake_run(_specs: list[ReplicaProcessSpec]) -> int:
@@ -475,5 +521,14 @@ def test_main_postvalidates_both_children_after_process_failure(
 
     assert packed_runner.main() == 1
     assert cleaned == [4, 5]
-    assert validation_calls == {4: 2, 5: 2}
+    assert marked == [(4, 0.03, 200.0, 5, provenance)]
+    assert validation_calls == {4: 3, 5: 3}
+    assert validation_protocol_flags == [
+        True,
+        True,
+        False,
+        False,
+        True,
+        True,
+    ]
     assert events == ["lock:(4, 5)", "run", "unlock"]

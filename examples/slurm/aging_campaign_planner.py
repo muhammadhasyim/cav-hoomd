@@ -297,6 +297,9 @@ def build_campaign_plan(
             reference_interval_ps=reference_interval_ps,
             max_references=max_references,
             max_lag_tolerance_ps=max_lag_tolerance_ps,
+            require_step_protocol=lam != 0.0,
+            expected_lam=lam,
+            expected_switch_time_ps=switch_time_ps,
         )
         selected = select_replicas_to_target(
             scan.complete_replicas,

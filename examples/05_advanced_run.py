@@ -84,6 +84,34 @@ from hoomd.cavitymd.simulation import CavityMDSimulation
 # SIMULATION FUNCTIONS (No need for local class - using plugin directly)
 # =============================================================================
 
+def resolve_coupling_variant_type(switch_time_ps, requested_type=None):
+    """Resolve constant versus step coupling for the requested protocol.
+
+    Parameters
+    ----------
+    switch_time_ps : float or None
+        Coupling activation time in picoseconds.
+    requested_type : {"constant", "step"} or None
+        Explicit user selection. When omitted, a switch time implies a step.
+
+    Returns
+    -------
+    str
+        Coupling variant type passed to :class:`CavityMDSimulation`.
+    """
+    if requested_type is not None:
+        if requested_type not in {"constant", "step"}:
+            raise ValueError(
+                "coupling type must be 'constant' or 'step'"
+            )
+        if switch_time_ps is not None and requested_type != "step":
+            raise ValueError(
+                "a finite switch time requires step coupling"
+            )
+        return requested_type
+    return "step" if switch_time_ps is not None else "constant"
+
+
 def run_single_experiment(molecular_thermo, cavity_thermo, finite_q, 
                          coupling, temperature, frequency, replica, frame, 
                          runtime_ps, molecular_tau, cavity_tau, enable_fkt, fkt_kmag, fkt_wavevectors, 
@@ -94,6 +122,7 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
                          gsd_output_period_ps=50.0, console_output_period_ps=1.0, 
                          truncate_gsd=False, seed=None, restart_velocities=True,
                          switch_time_ps=None, decay_time_constant_ps=None, damping_ratio=0.0,
+                         coupling_variant_type=None,
                          enable_dipole_autocorr=False, dipole_ref_interval=1.0, dipole_max_refs=10, 
                          dipole_output_period_ps=1.0, error_tolerance=5.0, initial_fraction=1e-5, 
                          time_constant_ps=50.0, zero_momentum_enabled=False, zero_momentum_period_ps=1.0,
@@ -107,6 +136,10 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
         phmass = 1.0  # Photon mass is 1.0 in a.u.
         omegac = frequency / PhysicalConstants.HARTREE_TO_CM_MINUS1
         dissipation = 2 * damping_ratio * phmass * omegac
+        resolved_coupling_type = resolve_coupling_variant_type(
+            switch_time_ps,
+            coupling_variant_type,
+        )
 
         # Create experiment directory with appropriate naming
         if incavity:
@@ -205,6 +238,7 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
             seed=seed,
             restart_velocities=restart_velocities,
             switch_time_ps=switch_time_ps,
+            coupling_variant_type=resolved_coupling_type,
             decay_time_constant_ps=decay_time_constant_ps,
             dissipation=dissipation,
             enable_dipole_autocorr=enable_dipole_autocorr,
@@ -243,6 +277,11 @@ def main():
                        help='Cavity coupling strength (default: 1e-3)')
     parser.add_argument('--switch-time', type=float, 
                        help='Time in ps when coupling and dissipation turn on (default: on from start)')
+    parser.add_argument(
+        '--coupling-type',
+        choices=['constant', 'step'],
+        help='Coupling variant (default: step when --switch-time is set)',
+    )
     parser.add_argument('--decay-time-constant', type=float,
                        help='Exponential decay time constant in ps for coupling after switch (default: no decay)')
     parser.add_argument('--damping-ratio', type=float, default=0.0,
@@ -379,6 +418,10 @@ def main():
     print(f"  Cavity coupling: {'Enabled' if incavity else 'Disabled'}")
     if incavity:
         print(f"    Coupling strength: {args.coupling:.6e} a.u.")  # Enhanced format
+        print(
+            "    Coupling type: "
+            f"{resolve_coupling_variant_type(args.switch_time, args.coupling_type)}"
+        )
         print(f"    Frequency: {args.frequency} cm⁻¹")
         print(f"    Finite-q mode: {finite_q}")
         print(f"    Cavity thermostat: {cavity_thermo}")
@@ -444,6 +487,7 @@ def main():
             seed=args.seed,
             restart_velocities=not args.no_restart_velocities,
             switch_time_ps=args.switch_time,
+            coupling_variant_type=args.coupling_type,
             damping_ratio=args.damping_ratio,
             enable_dipole_autocorr=args.enable_dipole_autocorr,
             dipole_ref_interval=args.dipole_ref_interval,

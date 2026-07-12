@@ -6,6 +6,7 @@ import argparse
 from contextlib import contextmanager
 from dataclasses import dataclass
 import fcntl
+import hashlib
 import math
 import os
 from pathlib import Path
@@ -22,6 +23,7 @@ if __package__ in (None, ""):
         is_complete_replica,
         lambda_to_tag,
         run_dir,
+        write_protocol_marker,
     )
 else:
     from .aging_campaign_status import (
@@ -29,12 +31,14 @@ else:
         is_complete_replica,
         lambda_to_tag,
         run_dir,
+        write_protocol_marker,
     )
 
 DEFAULT_OUTPUT_BASE = Path(
     "/scratch/mh7373/projects/cav-hoomd/aging_weak_lambda"
 )
 CAMPAIGN_LAMBDAS = (0.0, 0.01, 0.016667, 0.023333, 0.03)
+CAMPAIGN_SWITCH_TIME_PS = 200.0
 MAX_REPLICA_ID = 999
 
 
@@ -341,6 +345,8 @@ def build_simulation_command(
         "langevin",
         "--coupling",
         f"{lam:g}",
+        "--coupling-type",
+        "step",
         "--temperature",
         "100.0",
         "--frequency",
@@ -383,6 +389,63 @@ def build_simulation_command(
         "--seed",
         str(replica + 1),
     )
+
+
+def collect_simulator_provenance(
+    *,
+    python_executable: Path,
+    simulation_script: Path,
+) -> dict[str, str]:
+    """Archive the exact Python simulation sources used by a packed task.
+
+    Parameters
+    ----------
+    python_executable
+        Interpreter used to launch ``05_advanced_run.py``.
+    simulation_script
+        Advanced-run script passed to each child.
+
+    Returns
+    -------
+    dict[str, str]
+        Absolute executable/module paths and SHA-256 hashes.
+    """
+    core_query = (
+        "from hoomd.cavitymd.simulation import core;"
+        "print('__CAVITYMD_CORE__=' + core.__file__)"
+    )
+    result = subprocess.run(
+        [str(python_executable), "-c", core_query],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    core_lines = [
+        line.removeprefix("__CAVITYMD_CORE__=")
+        for line in result.stdout.splitlines()
+        if line.startswith("__CAVITYMD_CORE__=")
+    ]
+    if len(core_lines) != 1:
+        raise RuntimeError("cannot identify installed cavitymd core source")
+    core_path = Path(core_lines[0]).resolve()
+    script_path = simulation_script.resolve()
+    if not core_path.is_file() or not script_path.is_file():
+        raise FileNotFoundError("simulator provenance source is missing")
+
+    def sha256(path: Path) -> str:
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for block in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(block)
+        return digest.hexdigest()
+
+    return {
+        "python_executable": str(python_executable.resolve()),
+        "simulation_script": str(script_path),
+        "simulation_script_sha256": sha256(script_path),
+        "cavitymd_core": str(core_path),
+        "cavitymd_core_sha256": sha256(core_path),
+    }
 
 
 def _parse_args() -> argparse.Namespace:
@@ -436,10 +499,19 @@ def main() -> int:
     array_id = os.environ.get("SLURM_ARRAY_TASK_ID", str(task_index))
     environment = child_environment(os.environ)
     specifications: list[ReplicaProcessSpec] = []
+    completion_options = {
+        "require_step_protocol": task.lam != 0.0,
+        "expected_lam": task.lam,
+        "expected_switch_time_ps": CAMPAIGN_SWITCH_TIME_PS,
+    }
 
     with replica_locks(run_directory, task.replicas):
         for replica in task.replicas:
-            if is_complete_replica(run_directory, replica):
+            if is_complete_replica(
+                run_directory,
+                replica,
+                **completion_options,
+            ):
                 print(
                     f"Skipping scientifically complete lambda={task.lam:g} "
                     f"replica={replica}",
@@ -478,11 +550,37 @@ def main() -> int:
             print("All manifest replicas are already complete", flush=True)
             return 0
 
+        provenance = collect_simulator_provenance(
+            python_executable=args.python_executable,
+            simulation_script=simulation_script,
+        )
         result = run_concurrent_processes(specifications)
+        data_complete = [
+            specification.replica
+            for specification in specifications
+            if is_complete_replica(
+                run_directory,
+                specification.replica,
+                require_step_protocol=False,
+            )
+        ]
+        for replica in data_complete:
+            write_protocol_marker(
+                run_directory,
+                replica,
+                lam=task.lam,
+                switch_time_ps=CAMPAIGN_SWITCH_TIME_PS,
+                seed=replica + 1,
+                provenance=provenance,
+            )
         incomplete = [
             specification.replica
             for specification in specifications
-            if not is_complete_replica(run_directory, specification.replica)
+            if not is_complete_replica(
+                run_directory,
+                specification.replica,
+                **completion_options,
+            )
         ]
         if incomplete:
             print(

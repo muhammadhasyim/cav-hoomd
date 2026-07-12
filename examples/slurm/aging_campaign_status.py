@@ -5,10 +5,12 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Mapping
 
 COMPLETE_MIN_BYTES = 1_380_000_000
 DEFAULT_SWITCH_TIME_PS = 200.0
@@ -20,6 +22,15 @@ DEFAULT_FKT_MAX_LAG_TOLERANCE_PS = 2.0
 REPLICA_H5_PATTERN = re.compile(r"observables_replica_(\d+)\.h5$")
 REFERENCE_TIME_PATTERN = re.compile(
     r"Reference time:\s*([0-9.eE+-]+)\s*ps"
+)
+PROVENANCE_PATH_KEYS = (
+    "python_executable",
+    "simulation_script",
+    "cavitymd_core",
+)
+PROVENANCE_HASH_KEYS = (
+    "simulation_script_sha256",
+    "cavitymd_core_sha256",
 )
 
 
@@ -106,6 +117,149 @@ def fkt_file_path(
         naming convention.
     """
     return run_directory / f"prod-{replica}_fkt_ref_{reference_index:03d}.txt"
+
+
+def protocol_marker_path(run_directory: Path, replica: int) -> Path:
+    """Return the verified coupling-protocol marker path for one replica."""
+    return run_directory / f"protocol_replica_{replica}.json"
+
+
+def write_protocol_marker(
+    run_directory: Path,
+    replica: int,
+    *,
+    lam: float,
+    switch_time_ps: float,
+    seed: int,
+    provenance: Mapping[str, str],
+) -> Path:
+    """Atomically record the step-coupling protocol used by a replica.
+
+    Parameters
+    ----------
+    run_directory
+        Coupling output directory.
+    replica
+        Replica identifier.
+    lam
+        Dimensionless target coupling.
+    switch_time_ps
+        Step activation time in picoseconds.
+    seed
+        Deterministic HOOMD random seed.
+    provenance
+        Executable/module paths and SHA-256 hashes used for the simulation.
+
+    Returns
+    -------
+    pathlib.Path
+        Final marker path.
+    """
+    if (
+        not math.isfinite(lam)
+        or lam < 0.0
+        or not math.isfinite(switch_time_ps)
+        or switch_time_ps < 0.0
+        or seed <= 0
+        or not _valid_provenance(provenance)
+    ):
+        raise ValueError("protocol marker values are not physically valid")
+    run_directory.mkdir(parents=True, exist_ok=True)
+    path = protocol_marker_path(run_directory, replica)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    payload = {
+        "format_version": 1,
+        "coupling_variant_type": "step",
+        "lambda_coupling": lam,
+        "switch_time_ps": switch_time_ps,
+        "seed": seed,
+        "provenance": dict(provenance),
+    }
+    temporary.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(path)
+    return path
+
+
+def validate_protocol_marker(
+    run_directory: Path,
+    replica: int,
+    *,
+    expected_lam: float,
+    expected_switch_time_ps: float,
+    expected_seed: int,
+) -> bool:
+    """Validate a replica's recorded step-coupling protocol.
+
+    Returns ``False`` for absent, malformed, constant-coupling, or mismatched
+    markers. The marker supplies protocol provenance not present in legacy HDF5
+    files.
+    """
+    if (
+        not math.isfinite(expected_lam)
+        or expected_lam < 0.0
+        or not math.isfinite(expected_switch_time_ps)
+        or expected_switch_time_ps < 0.0
+        or expected_seed <= 0
+    ):
+        return False
+    try:
+        payload = json.loads(
+            protocol_marker_path(run_directory, replica).read_text(
+                encoding="utf-8"
+            )
+        )
+        seed_value = payload.get("seed") if isinstance(payload, dict) else None
+        provenance = (
+            payload.get("provenance") if isinstance(payload, dict) else None
+        )
+        return (
+            isinstance(payload, dict)
+            and payload.get("format_version") == 1
+            and payload.get("coupling_variant_type") == "step"
+            and math.isclose(
+                float(payload.get("lambda_coupling")),
+                expected_lam,
+                rel_tol=0.0,
+                abs_tol=1.0e-12,
+            )
+            and math.isclose(
+                float(payload.get("switch_time_ps")),
+                expected_switch_time_ps,
+                rel_tol=0.0,
+                abs_tol=1.0e-9,
+            )
+            and isinstance(seed_value, int)
+            and not isinstance(seed_value, bool)
+            and seed_value == expected_seed
+            and isinstance(provenance, dict)
+            and _valid_provenance(provenance)
+        )
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        return False
+
+
+def _valid_provenance(provenance: Mapping[str, object]) -> bool:
+    """Return whether executable provenance is complete and well formed."""
+    for key in PROVENANCE_PATH_KEYS:
+        value = provenance.get(key)
+        if (
+            not isinstance(value, str)
+            or not value
+            or not Path(value).is_absolute()
+        ):
+            return False
+    for key in PROVENANCE_HASH_KEYS:
+        value = provenance.get(key)
+        if (
+            not isinstance(value, str)
+            or len(value) != 64
+            or any(character not in "0123456789abcdef" for character in value)
+        ):
+            return False
+    return True
 
 
 def validate_fkt_file(
@@ -220,6 +374,9 @@ def is_complete_replica(
     reference_interval_ps: float = DEFAULT_FKT_REFERENCE_INTERVAL_PS,
     max_references: int = DEFAULT_FKT_MAX_REFERENCES,
     max_lag_tolerance_ps: float = DEFAULT_FKT_MAX_LAG_TOLERANCE_PS,
+    require_step_protocol: bool = False,
+    expected_lam: float | None = None,
+    expected_switch_time_ps: float | None = None,
 ) -> bool:
     """Return whether a replica is complete for relaxation analysis.
 
@@ -239,6 +396,12 @@ def is_complete_replica(
         Required number of reference files.
     max_lag_tolerance_ps
         Allowed final-lag discrepancy in picoseconds.
+    require_step_protocol
+        Require a verified step-coupling provenance marker.
+    expected_lam
+        Expected dimensionless coupling when protocol validation is required.
+    expected_switch_time_ps
+        Expected coupling activation time in picoseconds.
 
     Returns
     -------
@@ -260,6 +423,17 @@ def is_complete_replica(
         min_bytes=min_bytes,
     ):
         return False
+    if require_step_protocol:
+        if expected_lam is None or expected_switch_time_ps is None:
+            return False
+        if not validate_protocol_marker(
+            run_directory,
+            replica,
+            expected_lam=expected_lam,
+            expected_switch_time_ps=expected_switch_time_ps,
+            expected_seed=replica + 1,
+        ):
+            return False
 
     for reference_index in range(max_references):
         reference_time_ps = reference_index * reference_interval_ps
@@ -306,6 +480,7 @@ def cleanup_replica_artifacts(
     paths = [
         replica_h5_path(run_directory, replica),
         replica_gsd_path(run_directory, replica),
+        protocol_marker_path(run_directory, replica),
         *sorted(run_directory.glob(f"prod-{replica}_fkt_ref_*.txt")),
     ]
     existing_paths = [path for path in paths if path.exists()]
@@ -343,6 +518,9 @@ def scan_lambda_run(
     reference_interval_ps: float = DEFAULT_FKT_REFERENCE_INTERVAL_PS,
     max_references: int = DEFAULT_FKT_MAX_REFERENCES,
     max_lag_tolerance_ps: float = DEFAULT_FKT_MAX_LAG_TOLERANCE_PS,
+    require_step_protocol: bool = False,
+    expected_lam: float | None = None,
+    expected_switch_time_ps: float | None = None,
 ) -> LambdaScanResult:
     """Scan one lambda directory and classify replica outputs."""
     directory = run_dir(output_base, lam, switch_time_ps)
@@ -369,6 +547,9 @@ def scan_lambda_run(
                     reference_interval_ps=reference_interval_ps,
                     max_references=max_references,
                     max_lag_tolerance_ps=max_lag_tolerance_ps,
+                    require_step_protocol=require_step_protocol,
+                    expected_lam=expected_lam,
+                    expected_switch_time_ps=expected_switch_time_ps,
                 )
             if complete_replica:
                 complete.append(replica)

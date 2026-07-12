@@ -18,7 +18,19 @@ from examples.slurm.aging_campaign_planner import (
     select_replicas_to_target,
     write_manifest,
 )
-from examples.slurm.aging_campaign_status import fkt_file_path, run_dir
+from examples.slurm.aging_campaign_status import (
+    fkt_file_path,
+    run_dir,
+    write_protocol_marker,
+)
+
+TEST_PROVENANCE = {
+    "python_executable": "/env/bin/python",
+    "simulation_script": "/repo/examples/05_advanced_run.py",
+    "simulation_script_sha256": "a" * 64,
+    "cavitymd_core": "/env/site-packages/hoomd/cavitymd/simulation/core.py",
+    "cavitymd_core_sha256": "b" * 64,
+}
 
 
 @pytest.fixture
@@ -189,6 +201,14 @@ def test_build_campaign_plan_counts_valid_outputs_and_selects_exact_top_up(
             reference_interval_ps=1.0,
             max_references=3,
         )
+        write_protocol_marker(
+            directory,
+            replica=replica,
+            lam=lam,
+            switch_time_ps=200.0,
+            seed=replica + 1,
+            provenance=TEST_PROVENANCE,
+        )
 
     plan = build_campaign_plan(
         output_base=tmp_path,
@@ -206,6 +226,37 @@ def test_build_campaign_plan_counts_valid_outputs_and_selects_exact_top_up(
     assert lambda_plan.scan.complete_replicas == (0, 1)
     assert lambda_plan.selected_replicas == (2,)
     assert plan.groups[0].replicas == (2,)
+
+
+def test_build_campaign_plan_rejects_legacy_nonzero_without_step_marker(
+    tmp_path: Path,
+) -> None:
+    lam = 0.03
+    directory = run_dir(tmp_path, lam)
+    directory.mkdir(parents=True)
+    _write_complete_replica(
+        directory,
+        0,
+        min_bytes=16,
+        runtime_ps=4.0,
+        reference_interval_ps=1.0,
+        max_references=3,
+    )
+
+    plan = build_campaign_plan(
+        output_base=tmp_path,
+        lambdas=[lam],
+        target_valid=1,
+        max_replica_id=1,
+        replicas_per_task=2,
+        min_bytes=16,
+        runtime_ps=4.0,
+        reference_interval_ps=1.0,
+        max_references=3,
+    )
+
+    assert plan.lambda_plans[0].scan.complete_replicas == ()
+    assert plan.lambda_plans[0].selected_replicas == (0,)
 
 
 def test_build_campaign_plan_rejects_duplicate_lambdas(tmp_path: Path) -> None:
