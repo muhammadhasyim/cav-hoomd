@@ -110,7 +110,8 @@ def fkt_file_path(
 
 def validate_fkt_file(
     path: Path,
-    expected_max_lag_ps: float,
+    runtime_ps: float,
+    expected_reference_time_ps: float,
     max_lag_tolerance_ps: float = DEFAULT_FKT_MAX_LAG_TOLERANCE_PS,
 ) -> bool:
     """Validate one two-column F(k,t) output file.
@@ -123,8 +124,10 @@ def validate_fkt_file(
     ----------
     path
         F(k,t) text file to validate.
-    expected_max_lag_ps
-        Expected final lag time in picoseconds.
+    runtime_ps
+        Requested simulation runtime in picoseconds.
+    expected_reference_time_ps
+        Reference time implied by the file's reference index, in picoseconds.
     max_lag_tolerance_ps
         Maximum absolute final-lag discrepancy in picoseconds.
 
@@ -139,10 +142,18 @@ def validate_fkt_file(
     """
     if not path.is_file():
         return False
-    if expected_max_lag_ps < 0.0 or max_lag_tolerance_ps < 0.0:
+    if (
+        not math.isfinite(runtime_ps)
+        or not math.isfinite(expected_reference_time_ps)
+        or not math.isfinite(max_lag_tolerance_ps)
+        or runtime_ps <= 0.0
+        or expected_reference_time_ps < 0.0
+        or expected_reference_time_ps > runtime_ps
+        or max_lag_tolerance_ps < 0.0
+    ):
         return False
 
-    reference_time_found = False
+    reference_time_ps: float | None = None
     previous_lag: float | None = None
     row_count = 0
 
@@ -156,9 +167,18 @@ def validate_fkt_file(
                     match = REFERENCE_TIME_PATTERN.search(stripped)
                     if match is not None:
                         reference_time = float(match.group(1))
-                        if not math.isfinite(reference_time):
+                        if (
+                            not math.isfinite(reference_time)
+                            or reference_time < 0.0
+                            or reference_time > runtime_ps
+                        ):
                             return False
-                        reference_time_found = True
+                        if (
+                            reference_time_ps is not None
+                            and reference_time != reference_time_ps
+                        ):
+                            return False
+                        reference_time_ps = reference_time
                     continue
 
                 fields = stripped.split()
@@ -178,7 +198,15 @@ def validate_fkt_file(
     except (OSError, UnicodeError, ValueError):
         return False
 
-    if not reference_time_found or row_count < 2 or previous_lag is None:
+    if reference_time_ps is None or row_count < 2 or previous_lag is None:
+        return False
+    if (
+        abs(reference_time_ps - expected_reference_time_ps)
+        > max_lag_tolerance_ps
+    ):
+        return False
+    expected_max_lag_ps = runtime_ps - reference_time_ps
+    if expected_max_lag_ps < 0.0:
         return False
     return abs(previous_lag - expected_max_lag_ps) <= max_lag_tolerance_ps
 
@@ -218,8 +246,12 @@ def is_complete_replica(
         ``True`` when the HDF5 guard and every F(k,t) file pass.
     """
     if (
-        runtime_ps <= 0.0
+        not math.isfinite(runtime_ps)
+        or not math.isfinite(reference_interval_ps)
+        or not math.isfinite(max_lag_tolerance_ps)
+        or runtime_ps <= 0.0
         or reference_interval_ps <= 0.0
+        or max_lag_tolerance_ps < 0.0
         or max_references <= 0
     ):
         return False
@@ -236,7 +268,8 @@ def is_complete_replica(
             return False
         if not validate_fkt_file(
             fkt_file_path(run_directory, replica, reference_index),
-            expected_max_lag_ps=expected_max_lag_ps,
+            runtime_ps=runtime_ps,
+            expected_reference_time_ps=reference_time_ps,
             max_lag_tolerance_ps=max_lag_tolerance_ps,
         ):
             return False
@@ -322,6 +355,10 @@ def scan_lambda_run(
             if match is None:
                 continue
             replica = int(match.group(1))
+            if not 0 <= replica < n_replicas:
+                continue
+            if path != replica_h5_path(directory, replica):
+                continue
             complete_replica = is_complete_h5(path, min_bytes=min_bytes)
             if require_fkt:
                 complete_replica = is_complete_replica(
@@ -340,8 +377,7 @@ def scan_lambda_run(
 
     complete.sort()
     partial.sort()
-    existing = set(complete) | set(partial)
-    missing = [replica for replica in range(n_replicas) if replica not in existing]
+    missing = [replica for replica in range(n_replicas) if replica not in complete]
 
     return LambdaScanResult(
         lam=lam,

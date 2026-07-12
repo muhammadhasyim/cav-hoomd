@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from examples.slurm.aging_campaign_status import (
-    COMPLETE_MIN_BYTES,
     cleanup_replica_artifacts,
     cleanup_partial_replicas,
     cleanup_stray_run_dirs,
@@ -84,7 +83,11 @@ def test_validate_fkt_file_accepts_complete_ordered_data(tmp_path: Path) -> None
     path = tmp_path / "prod-0_fkt_ref_000.txt"
     _write_fkt_file(path, reference_time_ps=0.0, max_lag_ps=10.0)
 
-    assert validate_fkt_file(path, expected_max_lag_ps=10.0)
+    assert validate_fkt_file(
+        path,
+        runtime_ps=10.0,
+        expected_reference_time_ps=0.0,
+    )
 
 
 def test_validate_fkt_file_rejects_malformed_row(tmp_path: Path) -> None:
@@ -94,7 +97,11 @@ def test_validate_fkt_file_rejects_malformed_row(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    assert not validate_fkt_file(path, expected_max_lag_ps=10.0)
+    assert not validate_fkt_file(
+        path,
+        runtime_ps=10.0,
+        expected_reference_time_ps=0.0,
+    )
 
 
 def test_validate_fkt_file_rejects_duplicate_lag_time(tmp_path: Path) -> None:
@@ -104,7 +111,11 @@ def test_validate_fkt_file_rejects_duplicate_lag_time(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    assert not validate_fkt_file(path, expected_max_lag_ps=10.0)
+    assert not validate_fkt_file(
+        path,
+        runtime_ps=10.0,
+        expected_reference_time_ps=0.0,
+    )
 
 
 def test_validate_fkt_file_rejects_out_of_order_lag_time(
@@ -116,7 +127,11 @@ def test_validate_fkt_file_rejects_out_of_order_lag_time(
         encoding="utf-8",
     )
 
-    assert not validate_fkt_file(path, expected_max_lag_ps=10.0)
+    assert not validate_fkt_file(
+        path,
+        runtime_ps=10.0,
+        expected_reference_time_ps=0.0,
+    )
 
 
 def test_validate_fkt_file_rejects_short_coverage(tmp_path: Path) -> None:
@@ -125,8 +140,59 @@ def test_validate_fkt_file_rejects_short_coverage(tmp_path: Path) -> None:
 
     assert not validate_fkt_file(
         path,
-        expected_max_lag_ps=10.0,
+        runtime_ps=10.0,
+        expected_reference_time_ps=0.0,
         max_lag_tolerance_ps=2.0,
+    )
+
+
+def test_validate_fkt_file_rejects_wrong_reference_header(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "prod-0_fkt_ref_000.txt"
+    _write_fkt_file(path, reference_time_ps=5.0, max_lag_ps=10.0)
+
+    assert not validate_fkt_file(
+        path,
+        runtime_ps=10.0,
+        expected_reference_time_ps=0.0,
+    )
+
+
+def test_validate_fkt_file_rejects_negative_reference_header(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "prod-0_fkt_ref_000.txt"
+    _write_fkt_file(path, reference_time_ps=-1.0, max_lag_ps=11.0)
+
+    assert not validate_fkt_file(
+        path,
+        runtime_ps=10.0,
+        expected_reference_time_ps=0.0,
+    )
+
+
+def test_validate_fkt_file_rejects_nonfinite_timing_arguments(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "prod-0_fkt_ref_000.txt"
+    _write_fkt_file(path, reference_time_ps=0.0, max_lag_ps=10.0)
+
+    assert not validate_fkt_file(
+        path,
+        runtime_ps=float("nan"),
+        expected_reference_time_ps=0.0,
+    )
+    assert not validate_fkt_file(
+        path,
+        runtime_ps=10.0,
+        expected_reference_time_ps=float("nan"),
+    )
+    assert not validate_fkt_file(
+        path,
+        runtime_ps=10.0,
+        expected_reference_time_ps=0.0,
+        max_lag_tolerance_ps=float("nan"),
     )
 
 
@@ -156,6 +222,21 @@ def test_is_complete_replica_requires_all_fkt_references(
     )
 
 
+def test_is_complete_replica_rejects_nonfinite_reference_interval(
+    tmp_path: Path,
+) -> None:
+    _write_complete_replica(tmp_path, 7, min_bytes=1024)
+
+    assert not is_complete_replica(
+        tmp_path,
+        7,
+        min_bytes=1024,
+        runtime_ps=14.0,
+        reference_interval_ps=float("nan"),
+        max_references=13,
+    )
+
+
 def test_slurm_array_spec() -> None:
     assert slurm_array_spec([0, 1, 2, 5, 7, 8]) == "0-2,5,7-8"
     assert slurm_array_spec([]) == ""
@@ -175,7 +256,52 @@ def test_scan_lambda_run(tmp_path: Path) -> None:
     scan = scan_lambda_run(tmp_path, lam, n_replicas=4, min_bytes=min_bytes)
     assert scan.complete_replicas == (0,)
     assert scan.partial_replicas == (1,)
-    assert scan.missing_replicas == (2, 3)
+    assert scan.missing_replicas == (1, 2, 3)
+
+
+def test_scan_lambda_run_with_fkt_uses_scientific_completion(
+    tmp_path: Path,
+) -> None:
+    lam = 0.01
+    min_bytes = 1024
+    directory = run_dir(tmp_path, lam)
+    directory.mkdir(parents=True)
+    _write_complete_replica(directory, 0, min_bytes=min_bytes)
+    _write_complete_replica(directory, 1, min_bytes=min_bytes)
+    fkt_file_path(directory, 1, 5).unlink()
+
+    scan = scan_lambda_run(
+        tmp_path,
+        lam,
+        n_replicas=3,
+        min_bytes=min_bytes,
+        require_fkt=True,
+        runtime_ps=14.0,
+        reference_interval_ps=1.0,
+        max_references=13,
+    )
+
+    assert scan.complete_replicas == (0,)
+    assert scan.partial_replicas == (1,)
+    assert scan.missing_replicas == (1, 2)
+
+
+def test_scan_lambda_run_ignores_noncanonical_and_out_of_domain_ids(
+    tmp_path: Path,
+) -> None:
+    lam = 0.01
+    min_bytes = 1024
+    directory = run_dir(tmp_path, lam)
+    directory.mkdir(parents=True)
+    (directory / "observables_replica_0.h5").write_bytes(b"x" * min_bytes)
+    (directory / "observables_replica_00.h5").write_bytes(b"x" * min_bytes)
+    (directory / "observables_replica_1.h5").write_bytes(b"x" * min_bytes)
+
+    scan = scan_lambda_run(tmp_path, lam, n_replicas=1, min_bytes=min_bytes)
+
+    assert scan.complete_replicas == (0,)
+    assert scan.partial_replicas == ()
+    assert scan.missing_replicas == ()
 
 
 def test_cleanup_partial_replicas(tmp_path: Path) -> None:
@@ -208,6 +334,30 @@ def test_cleanup_replica_artifacts_removes_fkt_files(tmp_path: Path) -> None:
     assert gsd_path in deleted
     assert fkt_file_path(tmp_path, 4, 0) in deleted
     assert not list(tmp_path.glob("prod-4_fkt_ref_*.txt"))
+
+
+def test_cleanup_replica_artifacts_dry_run_preserves_files(
+    tmp_path: Path,
+) -> None:
+    _write_complete_replica(tmp_path, 4, min_bytes=1024)
+
+    deleted = cleanup_replica_artifacts(tmp_path, 4, dry_run=True)
+
+    assert fkt_file_path(tmp_path, 4, 0) in deleted
+    assert fkt_file_path(tmp_path, 4, 0).exists()
+    assert (tmp_path / "observables_replica_4.h5").exists()
+
+
+def test_cleanup_replica_artifacts_preserves_sibling_replica(
+    tmp_path: Path,
+) -> None:
+    _write_complete_replica(tmp_path, 4, min_bytes=1024)
+    _write_complete_replica(tmp_path, 5, min_bytes=1024)
+
+    cleanup_replica_artifacts(tmp_path, 4)
+
+    assert (tmp_path / "observables_replica_5.h5").exists()
+    assert fkt_file_path(tmp_path, 5, 0).exists()
 
 
 def test_cleanup_stray_run_dirs(tmp_path: Path) -> None:
