@@ -2497,59 +2497,6 @@ class CavityMDSimulation:
         
         if not self.restart_velocities:
             self.log_info("Velocity restart disabled - keeping existing velocities from GSD file")
-            # Check if we need to verify existing velocities
-            with self.get_local_snapshot() as snap:
-                # Get masses and velocities
-                masses = self.to_numpy(snap.particles.mass)
-                velocities = self.to_numpy(snap.particles.velocity)
-                typeid_array = self.to_numpy(snap.particles.typeid)
-                
-                # Filter for molecular particles only (typeid != 2)
-                molecular_mask = typeid_array != 2
-                
-                if np.any(molecular_mask):
-                    # Extract molecular particles data
-                    mol_masses = masses[molecular_mask]
-                    mol_velocities = velocities[molecular_mask]
-                    
-                    # Calculate kinetic energy: KE = 0.5 * m * v²
-                    v_squared = np.sum(mol_velocities**2, axis=1)
-                    kinetic_energy = 0.5 * mol_masses * v_squared
-                    total_ke = np.sum(kinetic_energy)
-                    
-                    # Calculate temperature: T = (2/3) * KE / (N * kB)
-                    n_mol_particles = np.sum(molecular_mask)
-                    degrees_of_freedom = 3 * n_mol_particles
-                    current_temp = (2.0) * total_ke / (degrees_of_freedom * self.kB)
-                    
-                    self.log_info(f"Initial kinetic temperature from existing velocities: {current_temp:.2f} K")
-                    
-                    # FIX: Check for zero velocities when using Bussi thermostat
-                    # Bussi thermostat requires non-zero initial momenta to function properly
-                    velocity_magnitude_threshold = 1e-12  # Very small threshold for "zero" velocities
-                    max_velocity_magnitude = np.max(np.sqrt(np.sum(mol_velocities**2, axis=1)))
-                    
-                    # Also check cavity particle velocities if cavity thermostat is Bussi
-                    cavity_max_velocity = 0.0
-                    if self.incavity:
-                        cavity_mask = typeid_array == 2
-                        if np.any(cavity_mask):
-                            cavity_velocities = velocities[cavity_mask]
-                            cavity_max_velocity = np.max(np.sqrt(np.sum(cavity_velocities**2, axis=1)))
-                            max_velocity_magnitude = max(max_velocity_magnitude, cavity_max_velocity)
-                    
-                    is_bussi_molecular = (self.molecular_thermostat.lower() == 'bussi')
-                    is_bussi_cavity = (self.cavity_thermostat.lower() == 'bussi') if self.incavity else False
-                    
-                    if max_velocity_magnitude < velocity_magnitude_threshold and (is_bussi_molecular or is_bussi_cavity):
-                        self.log_warning("CRITICAL: Zero velocities detected with Bussi thermostat!")
-                        self.log_warning("Bussi thermostat requires non-zero initial momenta.")
-                        self.log_warning("Forcing velocity thermalization to prevent simulation failure...")
-                        
-                        # Force thermalization despite restart_velocities=False
-                        self._force_thermalization_for_bussi()
-                        return
-                        
             return
         
         kT = self.kB * self.temperature
@@ -4259,20 +4206,37 @@ class CavityMDSimulation:
                 self.log_info("GSD output setup for fixed timestep mode:")
                 self.log_info(f"  GSD trigger: every {self.gsd_period} steps ({self.gsd_output_period_ps:.3f} ps)")
             
+            gsd_filename = f'{self.name}-{self.replica}.gsd'
+            resume_append = (
+                not self.truncate_gsd
+                and Path(gsd_filename).is_file()
+            )
+            gsd_open_mode = 'ab' if resume_append else 'wb'
+
             # Set up GSD writer
             gsd_writer = hoomd.write.GSD(
-                filename=f'{self.name}-{self.replica}.gsd',
+                filename=gsd_filename,
                 trigger=gsd_trigger,
                 dynamic=['property', 'momentum', 'particles/diameter', 'topology'],
-                mode='wb',
+                mode=gsd_open_mode,
                 truncate=self.truncate_gsd,
                 filter=hoomd.filter.All()
             )
             gsd_writer.logger = self.logger_hoomd
-            
-            # Write initial frame
-            gsd_writer.write(self.sim.state, filename=f'{self.name}-{self.replica}.gsd',
-                mode='wb', filter=hoomd.filter.All(), logger=self.logger_hoomd)
+
+            if resume_append:
+                self.log_info(
+                    f"Resuming GSD append to existing file: {gsd_filename}"
+                )
+            else:
+                # Write initial frame for new trajectories only.
+                gsd_writer.write(
+                    self.sim.state,
+                    filename=gsd_filename,
+                    mode='wb',
+                    filter=hoomd.filter.All(),
+                    logger=self.logger_hoomd,
+                )
             
             # Add GSD writer to simulation
             self.sim.operations.writers.append(gsd_writer)

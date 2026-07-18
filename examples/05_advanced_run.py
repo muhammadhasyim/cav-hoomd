@@ -127,7 +127,8 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
                          enable_dipole_autocorr=False, dipole_ref_interval=1.0, dipole_max_refs=10, 
                          dipole_output_period_ps=1.0, error_tolerance=5.0, initial_fraction=1e-5, 
                          time_constant_ps=50.0, zero_momentum_enabled=False, zero_momentum_period_ps=1.0,
-                         input_gsd='init-0.gsd'):
+                         input_gsd='init-0.gsd',
+                         enable_temp_tracker=True, enable_hdf5_output=True):
     """
     Run a single experiment using the CavityMDSimulation class from the plugin.
     """
@@ -254,7 +255,9 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
             initial_fraction=initial_fraction,
             time_constant_ps=time_constant_ps,
             zero_momentum_enabled=zero_momentum_enabled,
-            zero_momentum_period_ps=zero_momentum_period_ps
+            zero_momentum_period_ps=zero_momentum_period_ps,
+            enable_temp_tracker=enable_temp_tracker,
+            enable_hdf5_output=enable_hdf5_output,
         )
         
         # Run the simulation
@@ -390,6 +393,10 @@ def main():
     # GSD output control
     parser.add_argument('--disable-gsd', action='store_true',
                        help='Disable production GSD trajectory output (keep HDF5 and F(k,t))')
+    parser.add_argument('--disable-temp-tracker', dest='enable_temp_tracker', action='store_false',
+                       help='Disable comprehensive temperature tracker output')
+    parser.add_argument('--disable-hdf5-output', dest='enable_hdf5_output', action='store_false',
+                       help='Disable HDF5 observable writer output')
     parser.add_argument('--truncate-gsd', action='store_true', 
                        help='Truncate GSD output file if it exists (default: append)')
     
@@ -533,7 +540,9 @@ def main():
             zero_momentum_enabled=args.zero_momentum,
             zero_momentum_period_ps=args.zero_momentum_period_ps,
             decay_time_constant_ps=args.decay_time_constant,
-            input_gsd=args.input_gsd
+            input_gsd=args.input_gsd,
+            enable_temp_tracker=args.enable_temp_tracker,
+            enable_hdf5_output=args.enable_hdf5_output,
         )
         
         if success:
