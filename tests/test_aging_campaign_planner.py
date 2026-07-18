@@ -387,7 +387,7 @@ def test_submit_script_dry_run_generates_combined_packed_array(
     sbatch_file = plan_directory / "job.sbatch"
     assert manifest.read_text(encoding="utf-8") == "0p03\t0.03\t0\t1\n"
     sbatch_text = sbatch_file.read_text(encoding="utf-8")
-    assert "#SBATCH --array=0-0%4" in sbatch_text
+    assert "#SBATCH --array=0-0%24" in sbatch_text
     assert "#SBATCH --cpus-per-task=8" in sbatch_text
     assert "#SBATCH --mem=32G" in sbatch_text
     assert "#SBATCH --time=06:00:00" in sbatch_text
@@ -398,7 +398,7 @@ def test_submit_script_dry_run_generates_combined_packed_array(
     assert "needed=2" in result.stdout
     assert "groups=1" in result.stdout
     assert "gres:gpu:1" in result.stdout
-    assert "walltime=06:00:00 concurrent_tasks=4" in result.stdout
+    assert "walltime=06:00:00 concurrent_tasks=24" in result.stdout
     assert "Dry run: no job submitted" in result.stdout
 
     syntax = subprocess.run(
@@ -501,7 +501,7 @@ def test_submit_script_handles_relative_paths_spaces_and_all_lambdas(
     sbatch_file = plan_directory / "job.sbatch"
     assert len(manifest.read_text(encoding="utf-8").splitlines()) == 5
     sbatch_text = sbatch_file.read_text(encoding="utf-8")
-    assert "#SBATCH --array=0-4%4" in sbatch_text
+    assert "#SBATCH --array=0-4%24" in sbatch_text
     assert str(manifest.resolve()).replace(" ", "\\ ") in sbatch_text
     assert str(output_base.resolve()).replace(" ", "\\ ") in sbatch_text
 

@@ -11,11 +11,15 @@ from __future__ import annotations
 
 import argparse
 import csv
+import sys
 from pathlib import Path
 from hoomd.cavitymd.analysis.velocity_validation import compute_single_molecule_coupling
 from hoomd.cavitymd.studies import compute_replica_count
 
 # Use the existing lattice generator in examples
+_EXAMPLES_DIR = Path(__file__).resolve().parent
+if str(_EXAMPLES_DIR) not in sys.path:
+    sys.path.insert(0, str(_EXAMPLES_DIR))
 from initlattice_equilibrium import main as generate_equilibrium_gsd
 
 
