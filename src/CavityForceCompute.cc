@@ -2,6 +2,7 @@
 // Part of HOOMD-blue, released under the BSD 3-Clause License.
 
 #include "CavityForceCompute.h"
+#include <cmath>
 #include <stdexcept>
 #include <iostream>
 
@@ -16,6 +17,27 @@ namespace hoomd
 namespace cavitymd
 {
 
+void CavityForceCompute::validateParams(Scalar omegac,
+                                        Scalar lambda_coupling,
+                                        Scalar phmass)
+{
+    if (!std::isfinite(omegac) || omegac <= Scalar(0.0))
+        {
+        throw std::runtime_error(
+            "CavityForceCompute omegac must be finite and strictly positive");
+        }
+    if (!std::isfinite(phmass) || phmass <= Scalar(0.0))
+        {
+        throw std::runtime_error(
+            "CavityForceCompute phmass must be finite and strictly positive");
+        }
+    if (!std::isfinite(lambda_coupling))
+        {
+        throw std::runtime_error(
+            "CavityForceCompute lambda_coupling must be finite");
+        }
+}
+
 /*! \param sysdef SystemDefinition containing the ParticleData to compute forces on
     \param omegac Cavity frequency in atomic units
     \param lambda_coupling Dimensionless coupling parameter (lambda) variant
@@ -28,11 +50,18 @@ CavityForceCompute::CavityForceCompute(std::shared_ptr<SystemDefinition> sysdef,
     : ForceCompute(sysdef), m_lambda_coupling(lambda_coupling)
 {
     m_exec_conf->msg->notice(5) << "Constructing CavityForceCompute" << std::endl;
-    
-    // Initialize m_params with initial values from variants
+
+    if (!m_lambda_coupling)
+        {
+        throw std::runtime_error(
+            "CavityForceCompute lambda_coupling variant must not be null");
+        }
+    const Scalar initial_lambda = (*m_lambda_coupling)(0);
+    validateParams(omegac, initial_lambda, phmass);
+
     m_params.omegac = omegac;
     m_params.phmass = phmass;
-    m_params.lambda_coupling = (*m_lambda_coupling)(0);
+    m_params.lambda_coupling = initial_lambda;
     m_params.K = m_params.phmass * m_params.omegac * m_params.omegac;
 
     // Initialize energy components
@@ -53,8 +82,18 @@ CavityForceCompute::~CavityForceCompute()
 
 void CavityForceCompute::setParams(Scalar omegac, std::shared_ptr<Variant> lambda_coupling, Scalar phmass)
 {
+    if (!lambda_coupling)
+        {
+        throw std::runtime_error(
+            "CavityForceCompute lambda_coupling variant must not be null");
+        }
+    const Scalar initial_lambda = (*lambda_coupling)(0);
+    validateParams(omegac, initial_lambda, phmass);
+
     m_params.omegac = omegac;
     m_params.phmass = phmass;
+    m_params.lambda_coupling = initial_lambda;
+    m_params.K = phmass * omegac * omegac;
     m_lambda_coupling = lambda_coupling;
 }
 
@@ -143,7 +182,9 @@ vec3<Scalar> CavityForceCompute::computeDipoleMoment(const std::vector<vec3<Scal
 void CavityForceCompute::computeForces(uint64_t timestep)
 {
     // Update parameters from variants
-    m_params.lambda_coupling = (*m_lambda_coupling)(timestep);
+    const Scalar lambda_coupling = (*m_lambda_coupling)(timestep);
+    validateParams(m_params.omegac, lambda_coupling, m_params.phmass);
+    m_params.lambda_coupling = lambda_coupling;
 
     // Access particle data
     ArrayHandle<Scalar4> h_pos(m_pdata->getPositions(), access_location::host, access_mode::read);
@@ -196,8 +237,12 @@ void CavityForceCompute::computeForces(uint64_t timestep)
     h_force.data[photon_idx].w = 0.0;
     
     // Compute forces on molecular particles
-    // Note: Dq = q + (lambda / omegac) * d, where lambda is dimensionless
-    vec3<Scalar> Dq = q_photon_xy + (m_params.lambda_coupling / m_params.omegac) * dipole_xy;
+    // Dq = q + (g / K) d = q + lambda / (phmass * omegac) d
+    vec3<Scalar> Dq
+        = q_photon_xy
+          + (m_params.lambda_coupling
+             / (m_params.phmass * m_params.omegac))
+                * dipole_xy;
     
     // Get the typeid for 'L' type
     unsigned int L_typeid = m_pdata->getTypeByName("L");

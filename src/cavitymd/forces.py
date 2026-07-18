@@ -219,54 +219,35 @@ class CavityForce(hoomd.md.force.Force):
     
     def _attach_hook(self):
         """Called when force is attached to simulation"""
-        if self._implementation == "cpp" and self._force_impl is None:
-            # Initialize C++ force implementation now that we have system definition
-            try:
-                # Check if we're running on GPU and GPU implementation is available
-                device = self._simulation.device
-                if hasattr(device, 'gpu_ids') or 'GPU' in str(type(device)):
-                    # Try GPU implementation first
-                    try:
-                        if hasattr(_cavitymd, 'CavityForceComputeGPU'):
-                            self._force_impl = _cavitymd.CavityForceComputeGPU(
-                                self._simulation.state._cpp_sys_def,
-                                self.omegac,
-                                self.lambda_coupling_variant,
-                                self.phmass
-                            )
-                            self._implementation = "cuda"
-                            print(f"CUDA CavityForceComputeGPU initialized successfully")
-                        else:
-                            raise AttributeError("GPU implementation not available")
-                    except Exception as gpu_error:
-                        print(f"GPU implementation failed ({gpu_error}), falling back to CPU")
-                        # Fall back to CPU implementation
-                        self._force_impl = _cavitymd.CavityForceCompute(
-                            self._simulation.state._cpp_sys_def,
-                            self.omegac,
-                            self.lambda_coupling_variant,
-                            self.phmass
-                        )
-                        self._implementation = "cpp"
-                        print(f"CPU CavityForceCompute initialized successfully")
-                else:
-                    # Use CPU implementation for CPU device
-                    self._force_impl = _cavitymd.CavityForceCompute(
-                        self._simulation.state._cpp_sys_def,
-                        self.omegac,
-                        self.lambda_coupling_variant,
-                        self.phmass
-                    )
-                    print(f"CPU CavityForceCompute initialized successfully")
-                
-                # Set the C++ object for HOOMD's Force interface
-                self._cpp_obj = self._force_impl
-                
-            except Exception as e:
-                raise RuntimeError(
-                    f"Failed to initialize C++ cavity force: {e}. "
-                    "Ensure that the cavitymd C++ extension is properly compiled and installed."
+        if self._force_impl is None:
+            device = self._simulation.device
+            using_gpu = hasattr(device, 'gpu_ids') or 'GPU' in str(type(device))
+            gpu_compute_class = getattr(
+                _cavitymd,
+                'CavityForceComputeGPU',
+                None,
+            )
+
+            if using_gpu and gpu_compute_class is not None:
+                self._implementation = "cuda"
+                self._force_impl = gpu_compute_class(
+                    self._simulation.state._cpp_sys_def,
+                    self.omegac,
+                    self.lambda_coupling_variant,
+                    self.phmass,
                 )
+                print("CUDA CavityForceComputeGPU initialized successfully")
+            else:
+                self._implementation = "cpp"
+                self._force_impl = _cavitymd.CavityForceCompute(
+                    self._simulation.state._cpp_sys_def,
+                    self.omegac,
+                    self.lambda_coupling_variant,
+                    self.phmass,
+                )
+                print("CPU CavityForceCompute initialized successfully")
+
+            self._cpp_obj = self._force_impl
         
 
         
@@ -427,10 +408,9 @@ class CavityForce(hoomd.md.force.Force):
         **kwargs : Any
             Force parameters to update. Valid keys include:
             - 'omegac': Cavity frequency
-            - 'couplstr': Coupling strength (constant or variant)
+            - 'lambda_coupling': Coupling strength (constant or variant)
             - 'phmass': Photon mass
-            - 'dissipation': Dissipation coefficient (constant or variant)
-            - 'dipole_damping_gamma': Dipole velocity damping coefficient (constant or variant)
+            - 'kvector': Cavity wave vector
         Raises
         ------
         ValueError
@@ -438,14 +418,44 @@ class CavityForce(hoomd.md.force.Force):
             
         Examples
         --------
-        >>> cavity_force.set_params(omegac=0.01, couplstr=0.002)
+        >>> cavity_force.set_params(omegac=0.01, lambda_coupling=0.002)
         """
-        for key, value in kwargs.items():
-            if key in self._param_dict:
-                self._param_dict[key] = value
-                setattr(self, key, value)
-                # Update implementation if needed
-                if self._force_impl and hasattr(self._force_impl, 'setParams'):
-                    self._force_impl.setParams(self.omegac, self.lambda_coupling_variant, self.phmass)
-            else:
-                raise ValueError(f"Unknown parameter: {key}") 
+        valid_keys = {"omegac", "lambda_coupling", "phmass", "kvector"}
+        unknown_keys = set(kwargs) - valid_keys
+        if unknown_keys:
+            unknown_key = sorted(unknown_keys)[0]
+            raise ValueError(f"Unknown parameter: {unknown_key}")
+
+        validated_updates = {
+            key: self._param_dict._type_converter[key](value)
+            for key, value in kwargs.items()
+        }
+        proposed_omegac = validated_updates.get("omegac", self.omegac)
+        proposed_phmass = validated_updates.get("phmass", self.phmass)
+        proposed_lambda = validated_updates.get(
+            "lambda_coupling",
+            self.lambda_coupling_variant,
+        )
+
+        if self._force_impl and hasattr(self._force_impl, "setParams"):
+            self._force_impl.setParams(
+                proposed_omegac,
+                proposed_lambda,
+                proposed_phmass,
+            )
+
+        for key, value in validated_updates.items():
+            previous_value = self._param_dict._dict.get(key)
+            if hasattr(previous_value, "_isolate"):
+                previous_value._isolate()
+            self._param_dict._dict[key] = self._param_dict._to_hoomd_data(
+                key,
+                value,
+            )
+
+        if "lambda_coupling" in validated_updates:
+            self.lambda_coupling_variant = proposed_lambda
+            self.uses_variant_coupling = not isinstance(
+                proposed_lambda,
+                Constant,
+            )

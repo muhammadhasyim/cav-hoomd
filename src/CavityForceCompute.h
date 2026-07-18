@@ -4,6 +4,7 @@
 #ifndef __CAVITY_FORCE_COMPUTE_H__
 #define __CAVITY_FORCE_COMPUTE_H__
 
+#include "CavityForceParams.h"
 #include "hoomd/ForceCompute.h"
 #include "hoomd/HOOMDMath.h"
 #include "hoomd/VectorMath.h"
@@ -24,35 +25,6 @@ namespace hoomd
 {
 namespace cavitymd
 {
-
-//! Parameters for cavity force computation
-struct cavity_force_params
-{
-    Scalar omegac;           //!< Cavity frequency in atomic units
-    Scalar lambda_coupling;  //!< Dimensionless coupling parameter (lambda, NOT epsilon)
-    Scalar K;                //!< Spring constant (phmass * omegac^2)
-    Scalar phmass;           //!< Photon mass
-    
-#ifndef __HIPCC__
-    cavity_force_params() : omegac(0.), lambda_coupling(0.), K(0.), phmass(1.) {}
-    
-    cavity_force_params(Scalar _omegac, Scalar _lambda_coupling, Scalar _phmass) 
-        : omegac(_omegac), lambda_coupling(_lambda_coupling), phmass(_phmass)
-    {
-        K = phmass * omegac * omegac;
-    }
-    
-    pybind11::dict asDict()
-    {
-        pybind11::dict v;
-        v["omegac"] = omegac;
-        v["lambda_coupling"] = lambda_coupling;
-        v["K"] = K;
-        v["phmass"] = phmass;
-        return v;
-    }
-#endif
-} __attribute__((aligned(16)));
 
 //! Computes cavity-molecule interaction forces
 /*! Implements the force from the cavity Hamiltonian:
@@ -85,15 +57,20 @@ public:
     pybind11::dict getParams();
     
     //! Get harmonic energy component
-    Scalar getHarmonicEnergy();
+    virtual Scalar getHarmonicEnergy();
     
     //! Get coupling energy component  
-    Scalar getCouplingEnergy();
+    virtual Scalar getCouplingEnergy();
     
     //! Get dipole self-energy component
-    Scalar getDipoleSelfEnergy();
+    virtual Scalar getDipoleSelfEnergy();
 
 protected:
+    //! Validate physical parameters before changing force state
+    static void validateParams(Scalar omegac,
+                               Scalar lambda_coupling,
+                               Scalar phmass);
+
     //! Actually compute the forces
     virtual void computeForces(uint64_t timestep);
     

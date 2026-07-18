@@ -23,21 +23,28 @@ namespace cavitymd
 namespace kernel
 {
 
+//! Refresh the device photon index from ParticleData's reverse-tag map
+#ifdef ENABLE_HIP
+hipError_t gpu_update_photon_index(unsigned int* d_photon_idx,
+                                   const unsigned int* d_rtag,
+                                   unsigned int photon_tag,
+                                   bool has_photon);
+#endif
+
 //! GPU kernel driver for computing cavity forces
 #ifdef ENABLE_HIP
 hipError_t gpu_compute_cavity_forces(Scalar4* d_force,
                                       const Scalar4* d_pos,
                                       const Scalar* d_charge,
                                       const int3* d_image,
-                                      const BoxDim* box,
-                                      const cavity_force_params* params,
-                                      Scalar* d_temp_energy,
-                                      Scalar3* d_temp_dipole,
-                                      int* d_photon_idx,
-                                      Scalar3* d_dipole_global,
+                                      const BoxDim box,
+                                      const cavity_force_params params,
+                                      Scalar* d_energy,
+                                      const unsigned int* d_photon_idx,
+                                      Scalar3* d_partial_a,
+                                      Scalar3* d_partial_b,
                                       unsigned int N,
-                                      unsigned int L_typeid,
-                                      unsigned int block_size);
+                                      unsigned int partial_capacity);
 #endif
 
 } // end namespace kernel

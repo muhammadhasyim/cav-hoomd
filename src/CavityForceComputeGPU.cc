@@ -11,6 +11,8 @@
 
 #include "CavityForceComputeGPU.h"
 
+#include <algorithm>
+
 #ifdef ENABLE_HIP
 #include "CavityForceComputeGPU.cuh"
 #include <hoomd/GPUArray.h>
@@ -32,55 +34,151 @@ CavityForceComputeGPU::CavityForceComputeGPU(std::shared_ptr<SystemDefinition> s
                                              Scalar omegac,
                                              std::shared_ptr<Variant> lambda_coupling,
                                              Scalar phmass)
-    : CavityForceCompute(sysdef, omegac, lambda_coupling, phmass)
+    : CavityForceCompute(sysdef, omegac, lambda_coupling, phmass),
+      m_photon_tag(NOT_LOCAL),
+      m_has_photon(false),
+      m_energy_cache_valid(false),
+      m_reduction_capacity(1)
 {
     m_exec_conf->msg->notice(5) << "Constructing CavityForceComputeGPU" << std::endl;
-    
-    // Initialize GPU memory arrays with explicit device-only allocation to avoid hipHostRegister issues
-    if (m_exec_conf->isCUDAEnabled()) {
-        try {
-            // Test if we can allocate GPU arrays without error
-            GPUArray<Scalar> temp_energy(4, m_exec_conf); // Increase to 4 to accommodate atomic flag
-            m_temp_energy.swap(temp_energy);
-            
-            GPUArray<Scalar3> temp_dipole(1024, m_exec_conf); // Max blocks
-            m_temp_dipole.swap(temp_dipole);
-            
-            GPUArray<int> photon_idx(1, m_exec_conf);
-            m_photon_idx.swap(photon_idx);
-            
-            // Add global dipole storage for fused kernel optimization
-            GPUArray<Scalar3> dipole_global(1, m_exec_conf);
-            m_dipole_global.swap(dipole_global);
-            
-            m_exec_conf->msg->notice(1) << "GPU arrays initialized successfully" << std::endl;
+
+    if (!m_exec_conf->isCUDAEnabled())
+        {
+        throw std::runtime_error("CavityForceComputeGPU requires a GPU execution configuration");
         }
-        catch (const std::exception& e) {
-            m_exec_conf->msg->warning() << "Failed to initialize GPU arrays: " << e.what() << std::endl;
-            m_exec_conf->msg->warning() << "GPU computation will be disabled for this force" << std::endl;
-            // Leave arrays uninitialized - will fall back to CPU
+    if (m_exec_conf->getNRanks() > 1)
+        {
+        throw std::runtime_error(
+            "CavityForceComputeGPU supports only single-rank execution");
         }
-    }
-    else {
-        m_exec_conf->msg->notice(1) << "CUDA not enabled, GPU arrays not initialized" << std::endl;
-    }
-    
-    // Initialize autotuner with new API
-    std::vector<std::vector<unsigned int>> dimension_ranges;
-    dimension_ranges.push_back({32, 64, 128, 256, 512, 1024});  // Block size options
-    
-    m_tuner.reset(new Autotuner<1>(dimension_ranges, 
-                                   m_exec_conf, 
-                                   "cavity_force", 
-                                   5));  // 5 samples
-    
-    // Check if cooperative kernel launch is supported
-    // (implementation details would go here for advanced GPU features)
+
+    GPUArray<Scalar> device_energy(3, m_exec_conf);
+    m_device_energy.swap(device_energy);
+    GPUArray<unsigned int> device_photon_idx(1, m_exec_conf);
+    m_device_photon_idx.swap(device_photon_idx);
+    GPUArray<Scalar3> partial_dipole_a(1, m_exec_conf);
+    m_partial_dipole_a.swap(partial_dipole_a);
+    GPUArray<Scalar3> partial_dipole_b(1, m_exec_conf);
+    m_partial_dipole_b.swap(partial_dipole_b);
+
+    initializePhoton();
+    updatePhotonIndex();
+    m_pdata->getParticleSortSignal()
+        .template connect<CavityForceComputeGPU,
+                          &CavityForceComputeGPU::updatePhotonIndex>(this);
+    m_pdata->getGlobalParticleNumberChangeSignal()
+        .template connect<CavityForceComputeGPU,
+                          &CavityForceComputeGPU::handleParticleNumberChange>(this);
 }
 
 CavityForceComputeGPU::~CavityForceComputeGPU()
 {
+    m_pdata->getParticleSortSignal()
+        .template disconnect<CavityForceComputeGPU,
+                             &CavityForceComputeGPU::updatePhotonIndex>(this);
+    m_pdata->getGlobalParticleNumberChangeSignal()
+        .template disconnect<CavityForceComputeGPU,
+                             &CavityForceComputeGPU::handleParticleNumberChange>(this);
     m_exec_conf->msg->notice(5) << "Destroying CavityForceComputeGPU" << std::endl;
+}
+
+void CavityForceComputeGPU::initializePhoton()
+{
+    m_photon_tag = NOT_LOCAL;
+    m_has_photon = false;
+    unsigned int photon_count = 0;
+    unsigned int L_typeid;
+    try
+        {
+        L_typeid = m_pdata->getTypeByName("L");
+        }
+    catch (const std::runtime_error&)
+        {
+        throw std::runtime_error(
+            "CavityForceComputeGPU requires exactly one particle of type L; found 0");
+        }
+
+    ArrayHandle<Scalar4> h_pos(m_pdata->getPositions(),
+                               access_location::host,
+                               access_mode::read);
+    ArrayHandle<unsigned int> h_tag(m_pdata->getTags(),
+                                    access_location::host,
+                                    access_mode::read);
+    const unsigned int N = m_pdata->getN();
+    for (unsigned int idx = 0; idx < N; ++idx)
+        {
+        if (__scalar_as_int(h_pos.data[idx].w) == static_cast<int>(L_typeid))
+            {
+            m_photon_tag = h_tag.data[idx];
+            ++photon_count;
+            }
+        }
+    if (photon_count != 1)
+        {
+        throw std::runtime_error(
+            "CavityForceComputeGPU requires exactly one particle of type L; found "
+            + std::to_string(photon_count));
+        }
+    m_has_photon = true;
+}
+
+void CavityForceComputeGPU::updatePhotonIndex()
+{
+    ArrayHandle<unsigned int> d_rtag(m_pdata->getRTags(),
+                                     access_location::device,
+                                     access_mode::read);
+    ArrayHandle<unsigned int> d_photon_idx(m_device_photon_idx,
+                                           access_location::device,
+                                           access_mode::overwrite);
+    const hipError_t error = kernel::gpu_update_photon_index(d_photon_idx.data,
+                                                             d_rtag.data,
+                                                             m_photon_tag,
+                                                             m_has_photon);
+    if (error != hipSuccess)
+        {
+        throw std::runtime_error(std::string("Error refreshing GPU photon index: ")
+                                 + hipGetErrorString(error));
+        }
+}
+
+void CavityForceComputeGPU::handleParticleNumberChange()
+{
+    initializePhoton();
+    updatePhotonIndex();
+}
+
+void CavityForceComputeGPU::updateEnergyCache()
+{
+    if (m_energy_cache_valid)
+        {
+        return;
+        }
+
+    ArrayHandle<Scalar> h_energy(m_device_energy,
+                                 access_location::host,
+                                 access_mode::read);
+    m_harmonic_energy = h_energy.data[0];
+    m_coupling_energy = h_energy.data[1];
+    m_dipole_self_energy = h_energy.data[2];
+    m_energy_cache_valid = true;
+}
+
+Scalar CavityForceComputeGPU::getHarmonicEnergy()
+{
+    updateEnergyCache();
+    return m_harmonic_energy;
+}
+
+Scalar CavityForceComputeGPU::getCouplingEnergy()
+{
+    updateEnergyCache();
+    return m_coupling_energy;
+}
+
+Scalar CavityForceComputeGPU::getDipoleSelfEnergy()
+{
+    updateEnergyCache();
+    return m_dipole_self_energy;
 }
 
 /*! This function computes cavity forces and energy on the GPU
@@ -89,153 +187,67 @@ CavityForceComputeGPU::~CavityForceComputeGPU()
 void CavityForceComputeGPU::computeForces(uint64_t timestep)
 {
 #ifdef ENABLE_HIP
-    // Check if we have properly initialized GPU arrays
-    if (!m_exec_conf->isCUDAEnabled() || m_temp_energy.isNull()) {
-        m_exec_conf->msg->error() << "GPU arrays not initialized properly!" << std::endl;
-        throw std::runtime_error("GPU computation required but not available");
-    }
-    
-    // Update parameters from variants
-    m_params.lambda_coupling = (*m_lambda_coupling)(timestep);
-    
-    unsigned int N = m_pdata->getN();
-    
-    // Get the typeid for 'L' type first
-    unsigned int L_typeid;
-    try {
-        L_typeid = m_pdata->getTypeByName("L");
-    } catch (...) {
-        // No 'L' type found - zero all energies and return
-        m_harmonic_energy = Scalar(0.0);
-        m_coupling_energy = Scalar(0.0);
-        m_dipole_self_energy = Scalar(0.0);
-        return;
-    }
-    
-    // Get box dimensions
-    BoxDim box = m_pdata->getGlobalBox();
-    
-    // Initialize temporary GPU arrays
-    {
-        ArrayHandle<Scalar> d_temp_energy(m_temp_energy, access_location::device, access_mode::overwrite);
-        ArrayHandle<int> d_photon_idx(m_photon_idx, access_location::device, access_mode::overwrite);
-        ArrayHandle<Scalar3> d_dipole_global(m_dipole_global, access_location::device, access_mode::overwrite);
-        
-        // Zero initialization arrays and reset atomic flag for new timestep
-        hipMemset(d_temp_energy.data, 0, sizeof(Scalar) * 4);
-        hipMemset(d_photon_idx.data, -1, sizeof(int));
-        hipMemset(d_dipole_global.data, 0, sizeof(Scalar3));
-        
-        // Reset the atomic flag at the beginning of each timestep
-        Scalar zero_flag = 0.0;
-        hipMemcpy(&d_temp_energy.data[3], &zero_flag, sizeof(Scalar), hipMemcpyHostToDevice);
-    }
-    
-    // Zero output arrays
-    {
-        ArrayHandle<Scalar4> d_force(m_force, access_location::device, access_mode::overwrite);
-        hipMemset(d_force.data, 0, sizeof(Scalar4) * N);
-    }
-    
-    // Main computation with limited concurrent handles
-    {
-        // Access particle data arrays
-        ArrayHandle<Scalar4> d_pos(m_pdata->getPositions(), access_location::device, access_mode::read);
-        ArrayHandle<Scalar> d_charge(m_pdata->getCharges(), access_location::device, access_mode::read);
-        ArrayHandle<int3> d_image(m_pdata->getImages(), access_location::device, access_mode::read);
-        
-        // Access output arrays
-        ArrayHandle<Scalar4> d_force(m_force, access_location::device, access_mode::readwrite);
-        
-        // Access GPU workspace arrays
-        ArrayHandle<Scalar> d_temp_energy(m_temp_energy, access_location::device, access_mode::readwrite);
-        ArrayHandle<Scalar3> d_temp_dipole(m_temp_dipole, access_location::device, access_mode::readwrite);
-        ArrayHandle<int> d_photon_idx(m_photon_idx, access_location::device, access_mode::readwrite);
-        ArrayHandle<Scalar3> d_dipole_global(m_dipole_global, access_location::device, access_mode::readwrite);
-        
-        unsigned int block_size = 256;  // Fixed block size
-        
-        // Use HOOMD's logging system for debug info (only at high debug levels)
-        m_exec_conf->msg->notice(10) << "CavityForceComputeGPU: GPU computation with N=" << N 
-                                     << ", block_size=" << block_size 
-                                     << ", L_typeid=" << L_typeid << std::endl;
-        
-        // Call the GPU function
-        hipError_t error = hoomd::cavitymd::kernel::gpu_compute_cavity_forces(d_force.data,
-                                                      d_pos.data,
-                                                      d_charge.data,
-                                                      d_image.data,
-                                                      &box,
-                                                      &m_params,
-                                                      d_temp_energy.data,
-                                                      d_temp_dipole.data,
-                                                      d_photon_idx.data,
-                                                      d_dipole_global.data,
-                                                      N,
-                                                      L_typeid,
-                                                      block_size);
-        
-        if (error != hipSuccess)
+    const Scalar lambda_coupling = (*m_lambda_coupling)(timestep);
+    validateParams(m_params.omegac, lambda_coupling, m_params.phmass);
+    m_params.lambda_coupling = lambda_coupling;
+    m_energy_cache_valid = false;
+
+    const unsigned int N = m_pdata->getN();
+    const BoxDim box = m_pdata->getGlobalBox();
+    constexpr unsigned int block_size = 256;
+    const size_t required_capacity
+        = std::max<size_t>(1, (N + block_size - 1) / block_size);
+    if (required_capacity > m_reduction_capacity)
         {
-            m_exec_conf->msg->error() << "Error launching cavity force GPU kernel: " << hipGetErrorString(error) << std::endl;
-            throw std::runtime_error("GPU kernel launch failed - GPU computation is required");
+        m_partial_dipole_a.resize(required_capacity);
+        m_partial_dipole_b.resize(required_capacity);
+        m_reduction_capacity = required_capacity;
         }
-        
-        // CRITICAL: Synchronize GPU to ensure kernel completion before reading results
-        hipDeviceSynchronize();
-        
-    } // Release all handles before final host access
-    
-    // Copy energy components back to host
-    {
-        ArrayHandle<Scalar> h_temp_energy(m_temp_energy, access_location::host, access_mode::read);
-        m_harmonic_energy = h_temp_energy.data[0];
-        m_coupling_energy = h_temp_energy.data[1];
-        m_dipole_self_energy = h_temp_energy.data[2];
-        
-        // DEBUG: Print what we got from the manual copy-back
-        m_exec_conf->msg->notice(9) << "GPU energy copy-back: H=" << h_temp_energy.data[0] 
-                  << ", C=" << h_temp_energy.data[1] 
-                  << ", D=" << h_temp_energy.data[2] << std::endl;
-    }
-    
-    // FOLLOW FORCE PATTERN: Read energy directly from per-particle potential energy
-    // The GPU kernel writes total energy to d_force[photon_idx].w, which HOOMD transfers automatically
-    {
-        ArrayHandle<Scalar4> h_force(m_force, access_location::host, access_mode::read);
-        ArrayHandle<Scalar4> h_pos(m_pdata->getPositions(), access_location::host, access_mode::read);
-        
-        // Find photon particle to get its potential energy  
-        int photon_idx = -1;
-        for (unsigned int i = 0; i < N; i++) {
-            int type = __scalar_as_int(h_pos.data[i].w);
-            if (type == (int)L_typeid) {
-                photon_idx = i;
-                break;
-            }
+
+    ArrayHandle<Scalar4> d_pos(m_pdata->getPositions(),
+                               access_location::device,
+                               access_mode::read);
+    ArrayHandle<Scalar> d_charge(m_pdata->getCharges(),
+                                 access_location::device,
+                                 access_mode::read);
+    ArrayHandle<int3> d_image(m_pdata->getImages(),
+                              access_location::device,
+                              access_mode::read);
+    ArrayHandle<Scalar4> d_force(m_force,
+                                 access_location::device,
+                                 access_mode::overwrite);
+    ArrayHandle<Scalar> d_energy(m_device_energy,
+                                 access_location::device,
+                                 access_mode::overwrite);
+    ArrayHandle<unsigned int> d_photon_idx(m_device_photon_idx,
+                                            access_location::device,
+                                            access_mode::read);
+    ArrayHandle<Scalar3> d_partial_a(m_partial_dipole_a,
+                                     access_location::device,
+                                     access_mode::overwrite);
+    ArrayHandle<Scalar3> d_partial_b(m_partial_dipole_b,
+                                     access_location::device,
+                                     access_mode::overwrite);
+
+    const hipError_t error
+        = kernel::gpu_compute_cavity_forces(d_force.data,
+                                            d_pos.data,
+                                            d_charge.data,
+                                            d_image.data,
+                                            box,
+                                            m_params,
+                                            d_energy.data,
+                                            d_photon_idx.data,
+                                            d_partial_a.data,
+                                            d_partial_b.data,
+                                            N,
+                                            static_cast<unsigned int>(
+                                                m_reduction_capacity));
+    if (error != hipSuccess)
+        {
+        throw std::runtime_error(std::string("Error launching cavity force GPU kernel: ")
+                                 + hipGetErrorString(error));
         }
-        
-        if (photon_idx >= 0) {
-            // Total energy is stored in the .w component by the GPU kernel (like CPU version)
-            Scalar total_energy_from_per_particle = h_force.data[photon_idx].w;
-            
-            m_exec_conf->msg->notice(9) << "GPU per-particle energy: total=" << total_energy_from_per_particle 
-                      << " (photon_idx=" << photon_idx << ")" << std::endl;
-            
-            // If the manual copy failed but per-particle energy worked, use that
-            if (m_harmonic_energy == 0.0 && m_coupling_energy == 0.0 && m_dipole_self_energy == 0.0 
-                && total_energy_from_per_particle != 0.0) {
-                // The per-particle energy is working but individual components aren't
-                // For now, just report the total correctly - individual breakdown can be fixed later
-                m_harmonic_energy = total_energy_from_per_particle; // All in harmonic for now
-                m_coupling_energy = 0.0;
-                m_dipole_self_energy = 0.0;
-                
-                m_exec_conf->msg->notice(9) << "Using per-particle energy as total=" << total_energy_from_per_particle << std::endl;
-            }
-        }
-    }
-    
 #else
     m_exec_conf->msg->error() << "GPU computation requested but HIP is not enabled!" << std::endl;
     throw std::runtime_error("GPU computation required but HIP not available");
