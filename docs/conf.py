@@ -23,15 +23,33 @@ sys.path.insert(0, str(project_root))
 sys.path.insert(0, str(project_root / 'src'))
 sys.path.insert(0, str(project_root / 'examples'))
 
-# Check if we're running on Read the Docs
+# Check if we need to mock imports (either on RTD or any CI environment without HOOMD)
 on_rtd = (os.environ.get('READTHEDOCS') == 'True' or 
           os.environ.get('RTD_ENV_NAME') is not None or
           'readthedocs' in os.environ.get('HOSTNAME', '').lower())
 
-print(f"On RTD: {on_rtd}")
+# Also check if we're in GitHub Actions or if HOOMD is not available
+in_ci = (os.environ.get('CI') == 'true' or 
+         os.environ.get('GITHUB_ACTIONS') == 'true')
 
-if on_rtd:
-    print("Setting up simplified plugin imports for Read the Docs...")
+# Try to import HOOMD to see if it's available
+try:
+    import hoomd as _test_hoomd
+    hoomd_available = True
+    del _test_hoomd
+except ImportError:
+    hoomd_available = False
+
+# Need mocking if on RTD, in CI, or HOOMD not available
+needs_mocking = on_rtd or in_ci or not hoomd_available
+
+print(f"On RTD: {on_rtd}")
+print(f"In CI: {in_ci}")
+print(f"HOOMD available: {hoomd_available}")
+print(f"Needs mocking: {needs_mocking}")
+
+if needs_mocking:
+    print("Setting up simplified plugin imports for documentation build...")
     
     # Mock only the C++ extensions (the compiled .so files)
     from unittest.mock import MagicMock
@@ -41,9 +59,47 @@ if on_rtd:
     sys.modules['bussi_reservoir._bussi_reservoir'] = MagicMock()
     print(" Mocked C++ extensions")
     
-    # Import HOOMD (available via conda)
-    import hoomd
-    print(" HOOMD base package imported")
+    # Try to import HOOMD (available via conda on RTD, but not in GitHub Actions)
+    try:
+        import hoomd
+        print(" HOOMD base package imported from conda")
+    except ImportError:
+        # HOOMD not available - create a minimal mock
+        print(" HOOMD not available - creating mock base package")
+        from types import ModuleType
+        
+        # Create HOOMD as a package (not just a module)
+        hoomd = ModuleType('hoomd')
+        hoomd.__package__ = 'hoomd'
+        hoomd.__path__ = ['hoomd']
+        
+        # Add version attribute that plugins check
+        hoomd_version = ModuleType('hoomd.version')
+        hoomd_version.version = '4.8.2'  # Match the required version
+        hoomd.version = hoomd_version
+        
+        # Pre-register hoomd in sys.modules before creating submodules
+        sys.modules['hoomd'] = hoomd
+        sys.modules['hoomd.version'] = hoomd_version
+        
+        # Create logging submodule (used by plugins)
+        hoomd_logging = ModuleType('hoomd.logging')
+        hoomd_logging.Logger = type('Logger', (), {})
+        hoomd_logging.log = lambda *args, **kwargs: None
+        hoomd.logging = hoomd_logging
+        sys.modules['hoomd.logging'] = hoomd_logging
+        
+        # Create bussi_reservoir submodule structure
+        hoomd_bussi = ModuleType('hoomd.bussi_reservoir')
+        hoomd_bussi.__package__ = 'hoomd.bussi_reservoir'
+        hoomd_bussi_thermostats = ModuleType('hoomd.bussi_reservoir.thermostats')
+        hoomd_bussi_thermostats.BussiReservoir = type('BussiReservoir', (), {})
+        hoomd_bussi.thermostats = hoomd_bussi_thermostats
+        hoomd.bussi_reservoir = hoomd_bussi
+        sys.modules['hoomd.bussi_reservoir'] = hoomd_bussi
+        sys.modules['hoomd.bussi_reservoir.thermostats'] = hoomd_bussi_thermostats
+        
+        print(" Created mock HOOMD base package with version info, logging, and bussi_reservoir")
     
     # Import our plugins directly and register them in the hoomd namespace
     try:
@@ -114,7 +170,7 @@ if on_rtd:
         mock_bussi = ModuleType('bussi_reservoir')
         
         # Create mock submodules and classes
-        for submodule in ['analysis', 'forces', 'simulation', 'utils', 'variants', 'updaters']:
+        for submodule in ['analysis', 'forces', 'simulation', 'utils', 'variants', 'updaters', 'controllers', 'data', 'experiment', 'state_manager', 'validation']:
             mock_submodule = ModuleType(f'cavitymd.{submodule}')
             setattr(mock_cavitymd, submodule, mock_submodule)
             sys.modules[f'hoomd.cavitymd.{submodule}'] = mock_submodule
@@ -122,6 +178,8 @@ if on_rtd:
             # Add mock classes for each submodule
             if submodule == 'forces':
                 mock_submodule.CavityForce = type('CavityForce', (), {})
+                mock_submodule.DipoleResponseForce = type('DipoleResponseForce', (), {})
+                mock_submodule.PerturbationForce = type('PerturbationForce', (), {})
             elif submodule == 'simulation':
                 mock_submodule.CavityMDSimulation = type('CavityMDSimulation', (), {})
                 mock_submodule.AdaptiveTimestepUpdater = type('AdaptiveTimestepUpdater', (), {})
@@ -133,17 +191,44 @@ if on_rtd:
                 mock_submodule.FieldAutocorrelationTracker = type('FieldAutocorrelationTracker', (), {})
                 mock_submodule.EnergyTracker = type('EnergyTracker', (), {})
                 mock_submodule.DipoleAutocorrelation = type('DipoleAutocorrelation', (), {})
+                mock_submodule.DipoleMomentFDRTracker = type('DipoleMomentFDRTracker', (), {})
                 mock_submodule.PerformanceTracker = type('PerformanceTracker', (), {})
+                mock_submodule.TemperatureTracker = type('TemperatureTracker', (), {})
+                mock_submodule.CavityModeTracker = type('CavityModeTracker', (), {})
             elif submodule == 'variants':
                 mock_submodule.StepVariant = type('StepVariant', (), {})
                 mock_submodule.ConstantVariant = type('ConstantVariant', (), {})
             elif submodule == 'updaters':
                 mock_submodule.CavityParticleDisplacer = type('CavityParticleDisplacer', (), {})
+                mock_submodule.HarmonicBondReset = type('HarmonicBondReset', (), {})
+            elif submodule == 'controllers':
+                mock_submodule.AdaptiveMPCController = type('AdaptiveMPCController', (), {})
+                mock_submodule.DiffEqController = type('DiffEqController', (), {})
+                mock_submodule.PIDControl = type('PIDControl', (), {})
+                mock_submodule.SimpleSetpointController = type('SimpleSetpointController', (), {})
+            elif submodule == 'data':
+                mock_submodule.ObservableWriter = type('ObservableWriter', (), {})
+                mock_submodule.ObservableReader = type('ObservableReader', (), {})
+            elif submodule == 'experiment':
+                mock_submodule.ExperimentManager = type('ExperimentManager', (), {})
+                mock_submodule.ParameterSweep = type('ParameterSweep', (), {})
+            elif submodule == 'state_manager':
+                mock_submodule.StateManager = type('StateManager', (), {})
+                mock_submodule.StateValidator = type('StateValidator', (), {})
+            elif submodule == 'validation':
+                mock_submodule.Validator = type('Validator', (), {})
+                mock_submodule.validate_system = lambda *args, **kwargs: True
             elif submodule == 'utils':
                 mock_submodule.PhysicalConstants = type('PhysicalConstants', (), {})
                 mock_submodule.unwrap_positions = lambda x, y, z: x
                 mock_submodule.get_slurm_info = lambda: {}
                 mock_submodule.parse_replicas = lambda x: [1]
+        
+        # Add top-level mock classes (these appear directly under cavitymd)
+        mock_cavitymd.CompositeVariant = type('CompositeVariant', (), {})
+        mock_cavitymd.FDRIntegration = type('FDRIntegration', (), {})
+        mock_cavitymd.FDRTemperatureEstimator = type('FDRTemperatureEstimator', (), {})
+        mock_cavitymd.FDRWorkflow = type('FDRWorkflow', (), {})
         
         # Add mock BussiReservoir
         mock_bussi.BussiReservoir = type('BussiReservoir', (), {})
@@ -157,7 +242,8 @@ if on_rtd:
     
     print(" Plugin setup complete")
 else:
-    print("Local environment - no mocking needed")
+    print("Local environment with HOOMD installed - no mocking needed")
+    print("Plugins will be imported directly from installed HOOMD")
 
 # -- Path setup (redundant but kept for clarity) ------------------------------
 
@@ -513,8 +599,7 @@ def setup(app):
     app.add_css_file('custom.css')
     
     # Set up the documentation build environment
-    if on_rtd:
-        print("Sphinx setup: Running on Read the Docs")
-        # Additional RTD-specific setup can go here
+    if needs_mocking:
+        print("Sphinx setup: Running in CI/RTD environment with mocking")
     else:
-        print("Sphinx setup: Running locally") 
+        print("Sphinx setup: Running locally with full HOOMD installation") 

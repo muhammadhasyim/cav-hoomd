@@ -1,27 +1,79 @@
-.cursor/*
-.augment/*
-plotting/*
-build/*
-src/cavitymd/**/__pycache__/*
-src/pytest/__pycache__/
-examples/__pycache__/*
-__pycache__/*
-docs/_build/*
-*png
-*pdf
-*csv
-*test*
-*examples*
-*.pyc
+# IDE and editor files
+.cursor/
+.augment/
+.vscode/
+*.swp
+*.swo
+*~
 
-# Documentation build artifacts
+# Python bytecode and cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+*.egg
+.eggs/
+
+# Build artifacts
+build/
+dist/
+*.so
+*.o
+*.a
+
+# Documentation build
 docs/_build/
 docs/api/_autosummary/
 
-# Simulation output data (never commit)
-*.h5
+# Simulation output files
 *.gsd
-observables_replica_*
-prod-*.gsd
-molecular-*.gsd
-aging_weak_lambda/
+*.h5
+*.hdf5
+*.csv
+*.out
+*.log
+nohup.out
+
+# Generated images and plots
+*.png
+*.pdf
+
+# Experiment/run directories
+**/coupling_*/
+**/cavity_coupling_*/
+**/constant_lambda*/
+**/periodic_lambda*/
+**/square_lambda*/
+**/square_wave_*/
+**/sweep_logs_*/
+**/slurm_logs/
+**/logs/
+
+# Test output directories
+**/*_output/
+**/*_test/
+**/replica_*/
+**/equipartition_check/
+**/individual_analysis/
+**/floquet_output/
+**/fixed_test/
+**/no_cavity/
+**/final_*/
+
+# Data directories that should not be tracked
+om-data/
+final_offres/
+cooling_runs/
+
+# Plotting directory (scripts are tracked separately)
+plotting/
+
+# Pytest cache
+.pytest_cache/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak

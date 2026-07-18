@@ -77,7 +77,7 @@ import time
 from pathlib import Path
 
 # Import the CavityForce and utilities from the plugin
-from hoomd.cavitymd.utils import PhysicalConstants, get_slurm_info, parse_replicas
+from hoomd.cavitymd.utils import PhysicalConstants, get_slurm_info, parse_replicas, format_coupling_strength
 from hoomd.cavitymd.simulation import CavityMDSimulation
 
 # =============================================================================
@@ -145,18 +145,18 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
         # Create experiment directory with appropriate naming
         if incavity:
             # For cavity simulations, include coupling strength in directory name
-            coupling_str = f"{coupling:.0e}".replace("-", "neg").replace("+", "pos")
+            coupling_str = format_coupling_strength(coupling)
             if switch_time_ps is not None:
                 # Include switch time in directory name for time-varying simulations
                 switch_str = f"_switch_{switch_time_ps}ps"
                 if decay_time_constant_ps is not None:
                     # Include decay time constant for exponential decay simulations
                     decay_str = f"_decay_{decay_time_constant_ps}ps"
-                    exp_dir = Path(f"cavity_coupling_{coupling_str}{switch_str}{decay_str}")
+                    exp_dir = Path(f"{coupling_str}{switch_str}{decay_str}")
                 else:
-                    exp_dir = Path(f"cavity_coupling_{coupling_str}{switch_str}")
+                    exp_dir = Path(f"{coupling_str}{switch_str}")
             else:
-                exp_dir = Path(f"cavity_coupling_{coupling_str}")
+                exp_dir = Path(f"{coupling_str}")
         else:
             # For non-cavity simulations
             exp_dir = Path("no_cavity")

@@ -160,11 +160,13 @@ Mathematical foundations, equations of motion, energy conservation, and physical
 **Key Sections:**
 
 - :doc:`part2_theory/introduction` - Theoretical foundations
-- :doc:`part2_theory/cavity_forces` - Force computation
+- :doc:`part2_theory/cavity_forces` - Force computation and Hamiltonian derivation
 - :doc:`part2_theory/time_varying_coupling` - Time-dependent theory
-- :doc:`part2_theory/thermostats` - Thermostat implementations
+- :doc:`part2_theory/thermostats` - Thermostat implementations and bath models
+- :doc:`part2_theory/observables` - Observable calculations and correlation functions
+- :doc:`part2_theory/integration_schemes` - Numerical integration methods
 - :doc:`part2_theory/energy_conservation` - Energy conservation
-- :doc:`part2_theory/strong_coupling` - Strong coupling physics
+- :doc:`part2_theory/strong_coupling` - Strong coupling physics and off-resonance effects
 
 **Part III: Advanced Features and Analysis**
 
@@ -201,6 +203,8 @@ Advanced controllers, FDR temperature measurement, molecular temperature decompo
    part2_theory/cavity_forces
    part2_theory/time_varying_coupling
    part2_theory/thermostats
+   part2_theory/observables
+   part2_theory/integration_schemes
    part2_theory/energy_conservation
    part2_theory/strong_coupling
 
