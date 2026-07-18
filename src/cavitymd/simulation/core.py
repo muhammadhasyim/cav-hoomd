@@ -206,6 +206,9 @@ class CavityMDSimulation:
         F(k,t) output period in ps. Default: 1.0
     gsd_output_period_ps : float, optional
         Trajectory output period in ps. Default: 50.0
+    enable_gsd_output : bool, optional
+        Write production GSD trajectories. When False, no ``prod-*.gsd``
+        writer is created (HDF5 and F(k,t) outputs are unaffected). Default: True
     console_output_period_ps : float, optional
         Console output period in ps. Default: 1.0
         
@@ -389,7 +392,8 @@ class CavityMDSimulation:
                  energy_output_period_ps: float = 0.1, 
                  fkt_output_period_ps: float = 1.0, 
                  dipole_output_period_ps: float = 1.0,
-                 gsd_output_period_ps: float = 50.0, 
+                 gsd_output_period_ps: float = 50.0,
+                 enable_gsd_output: bool = True,
                  console_output_period_ps: float = 1.0,
                  enable_text_output: bool = False, 
                  text_output_file: Optional[str] = None, 
@@ -1481,6 +1485,7 @@ class CavityMDSimulation:
         self.fkt_output_period_ps = fkt_output_period_ps
         self.dipole_output_period_ps = dipole_output_period_ps
         self.gsd_output_period_ps = gsd_output_period_ps
+        self.enable_gsd_output = enable_gsd_output
         self.console_output_period_ps = console_output_period_ps
         
         # Text output parameters (deprecated but kept for compatibility)
@@ -2251,7 +2256,10 @@ class CavityMDSimulation:
     def setup_thermostat_parameters(self, dt):
         """Set up thermostat parameters for molecular and cavity systems."""
         from ..utils import PhysicalConstants
-        from hoomd.bussi_reservoir.thermostats import BussiReservoir as Bussi
+        # Stock HOOMD Bussi: BussiReservoir currently leaves GPU simulations in
+        # an "Invalid data location state" on HOOMD 5.4 + CUDA 13 before the
+        # first sim.run (reproduced with and without CavityForce).
+        Bussi = hoomd.md.methods.thermostats.Bussi
         
         kT = self.kB * self.temperature
         molecular_filter = hoomd.filter.Type(['O', 'N'])  # Molecular particles only
@@ -2291,7 +2299,10 @@ class CavityMDSimulation:
         
         # Configure molecular thermostat
         if self.molecular_thermostat.lower() == 'bussi':
-            self.log_info("Running molecular system with Bussi thermostat (NVT ensemble)")
+            self.log_info(
+                "Running molecular system with stock HOOMD Bussi thermostat "
+                "(NVT ensemble; not BussiReservoir)"
+            )
             molecular_bussi = Bussi(kT=kT, tau=molecular_tau_au)
             molecular_method = hoomd.md.methods.ConstantVolume(filter=molecular_filter, thermostat=molecular_bussi)
             thermostat_refs['molecular_bussi'] = molecular_bussi
@@ -2325,7 +2336,7 @@ class CavityMDSimulation:
                 self.log_info(f"  base_gamma = {base_gamma:.6f} a.u.^-1 (tau = {self.cavity_thermostat_tau:.3f} ps)")
                 self.log_info(f"  effective_gamma = {cavity_gamma:.6f} a.u.^-1 (damping_factor = {self.cavity_damping_factor:.1f}x)")
             elif self.cavity_thermostat.lower() == 'bussi':
-                self.log_info("Running cavity with Bussi thermostat")
+                self.log_info("Running cavity with stock HOOMD Bussi thermostat")
                 cavity_bussi = Bussi(kT=kT, tau=cavity_tau_au)
                 cavity_method = hoomd.md.methods.ConstantVolume(filter=cavity_filter, thermostat=cavity_bussi)
                 thermostat_refs['cavity_bussi'] = cavity_bussi
@@ -2562,83 +2573,27 @@ class CavityMDSimulation:
             # No cavity particle, thermalize all particles
             self.sim.state.thermalize_particle_momenta(kT=kT, filter=hoomd.filter.All())
             self.log_info("Thermalized all molecular particles")
-        # Check temperature of the molecular system
-        # Get current snapshot to analyze velocities
-        with self.get_local_snapshot() as snap:
-            # Get masses and velocities
-            masses = self.to_numpy(snap.particles.mass)
-            velocities = self.to_numpy(snap.particles.velocity)
-            typeid_array = self.to_numpy(snap.particles.typeid)
-            
-            # Filter for molecular particles only (typeid != 2)
-            molecular_mask = typeid_array != 2
-            
-            if np.any(molecular_mask):
-                # Extract molecular particles data
-                mol_masses = masses[molecular_mask]
-                mol_velocities = velocities[molecular_mask]
-                
-                # Calculate kinetic energy: KE = 0.5 * m * v²
-                v_squared = np.sum(mol_velocities**2, axis=1)
-                kinetic_energy = 0.5 * mol_masses * v_squared
-                total_ke = np.sum(kinetic_energy)
-                
-                # Calculate temperature: T = (2/3) * KE / (N * kB)
-                n_mol_particles = np.sum(molecular_mask)
-                degrees_of_freedom = 3 * n_mol_particles
-                current_temp = (2.0 ) * total_ke / (degrees_of_freedom  * self.kB)
-                
-                self.log_info(f"Checking molecular system temperature after thermalization:")
-                self.log_info(f"  Number of molecular particles: {n_mol_particles}")
-                self.log_info(f"  Total kinetic energy: {total_ke:.6f} a.u.")
-                self.log_info(f"  Current temperature: {current_temp:.1f} K")
-            else:
-                self.log_info("WARNING: No molecular particles found for temperature check!")
+        # Defer host-snapshot T-check until after the first sim.run: reading a
+        # full Snapshot before CavityForceComputeGPU initializes has been
+        # observed to leave an Invalid data location state on GPU.
         self.log_info("Thermalization completed - velocities properly initialized")
     def _thermalize_cavity_particle_manually(self, kT):
-        """Manually thermalize cavity particle using Maxwell-Boltzmann distribution."""
-        with self.get_local_snapshot() as snap:
-            # Get the appropriate array module using CuPy's guidelines
-            xp = self.get_array_module(snap.particles.velocity)
-            
-            # Convert to numpy array for CPU/GPU agnostic operations
-            typeid_array = self.to_numpy(snap.particles.typeid)
-            cavity_mask = typeid_array == 2
-            
-            # Find cavity particle indices using proper array handling
-            if np.any(cavity_mask):
-                cavity_indices = np.where(cavity_mask)[0]
-                cavity_idx = cavity_indices[0]  # Get first cavity particle
-                
-                # Maxwell-Boltzmann distribution: each component has variance kT/m
-                # With mass = 1.0 a.u., std dev per component = sqrt(kT)
-                # Generate velocities using NumPy (always works)
-                cavity_velocity_np = np.random.normal(0.0, np.sqrt(kT), size=3)
-                
-                # Convert to appropriate array type for the current device
-                if xp == cp and HAS_CUPY:
-                    # GPU case: convert NumPy to CuPy for assignment
-                    cavity_velocity_device = cp.asarray(cavity_velocity_np)
-                else:
-                    # CPU case: use NumPy array directly
-                    cavity_velocity_device = cavity_velocity_np
-                
-                # Calculate expected kinetic energy and temperature for logging
-                expected_ke = 0.5 * 1.0 * np.sum(cavity_velocity_np**2)  # KE = (1/2) * m * v²
-                expected_temp = (2.0/3.0) * expected_ke / self.kB  # T = (2/3) * KE / kB for 3D
+        """Thermalize the cavity particle with HOOMD's State API.
 
-                self.log_info(f"Cavity particle manually thermalized:")
-                self.log_info(f"  Target temperature: {self.temperature:.1f} K")
-                self.log_info(f"  Initial velocity: {cavity_velocity_np}")
-                self.log_info(f"  Expected KE: {expected_ke:.6f} a.u.")
-                self.log_info(f"  Expected temperature: {expected_temp:.1f} K")
-                self.log_info(f"  Using array module: {xp.__name__}")
-                
-                # Assign velocity using device-appropriate array type
-                snap.particles.velocity[cavity_idx] = cavity_velocity_device
-                
-            else:
-                self.log_info("WARNING: No cavity particle found for thermalization!")
+        Manual velocity writes through ``gpu_local_snapshot`` are unreliable
+        when CuPy is unavailable (``np.asarray`` does not materialize
+        ``HOOMDGPUArray`` buffers). ``thermalize_particle_momenta`` keeps
+        data-location tracking consistent before the first ``sim.run``.
+        """
+        particle_types = list(self.sim.state.particle_types)
+        if "L" not in particle_types:
+            self.log_info("WARNING: No cavity particle type 'L' for thermalization!")
+            return
+        cavity_filter = hoomd.filter.Type(["L"])
+        self.sim.state.thermalize_particle_momenta(kT=kT, filter=cavity_filter)
+        self.log_info("Cavity particle thermalized via HOOMD State API:")
+        self.log_info(f"  Target temperature: {self.temperature:.1f} K")
+        self.log_info(f"  kT: {kT:.6e} a.u.")
 
     def setup_trackers_and_loggers(self):
         """Set up comprehensive tracking and logging objects for the simulation."""
@@ -4283,44 +4238,47 @@ class CavityMDSimulation:
     def setup_output_writers(self):
         """Configure GSD writer and console table for simulation output."""
         
-        # For GSD output, we can still use step-based for efficiency in most cases
-        # since GSD output is typically less frequent and timing precision is less critical
-        if self.error_tolerance > 0:
-            # Adaptive timestep mode - use smaller intervals for better timing
-            gsd_trigger_steps = max(1, int(self.gsd_output_period_ps / 0.001))  # Assume ~1 fs effective timestep
-            gsd_trigger_steps = min(gsd_trigger_steps, 10000)  # Cap at reasonable value
-            gsd_trigger = hoomd.trigger.Periodic(gsd_trigger_steps)
-            
-            self.log_info("GSD output setup for adaptive timestep mode:")
-            self.log_info(f"  GSD trigger: every {gsd_trigger_steps} steps (target: {self.gsd_output_period_ps:.3f} ps)")
-            self.log_info("  Note: GSD timing may vary slightly due to adaptive timestep changes")
-            
+        if not self.enable_gsd_output:
+            self.log_info("GSD trajectory output disabled (enable_gsd_output=False)")
         else:
-            # Fixed timestep mode - use calculated step-based triggers (most efficient)
-            gsd_trigger = hoomd.trigger.Periodic(self.gsd_period)
-            self.log_info("GSD output setup for fixed timestep mode:")
-            self.log_info(f"  GSD trigger: every {self.gsd_period} steps ({self.gsd_output_period_ps:.3f} ps)")
-        
-        # Set up GSD writer
-        gsd_writer = hoomd.write.GSD(
-            filename=f'{self.name}-{self.replica}.gsd',
-            trigger=gsd_trigger,
-            dynamic=['property', 'momentum', 'particles/diameter', 'topology'],
-            mode='wb',
-            truncate=self.truncate_gsd,
-            filter=hoomd.filter.All()
-        )
-        gsd_writer.logger = self.logger_hoomd
-        
-        # Write initial frame
-        gsd_writer.write(self.sim.state, filename=f'{self.name}-{self.replica}.gsd',
-            mode='wb', filter=hoomd.filter.All(), logger=self.logger_hoomd)
-        
-        # Add GSD writer to simulation
-        self.sim.operations.writers.append(gsd_writer)
-        self.log_info(f"GSD writer added for file: {self.name}-{self.replica}.gsd")
-        self.log_info(f"  GSD output period: {self.gsd_output_period_ps:.3f} ps")
-        self.log_info(f"  GSD truncate mode: {self.truncate_gsd} ({'overwrite existing file' if self.truncate_gsd else 'append to existing file'})")
+            # For GSD output, we can still use step-based for efficiency in most cases
+            # since GSD output is typically less frequent and timing precision is less critical
+            if self.error_tolerance > 0:
+                # Adaptive timestep mode - use smaller intervals for better timing
+                gsd_trigger_steps = max(1, int(self.gsd_output_period_ps / 0.001))  # Assume ~1 fs effective timestep
+                gsd_trigger_steps = min(gsd_trigger_steps, 10000)  # Cap at reasonable value
+                gsd_trigger = hoomd.trigger.Periodic(gsd_trigger_steps)
+                
+                self.log_info("GSD output setup for adaptive timestep mode:")
+                self.log_info(f"  GSD trigger: every {gsd_trigger_steps} steps (target: {self.gsd_output_period_ps:.3f} ps)")
+                self.log_info("  Note: GSD timing may vary slightly due to adaptive timestep changes")
+                
+            else:
+                # Fixed timestep mode - use calculated step-based triggers (most efficient)
+                gsd_trigger = hoomd.trigger.Periodic(self.gsd_period)
+                self.log_info("GSD output setup for fixed timestep mode:")
+                self.log_info(f"  GSD trigger: every {self.gsd_period} steps ({self.gsd_output_period_ps:.3f} ps)")
+            
+            # Set up GSD writer
+            gsd_writer = hoomd.write.GSD(
+                filename=f'{self.name}-{self.replica}.gsd',
+                trigger=gsd_trigger,
+                dynamic=['property', 'momentum', 'particles/diameter', 'topology'],
+                mode='wb',
+                truncate=self.truncate_gsd,
+                filter=hoomd.filter.All()
+            )
+            gsd_writer.logger = self.logger_hoomd
+            
+            # Write initial frame
+            gsd_writer.write(self.sim.state, filename=f'{self.name}-{self.replica}.gsd',
+                mode='wb', filter=hoomd.filter.All(), logger=self.logger_hoomd)
+            
+            # Add GSD writer to simulation
+            self.sim.operations.writers.append(gsd_writer)
+            self.log_info(f"GSD writer added for file: {self.name}-{self.replica}.gsd")
+            self.log_info(f"  GSD output period: {self.gsd_output_period_ps:.3f} ps")
+            self.log_info(f"  GSD truncate mode: {self.truncate_gsd} ({'overwrite existing file' if self.truncate_gsd else 'append to existing file'})")
         
         # Create custom time-based console output tracker for accurate timing
         class ConsoleOutputTracker(hoomd.custom.Action):
@@ -4669,28 +4627,42 @@ class CavityMDSimulation:
         return snapshot
 
     def validate_cavity_particle(self):
-        """Validate that cavity particle exists when required."""
-        # Get particle types from simulation state, not local snapshot
+        """Validate that cavity particle exists when required.
+
+        Uses ``State.get_snapshot()`` so typeid is a real host ndarray.
+        ``np.asarray`` on a ``HOOMDGPUArray`` from ``gpu_local_snapshot`` yields
+        a 0-d object wrapper (empty logical particle buffer), which falsely
+        reports zero cavity particles on GPU devices without CuPy.
+        """
         particle_types = self.sim.state.particle_types
-        
-        if 'L' not in particle_types:
-            raise ValueError("ERROR: Cavity simulation requested but no cavity particle type 'L' found in GSD file.")
-        
-        with self.get_local_snapshot() as snap:
-            # Convert to numpy array for robust handling across CPU/GPU
-            typeid_array = self.to_numpy(snap.particles.typeid)
-            
-            if 2 not in typeid_array:
-                raise ValueError("ERROR: Cavity simulation requested but no cavity particles found in GSD file.")
-            
-            cavity_count = np.sum(typeid_array == 2)
-            if cavity_count != 1:
-                raise ValueError(f"ERROR: Expected exactly 1 cavity particle but found {cavity_count} in GSD file.")
-            
-            cavity_indices = np.where(typeid_array == 2)[0]
-            cavity_index = cavity_indices[0]
-            cavity_position = snap.particles.position[cavity_index]
-            self.log_info(f"Cavity particle validated at index {cavity_index}, position {cavity_position}")
+
+        if "L" not in particle_types:
+            raise ValueError(
+                "ERROR: Cavity simulation requested but no cavity particle "
+                "type 'L' found in GSD file."
+            )
+
+        snap = self.sim.state.get_snapshot()
+        typeid_array = np.asarray(snap.particles.typeid)
+        positions = np.asarray(snap.particles.position)
+        cavity_typeid = int(list(particle_types).index("L"))
+        cavity_count = int(np.sum(typeid_array == cavity_typeid))
+        if cavity_count == 0:
+            raise ValueError(
+                "ERROR: Cavity simulation requested but no cavity "
+                "particles found in GSD file."
+            )
+        if cavity_count != 1:
+            raise ValueError(
+                f"ERROR: Expected exactly 1 cavity particle but found "
+                f"{cavity_count} in GSD file."
+            )
+        cavity_index = int(np.where(typeid_array == cavity_typeid)[0][0])
+        cavity_position = positions[cavity_index]
+        self.log_info(
+            f"Cavity particle validated at index {cavity_index}, "
+            f"position {cavity_position}"
+        )
 
     def run(self):
         """Main orchestrator method that runs the complete simulation workflow."""

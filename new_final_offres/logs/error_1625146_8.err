@@ -1,0 +1,24 @@
+--- Logging error ---
+Traceback (most recent call last):
+  File "/scratch/mh7373/micromamba/envs/hoomd/lib/python3.12/logging/__init__.py", line 1164, in emit
+    self.flush()
+  File "/scratch/mh7373/micromamba/envs/hoomd/lib/python3.12/logging/__init__.py", line 1144, in flush
+    self.stream.flush()
+OSError: [Errno 122] Disk quota exceeded
+Call stack:
+  File "/scratch/mh7373/cav-hoomd/new_final_offres/05_advanced_run.py", line 509, in <module>
+    sys.exit(main())
+  File "/scratch/mh7373/cav-hoomd/new_final_offres/05_advanced_run.py", line 425, in main
+    success = run_single_experiment(
+  File "/scratch/mh7373/cav-hoomd/new_final_offres/05_advanced_run.py", line 230, in run_single_experiment
+    return sim.run() == 0  # Return True for success (exit code 0)
+  File "/scratch/mh7373/micromamba/envs/hoomd/lib/python3.12/site-packages/hoomd/cavitymd/simulation/core.py", line 4704, in run
+    forces = self.setup_force_parameters(self.dt)
+  File "/scratch/mh7373/micromamba/envs/hoomd/lib/python3.12/site-packages/hoomd/cavitymd/simulation/core.py", line 2185, in setup_force_parameters
+    coupling_variant = self._create_coupling_variant()
+  File "/scratch/mh7373/micromamba/envs/hoomd/lib/python3.12/site-packages/hoomd/cavitymd/simulation/core.py", line 1788, in _create_coupling_variant
+    self.log_info(f"Using constant coupling: lambda={base_coupling}, epsilon={epsilon:.6e} a.u.")
+  File "/scratch/mh7373/micromamba/envs/hoomd/lib/python3.12/site-packages/hoomd/cavitymd/simulation/core.py", line 1741, in log_info
+    self.logger.info(message)
+Message: 'Using constant coupling: lambda=0.042, epsilon=2.028480e-04 a.u.'
+Arguments: ()

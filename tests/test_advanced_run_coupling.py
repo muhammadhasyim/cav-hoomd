@@ -101,3 +101,5 @@ def test_run_single_experiment_passes_step_variant_to_simulation(
     assert success
     assert captured["coupling_variant_type"] == "step"
     assert captured["switch_time_ps"] == 200.0
+    assert captured["lambda_coupling"] == 0.03
+    assert captured.get("couplstr") is None

@@ -353,6 +353,12 @@ def test_build_simulation_command_sets_stable_seed_and_replica(
     assert command[command.index("--seed") + 1] == "18"
     assert command[command.index("--gpu-id") + 1] == "0"
     assert command[command.index("--coupling-type") + 1] == "step"
+    assert command[command.index("--fkt-kmag") + 1] == "6.02"
+    assert command[command.index("--lambda-coupling") + 1] == "0.03"
+    assert "--coupling" not in command
+    assert "--disable-gsd" in command
+    assert "999999" not in command
+    assert "1.0085" not in command
 
 
 def test_collect_simulator_provenance_hashes_executed_sources() -> None:
@@ -501,10 +507,15 @@ def test_main_postvalidates_both_children_after_process_failure(
         "cavitymd_core": "/env/core.py",
         "cavitymd_core_sha256": "b" * 64,
     }
+
+    def fake_provenance(**_kwargs: object) -> dict[str, str]:
+        events.append("provenance")
+        return provenance
+
     monkeypatch.setattr(
         packed_runner,
         "collect_simulator_provenance",
-        lambda **_kwargs: provenance,
+        fake_provenance,
         raising=False,
     )
     monkeypatch.setattr(packed_runner, "replica_locks", fake_locks)
@@ -531,4 +542,6 @@ def test_main_postvalidates_both_children_after_process_failure(
         True,
         True,
     ]
-    assert events == ["lock:(4, 5)", "run", "unlock"]
+    # Provenance must not initialize CUDA before the child GPU process starts.
+    assert events.index("run") < events.index("provenance")
+    assert events == ["lock:(4, 5)", "run", "provenance", "unlock"]

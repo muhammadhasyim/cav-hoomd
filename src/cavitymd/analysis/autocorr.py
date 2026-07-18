@@ -183,11 +183,18 @@ class FieldAutocorrelationTracker(hoomd.custom.Action):
         else:
             xp = np
             
-        # Convert to appropriate array type
-        if xp == cp and not hasattr(positions, 'device'):
+        # Convert to appropriate array type. Never call cp.asnumpy when CuPy
+        # is unavailable (cp is None). HOOMD local-snapshot buffers may expose
+        # a .device attribute even on the host path.
+        if xp == cp and not hasattr(positions, "device"):
             positions = cp.asarray(positions)
-        elif xp == np and hasattr(positions, 'device'):
-            positions = cp.asnumpy(positions)
+        elif hasattr(positions, "device") or not isinstance(positions, np.ndarray):
+            if HAS_CUPY and hasattr(positions, "device"):
+                positions = cp.asnumpy(positions)
+            else:
+                positions = np.asarray(positions, dtype=np.float64)
+                if positions.dtype == object or positions.ndim != 2:
+                    positions = np.array(positions, dtype=np.float64, copy=True)
         
         # Compute ρ_k = Σ_j exp(i k · r_j)
         # k_dot_r shape: (num_wavevectors, num_particles)

@@ -85,9 +85,17 @@ endif()
 
 pybind11_add_module(_cavitymd SHARED ${_cavitymd_sources})
 target_link_libraries(_cavitymd PRIVATE HOOMD::_hoomd HOOMD::_md)
+
+if (ENABLE_GPU)
+    find_package(CUDAToolkit REQUIRED)
+    # g++ also needs cuda_runtime.h (pulled in by HOOMD's HIP compat headers)
+    target_include_directories(_cavitymd PRIVATE ${CUDAToolkit_INCLUDE_DIRS})
+endif()
+
 target_include_directories(_cavitymd PRIVATE 
     ${HOOMD_INSTALL_PREFIX}/${PYTHON_SITE_INSTALL_DIR}/include
     ${HOOMD_INSTALL_PREFIX}/${PYTHON_SITE_INSTALL_DIR}/include/hoomd/extern/OpenRAND/include
+    ${HOOMD_INSTALL_PREFIX}/${PYTHON_SITE_INSTALL_DIR}/include/hoomd/extern/HIP/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
@@ -96,6 +104,14 @@ target_compile_definitions(_cavitymd PRIVATE
     HOOMD_SHORTREAL_SIZE=${HOOMD_SHORTREAL_SIZE}
     HOOMD_LONGREAL_SIZE=${HOOMD_LONGREAL_SIZE}
 )
+
+# GPU: define HIP macros globally so both .cc and .cu files get hipError_t etc.
+if (ENABLE_GPU)
+    target_compile_definitions(_cavitymd PRIVATE
+        ENABLE_HIP
+        __HIP_PLATFORM_NVCC__
+    )
+endif()
 
 # Build langevin module (corrected Langevin integrator) - DISABLED: Missing source files
 # set(_langevin_sources

@@ -8,6 +8,8 @@ import math
 import os
 import re
 import shutil
+import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
@@ -612,6 +614,167 @@ def cleanup_stray_run_dirs(
     return removed
 
 
+def cleanup_stray_gsd_files(
+    run_directory: Path,
+    *,
+    dry_run: bool = False,
+) -> list[Path]:
+    """Delete ``prod-*.gsd`` trajectory files without touching HDF5 or F(k,t).
+
+    Parameters
+    ----------
+    run_directory
+        Coupling output directory.
+    dry_run
+        When ``True``, report paths without deleting them.
+
+    Returns
+    -------
+    list[pathlib.Path]
+        Existing GSD files selected for deletion.
+    """
+    if not run_directory.is_dir():
+        return []
+    paths = sorted(run_directory.glob("prod-*.gsd"))
+    if not dry_run:
+        for path in paths:
+            path.unlink(missing_ok=True)
+    return paths
+
+
+def cleanup_stale_replica_locks(
+    run_directory: Path,
+    *,
+    dry_run: bool = False,
+) -> list[Path]:
+    """Remove leftover ``.replica_*.lock`` files from crashed packed tasks.
+
+    Parameters
+    ----------
+    run_directory
+        Coupling output directory.
+    dry_run
+        When ``True``, report paths without deleting them.
+
+    Returns
+    -------
+    list[pathlib.Path]
+        Lock files selected for deletion.
+    """
+    if not run_directory.is_dir():
+        return []
+    paths = sorted(run_directory.glob(".replica_*.lock"))
+    if not dry_run:
+        for path in paths:
+            path.unlink(missing_ok=True)
+    return paths
+
+
+def _hdf5_needs_clear(path: Path) -> bool:
+    """Return True when a read-only open fails due to an inconsistent HDF5 file."""
+    try:
+        import h5py
+    except ImportError:
+        return False
+    try:
+        with h5py.File(path, "r"):
+            return False
+    except OSError as exc:
+        message = str(exc).lower()
+        return (
+            "already open for write" in message
+            or "file consistency" in message
+            or "file is already open" in message
+            or "unable to synchronously open" in message
+        )
+
+
+def _resolve_h5clear() -> str:
+    """Return the ``h5clear`` executable path from PATH or the active env bin."""
+    found = shutil.which("h5clear")
+    if found:
+        return found
+    candidate = Path(sys.executable).resolve().parent / "h5clear"
+    if candidate.is_file():
+        return str(candidate)
+    raise FileNotFoundError(
+        "h5clear not found on PATH or next to the active Python executable"
+    )
+
+
+def clear_hdf5_consistency_locks(
+    run_directory: Path,
+    *,
+    dry_run: bool = False,
+) -> list[Path]:
+    """Run ``h5clear -s`` on HDF5 files that fail a read-only open.
+
+    Parameters
+    ----------
+    run_directory
+        Coupling output directory containing ``observables_replica_*.h5``.
+    dry_run
+        When ``True``, report candidates without clearing them.
+
+    Returns
+    -------
+    list[pathlib.Path]
+        Files that needed (or would need) ``h5clear``.
+    """
+    if not run_directory.is_dir():
+        return []
+    cleared: list[Path] = []
+    h5clear = None
+    for path in sorted(run_directory.glob("observables_replica_*.h5")):
+        if not _hdf5_needs_clear(path):
+            continue
+        cleared.append(path)
+        if dry_run:
+            continue
+        if h5clear is None:
+            h5clear = _resolve_h5clear()
+        result = subprocess.run(
+            [h5clear, "-s", str(path)],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"h5clear failed for {path}: {result.stderr.strip() or result.stdout.strip()}"
+            )
+    return cleared
+
+
+def run_preflight_cleanup(
+    output_base: Path,
+    lambdas: list[float],
+    *,
+    switch_time_ps: float = DEFAULT_SWITCH_TIME_PS,
+    dry_run: bool = False,
+) -> list[dict[str, object]]:
+    """Clear locked HDF5 files, stray GSDs, and stale replica locks.
+
+    Does not delete scientifically complete HDF5 or F(k,t) data.
+    """
+    summaries: list[dict[str, object]] = []
+    for lam in lambdas:
+        directory = run_dir(output_base, lam, switch_time_ps)
+        cleared = clear_hdf5_consistency_locks(directory, dry_run=dry_run)
+        gsd_removed = cleanup_stray_gsd_files(directory, dry_run=dry_run)
+        locks_removed = cleanup_stale_replica_locks(directory, dry_run=dry_run)
+        summaries.append(
+            {
+                "lam": lam,
+                "run_dir": str(directory),
+                "h5_cleared": [str(path) for path in cleared],
+                "gsd_removed": [str(path) for path in gsd_removed],
+                "locks_removed": [str(path) for path in locks_removed],
+            }
+        )
+    return summaries
+
+
 def scan_campaign(
     output_base: Path,
     lambdas: list[float],
@@ -650,6 +813,14 @@ def _parse_args() -> argparse.Namespace:
         default=DEFAULT_SWITCH_TIME_PS,
     )
     parser.add_argument("--cleanup", action="store_true")
+    parser.add_argument(
+        "--preflight",
+        action="store_true",
+        help=(
+            "Clear locked HDF5 files (h5clear -s), delete prod-*.gsd only, "
+            "and remove stale .replica_*.lock files without deleting science data"
+        ),
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--json", action="store_true")
     return parser.parse_args()
@@ -657,6 +828,25 @@ def _parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = _parse_args()
+
+    if args.preflight:
+        preflight = run_preflight_cleanup(
+            output_base=args.output_base,
+            lambdas=args.lambdas,
+            switch_time_ps=args.switch_time_ps,
+            dry_run=args.dry_run,
+        )
+        if args.json:
+            print(json.dumps(preflight, indent=2))
+        else:
+            for item in preflight:
+                print(
+                    f"lam={item['lam']}: h5_cleared={len(item['h5_cleared'])} "
+                    f"gsd_removed={len(item['gsd_removed'])} "
+                    f"locks_removed={len(item['locks_removed'])}"
+                )
+        return 0
+
     scans = scan_campaign(
         output_base=args.output_base,
         lambdas=args.lambdas,

@@ -1,0 +1,1783 @@
+SLURM Job ID: 1642004
+SLURM Array Task ID: 80
+Using frequency: 2060 cm-1
+Fixed coupling strength (lambda): 0.042 (dimensionless)
+Frame will be automatically set to: 80
+Advanced Cavity MD Experiment Runner
+==================================================
+SLURM array job detected: Task 80 (Job 1642004)
+
+*** COUPLING CONSTANT: 4.200000e-02 a.u. ***
+
+Simulation Configuration:
+  Cavity coupling: Enabled
+    Coupling strength: 4.200000e-02 a.u.
+    Frequency: 2060.0 cm⁻¹
+    Finite-q mode: False
+    Cavity thermostat: langevin
+  Molecular thermostat: bussi
+  Temperature: 100.0 K
+  Runtime: 3000.0 ps
+  Device: CPU
+  Random seed: 0
+  Velocity restart: Enabled - thermalizing velocities
+  Momentum zeroing: Disabled
+
+Starting execution for 1 replica(s)...
+==================================================
+
+Running replica 80...
+>>> Will use FRAME 80 from init-0.gsd for this replica <<<
+Running experiment:
+  Cavity coupling: Enabled
+  *** COUPLING STRENGTH: 4.200000e-02 a.u. ***
+  Switch time: 200.0 ps
+  Decay: None (step function)
+  Damping ratio (zeta): 0.0
+  Calculated dissipation (c): 0.0000e+00 a.u.
+  Molecular thermostat: bussi
+  Cavity thermostat: langevin
+  Finite-q mode: False
+  Replica: 80
+  Frame: 80
+  Output directory: coupling_420000e-07_freq_2060.0cm1_switch_200.0ps
+  *** READING FRAME 80 FROM /scratch/mh7373/cav-hoomd/new_final_offres/init-0.gsd ***
+  ✓ Successfully initialized simulation from frame 80
+  ✓ Input file: /scratch/mh7373/cav-hoomd/new_final_offres/init-0.gsd
+  ✓ Replica 80 ready to run...
+2025-11-06 12:01:28 | INFO | ============================================================
+2025-11-06 12:01:28 | INFO | CAVITY MD SIMULATION STARTED
+2025-11-06 12:01:28 | INFO | ============================================================
+2025-11-06 12:01:28 | INFO | Simulation: prod-80
+2025-11-06 12:01:28 | INFO | Device: CPU
+2025-11-06 12:01:28 | INFO | Runtime: 3000.0 ps
+2025-11-06 12:01:28 | INFO | Temperature: 100.0 K
+2025-11-06 12:01:28 | INFO | Random seed: 0
+2025-11-06 12:01:28 | INFO | Cavity coupling: Enabled
+2025-11-06 12:01:28 | INFO |   Frequency: 2060.0 cm^-1
+2025-11-06 12:01:28 | INFO |   Lambda coupling: 0.042
+2025-11-06 12:01:28 | INFO |   Epsilon (lambda * omega_c): 3.942141e-04 a.u.
+2025-11-06 12:01:28 | INFO |   Finite-q mode: False
+2025-11-06 12:01:28 | INFO | Molecular thermostat: bussi (tau=1.0 ps)
+2025-11-06 12:01:28 | INFO | Cavity thermostat: langevin (tau=1.0 ps)
+2025-11-06 12:01:28 | INFO | ============================================================
+2025-11-06 12:01:28 | INFO | === Phase 1: Setting up simulation ===
+2025-11-06 12:01:28 | INFO | Using default timestep for calculations: 0.0001 ps
+2025-11-06 12:01:28 | INFO | Time conversions:
+2025-11-06 12:01:28 | INFO |   Timestep: 0.0001 ps = 4.134138 a.u.
+2025-11-06 12:01:28 | INFO |   Runtime: 3000.0 ps = 30000000 steps
+2025-11-06 12:01:28 | INFO |   Steps per ps: 10000.0
+2025-11-06 12:01:28 | INFO | Output periods (steps):
+2025-11-06 12:01:28 | INFO |   Energy: 100 (0.010 ps)
+2025-11-06 12:01:28 | INFO |   F(k,t): 10000 (1.000 ps)
+2025-11-06 12:01:28 | INFO |   GSD: 10000 (1.000 ps)
+2025-11-06 12:01:28 | INFO |   Console: 10000 (1.000 ps)
+2025-11-06 12:01:28 | INFO | Initializing simulation on CPU
+2025-11-06 12:01:28 | INFO | Using user-specified seed: 0
+2025-11-06 12:01:28 | INFO | Cavity particle already exists in GSD file (1 found)
+2025-11-06 12:01:28 | INFO | Simulation state created from original GSD file with existing cavity particle
+2025-11-06 12:01:28 | INFO | Cavity particle validated at index 500, position HOOMDArray([ 3.19711232 -0.54340678  4.03452396])
+2025-11-06 12:01:28 | INFO | === Phase 1.5: Setting up time tracker ===
+2025-11-06 12:01:28 | INFO | === Phase 2: Configuring forces and thermostats ===
+2025-11-06 12:01:28 | INFO | Using lambda_coupling=0.042 (will be scaled by omega_c=0.009386 a.u.)
+2025-11-06 12:01:28 | INFO | Using constant coupling: lambda=0.042, epsilon=3.942141e-04 a.u.
+CavityForce initialized using cpp implementation
+  Using constant lambda coupling: 0.042 (dimensionless)
+  Effective epsilon: 3.942141e-04 a.u.
+2025-11-06 12:01:28 | INFO | Thermostat time constant conversions:
+2025-11-06 12:01:28 | INFO |   Molecular: 1.000 ps = 41341.378917 a.u.
+2025-11-06 12:01:28 | INFO |   Cavity: 1.000 ps = 41341.378917 a.u.
+2025-11-06 12:01:28 | INFO | Running molecular system with Bussi thermostat (NVT ensemble)
+2025-11-06 12:01:28 | INFO | Molecular Bussi thermostat configured: T = 100.0 K, kT = 0.000317 a.u., tau = 1.000 ps
+2025-11-06 12:01:28 | INFO | Running cavity with Langevin thermostat
+2025-11-06 12:01:28 | INFO | Cavity Langevin thermostat configured: T = 100.0 K, kT = 0.000317 a.u.
+2025-11-06 12:01:28 | INFO |   base_gamma = 0.000024 a.u.^-1 (tau = 1.000 ps)
+2025-11-06 12:01:28 | INFO |   effective_gamma = 0.000024 a.u.^-1 (damping_factor = 1.0x)
+2025-11-06 12:01:28 | INFO | === Phase 3: Setting up integrator and thermalization ===
+2025-11-06 12:01:28 | INFO | Integrator configured with initial dt = 4.134138 a.u. (0.000100 ps)
+2025-11-06 12:01:28 | INFO | Number of integration methods: 2
+2025-11-06 12:01:28 | INFO | CavityParticleDisplacer not needed (constant coupling or q=0 mode)
+2025-11-06 12:01:28 | INFO | Using seed 1 for thermalization randomness
+2025-11-06 12:01:28 | INFO | Thermalized molecular particles using HOOMD State object
+2025-11-06 12:01:28 | INFO | Cavity particle manually thermalized:
+2025-11-06 12:01:28 | INFO |   Target temperature: 100.0 K
+2025-11-06 12:01:28 | INFO |   Initial velocity: [ 0.02890696 -0.01088686 -0.00939938]
+2025-11-06 12:01:28 | INFO |   Expected KE: 0.000521 a.u.
+2025-11-06 12:01:28 | INFO |   Expected temperature: 109.7 K
+2025-11-06 12:01:28 | INFO |   Using array module: numpy
+2025-11-06 12:01:28 | INFO | Checking molecular system temperature after thermalization:
+2025-11-06 12:01:28 | INFO |   Number of molecular particles: 500
+2025-11-06 12:01:28 | INFO |   Total kinetic energy: 0.249962 a.u.
+2025-11-06 12:01:28 | INFO |   Current temperature: 105.2 K
+2025-11-06 12:01:28 | INFO | Thermalization completed - velocities properly initialized
+2025-11-06 12:01:28 | INFO | === Phase 4: Setting up trackers and loggers ===
+2025-11-06 12:01:28 | INFO | Setting up adaptive timestep updater (error_tolerance = 2.0)
+Dynamic coupling change detection enabled
+Coupling change threshold: ±1.00e-05 a.u.
+Shock dampening: error_tolerance drops to 2.00e-10 (factor: 1.00e-10)
+Recovery: exponential ramp to 2.00e+00 with τ = 1000.0 ps
+Conservative timestep parameters:
+  Change threshold: 10.0%
+  Max change factor: 1.5
+  Min update interval: 1000 steps
+  Switch detection tolerance: 0.001 ps
+2025-11-06 12:01:28 | INFO | Adaptive timestep updater enabled (check every 1 steps)
+CavityForceCompute initialized: omegac=0.00938605 a.u., lambda_coupling=0.042 (dimensionless, from variant), K=8.80979e-05 a.u.
+CPU CavityForceCompute initialized successfully
+notice(2): charge.pppm: RMS error: 2.31675e-08
+NOTICE: Starting from inherited timestep 16550000
+  Elapsed time will start from 0, not from inherited simulation time
+DEBUG @ t=16550000: current_coupling=0.042, last=None
+DEBUG: First coupling check - stored value: 0.042
+2025-11-06 12:01:28 | INFO |   Added detailed BussiReservoir energy tracking for method 0
+2025-11-06 12:01:28 | INFO |   Added energy tracking for cavityforce
+2025-11-06 12:01:28 | INFO |   Added detailed cavity energy components
+2025-11-06 12:01:28 | INFO |   Added energy tracking for harmonic
+2025-11-06 12:01:28 | INFO |   Added energy tracking for lj
+2025-11-06 12:01:28 | INFO |   Added energy tracking for ewald
+2025-11-06 12:01:28 | INFO |   Added energy tracking for coulomb
+2025-11-06 12:01:28 | INFO | Energy tracking setup completed: 0 methods, 5 forces
+2025-11-06 12:01:28 | INFO | Setting up energy tracker with output file: prod-80_energy_tracker.txt
+2025-11-06 12:01:28 | INFO | Energy tracker configuration:
+2025-11-06 12:01:28 | INFO |   Using time-based output: 0.010 ps
+2025-11-06 12:01:28 | INFO |   Max output time: 250.000 ps
+2025-11-06 12:01:28 | INFO | Energy tracker configuration:
+2025-11-06 12:01:28 | INFO |   Force objects: ['cavity', 'harmonic', 'lj', 'ewald_short', 'ewald_long']
+2025-11-06 12:01:28 | INFO |   Thermostat objects: ['bussi_molecular', 'langevin_cavity']
+2025-11-06 12:01:28 | INFO |   Using internal kinetic computation (no external tracker needed)
+2025-11-06 12:01:28 | INFO |  Energy tracker setup completed with time-based output:
+2025-11-06 12:01:28 | INFO |   Output period: 0.010 ps (accurate timing)
+2025-11-06 12:01:28 | INFO |   Tracker handles timing internally using ElapsedTimeTracker
+2025-11-06 12:01:28 | INFO |   Output limited to 250.000 ps
+2025-11-06 12:01:28 | INFO | Setting up F(k,t) density correlation tracker
+2025-11-06 12:01:28 | INFO |   k magnitude: 1.00
+2025-11-06 12:01:28 | INFO |   Number of wavevectors: 50
+2025-11-06 12:01:28 | INFO |   Reference interval: 200.000 ps
+2025-11-06 12:01:28 | INFO |   Max references: 20
+2025-11-06 12:01:28 | INFO |   Output period: 1.000 ps
+2025-11-06 12:01:28 | INFO |   Using time-based reference intervals for adaptive timestep compatibility
+2025-11-06 12:01:28 | INFO |   Reference interval: 200.000 ps
+2025-11-06 12:01:28 | INFO |   Trigger period: 1 step
+2025-11-06 12:01:28 | INFO |   Logarithmic time spacing: DISABLED (regular spacing)
+FieldAutocorrelationTracker initialized for density_correlation
+  k-magnitude: 1.0
+  Wavevectors: 50
+  Reference interval: 200.0 ps
+  Max references: 20
+2025-11-06 12:01:28 | INFO |  F(k,t) tracker successfully enabled with time-based output:
+2025-11-06 12:01:28 | INFO |   Output period: 1.000 ps (accurate timing)
+2025-11-06 12:01:28 | INFO |   Reference interval: 200.000 ps
+2025-11-06 12:01:28 | INFO |   Tracker handles timing internally using ElapsedTimeTracker
+2025-11-06 12:01:28 | INFO | Setting up dipole autocorrelation tracker...
+2025-11-06 12:01:28 | INFO |   Reference interval: 200.000 ps
+2025-11-06 12:01:28 | INFO |   Max references: 20
+2025-11-06 12:01:28 | INFO |   Output period: 0.010 ps
+2025-11-06 12:01:28 | INFO |   Using time-based reference intervals for adaptive timestep compatibility
+2025-11-06 12:01:28 | INFO |   Reference interval: 200.000 ps
+2025-11-06 12:01:28 | INFO |   Trigger period: 1 step
+2025-11-06 12:01:28 | WARNING | Could not set up dipole autocorrelation tracker: Can't instantiate abstract class AutocorrelationTracker without an implementation for abstract method 'act'
+2025-11-06 12:01:28 | INFO | Momentum zeroing disabled
+2025-11-06 12:01:28 | INFO |  TRACKING AND LOGGING SETUP COMPLETED:
+2025-11-06 12:01:28 | INFO |   All output systems now use precise time-based periods
+2025-11-06 12:01:28 | INFO |  Comprehensive temperature tracker enabled
+2025-11-06 12:01:28 | INFO |   Output file: temperature_tracker_replica_80.csv
+2025-11-06 12:01:28 | INFO |   Output period: 0.1 ps
+2025-11-06 12:01:28 | INFO |   Tracking: kinetic, harmonic fictive, LJ+Coul fictive, cavity bath, molecular bath
+2025-11-06 12:01:28 | INFO |   Empirical data: None (LJ+Coul fictive temp will be 0)
+2025-11-06 12:01:28 | INFO | 
+============================================================
+2025-11-06 12:01:28 | INFO | HDF5 OBSERVABLE OUTPUT CONFIGURATION
+2025-11-06 12:01:28 | INFO | ============================================================
+2025-11-06 12:01:28 | INFO | Output file: observables_replica_80.h5
+2025-11-06 12:01:28 | INFO | Output period: 0.010 ps
+2025-11-06 12:01:28 | INFO | SWMR mode: Enabled (concurrent read access)
+2025-11-06 12:01:28 | INFO | ============================================================
+
+✓ HDF5 file structure created: observables_replica_80.h5
+ObservableWriter initialized:
+  Output file: observables_replica_80.h5
+  Output period: 0.01 ps
+  Chunk size: 1000
+  Compression: gzip
+  SWMR mode: True
+  Flush interval: 10
+✓ Energy tracker registered (18 components)
+2025-11-06 12:01:28 | INFO |   Registered energy tracker for HDF5 output
+✓ Temperature tracker registered (6 components)
+2025-11-06 12:01:28 | INFO |   Registered temperature tracker for HDF5 output
+2025-11-06 12:01:28 | INFO | ✓ HDF5 observable output enabled
+
+2025-11-06 12:01:28 | INFO | Advanced features enabled: detailed energy tracking (0.010 ps), F(k,t) density correlation (1.000 ps, k=1.0), dipole autocorrelation (0.010 ps), adaptive timestep control, comprehensive temperature tracker (0.1 ps), HDF5 observable output (0.010 ps)
+2025-11-06 12:01:28 | INFO | Console output: 1.000 ps periods (time-based)
+2025-11-06 12:01:28 | INFO |   Works accurately for both adaptive and fixed timestep modes
+2025-11-06 12:01:28 | INFO | DEBUG: PID controller NOT enabled (enable_pid_controller=False)
+2025-11-06 12:01:28 | INFO | === Phase 5: Setting up output writers ===
+2025-11-06 12:01:28 | INFO | GSD output setup for adaptive timestep mode:
+2025-11-06 12:01:28 | INFO |   GSD trigger: every 1000 steps (target: 1.000 ps)
+2025-11-06 12:01:28 | INFO |   Note: GSD timing may vary slightly due to adaptive timestep changes
+2025-11-06 12:01:28 | INFO | GSD writer added for file: prod-80.gsd
+2025-11-06 12:01:28 | INFO |   GSD output period: 1.000 ps
+2025-11-06 12:01:28 | INFO |   GSD truncate mode: False (append to existing file)
+2025-11-06 12:01:28 | INFO |  Console output setup completed:
+2025-11-06 12:01:28 | INFO |   Output period: 1.000 ps (accurate time-based)
+2025-11-06 12:01:28 | INFO |   Lambda coupling column: 4.200000e-02 (dimensionless) (displayed in real-time)
+2025-11-06 12:01:28 | INFO |   Console tracker handles timing internally using ElapsedTimeTracker
+2025-11-06 12:01:28 | INFO |   Works accurately for both adaptive and fixed timestep modes
+2025-11-06 12:01:28 | INFO |  FIXED: Console output now uses precise time-based logic
+2025-11-06 12:01:28 | INFO |   Both console and energy tracker use accurate timing
+2025-11-06 12:01:28 | INFO |   GSD output timing may vary slightly but is less critical
+2025-11-06 12:01:28 | INFO | === Phase 6: Running simulation ===
+2025-11-06 12:01:28 | INFO | Starting adaptive timestep simulation for 3000.0 ps
+2025-11-06 12:01:28 | INFO | Using max steps: 999999999 (will exit when runtime reached)
+2025-11-06 12:01:28 | INFO | Initial timestep: 40.415047 a.u. (0.978 fs)
+2025-11-06 12:01:28 | INFO | Timestep will adapt dynamically (error_tolerance = 2.0)
+Added F(k,t) reference 0 at t = 0.001 ps
+[HDF5 Writer DEBUG] timestep=16550001, current_time_ps=0.001, last_output_time=None, write_count=0
+[HDF5 Writer DEBUG] Writing data point 0 at time 0.001 ps
+[HDF5 Writer DEBUG] timestep=16550002, current_time_ps=0.002, last_output_time=0.0009775931160934503, write_count=1
+[HDF5 Writer DEBUG] Skipping output: not time yet (current=0.002, last=0.0009775931160934503, period=0.01)
+[HDF5 Writer DEBUG] timestep=16550003, current_time_ps=0.003, last_output_time=0.0009775931160934503, write_count=1
+[HDF5 Writer DEBUG] Skipping output: not time yet (current=0.003, last=0.0009775931160934503, period=0.01)
+[HDF5 Writer DEBUG] timestep=16550004, current_time_ps=0.004, last_output_time=0.0009775931160934503, write_count=1
+[HDF5 Writer DEBUG] Skipping output: not time yet (current=0.004, last=0.0009775931160934503, period=0.01)
+[HDF5 Writer DEBUG] timestep=16550005, current_time_ps=0.005, last_output_time=0.0009775931160934503, write_count=1
+[HDF5 Writer DEBUG] Skipping output: not time yet (current=0.005, last=0.0009775931160934503, period=0.01)
+[HDF5 Writer DEBUG] timestep=16550006, current_time_ps=0.006, last_output_time=0.0009775931160934503, write_count=1
+[HDF5 Writer DEBUG] Skipping output: not time yet (current=0.006, last=0.0009775931160934503, period=0.01)
+[HDF5 Writer DEBUG] timestep=16550007, current_time_ps=0.007, last_output_time=0.0009775931160934503, write_count=1
+[HDF5 Writer DEBUG] Skipping output: not time yet (current=0.007, last=0.0009775931160934503, period=0.01)
+[HDF5 Writer DEBUG] timestep=16550008, current_time_ps=0.008, last_output_time=0.0009775931160934503, write_count=1
+[HDF5 Writer DEBUG] Skipping output: not time yet (current=0.008, last=0.0009775931160934503, period=0.01)
+[HDF5 Writer DEBUG] timestep=16550009, current_time_ps=0.009, last_output_time=0.0009775931160934503, write_count=1
+[HDF5 Writer DEBUG] Skipping output: not time yet (current=0.009, last=0.0009775931160934503, period=0.01)
+[HDF5 Writer DEBUG] timestep=16550010, current_time_ps=0.010, last_output_time=0.0009775931160934503, write_count=1
+[HDF5 Writer DEBUG] Skipping output: not time yet (current=0.010, last=0.0009775931160934503, period=0.01)
+[HDF5 Writer DEBUG] timestep=16550011, current_time_ps=0.011, last_output_time=0.0009775931160934503, write_count=1
+[HDF5 Writer DEBUG] Skipping output: not time yet (current=0.011, last=0.0009775931160934503, period=0.01)
+[HDF5 Writer DEBUG] timestep=16550012, current_time_ps=0.012, last_output_time=0.0009775931160934503, write_count=1
+[HDF5 Writer DEBUG] Writing data point 1 at time 0.012 ps
+[HDF5 Writer DEBUG] timestep=16550013, current_time_ps=0.013, last_output_time=0.011731117393121404, write_count=2
+[HDF5 Writer DEBUG] Skipping output: not time yet (current=0.013, last=0.011731117393121404, period=0.01)
+[HDF5 Writer DEBUG] timestep=16550014, current_time_ps=0.014, last_output_time=0.011731117393121404, write_count=2
+[HDF5 Writer DEBUG] Skipping output: not time yet (current=0.014, last=0.011731117393121404, period=0.01)
+[HDF5 Writer DEBUG] timestep=16550015, current_time_ps=0.015, last_output_time=0.011731117393121404, write_count=2
+[HDF5 Writer DEBUG] Skipping output: not time yet (current=0.015, last=0.011731117393121404, period=0.01)
+[HDF5 Writer DEBUG] timestep=16550016, current_time_ps=0.016, last_output_time=0.011731117393121404, write_count=2
+[HDF5 Writer DEBUG] Skipping output: not time yet (current=0.016, last=0.011731117393121404, period=0.01)
+[HDF5 Writer DEBUG] timestep=16550017, current_time_ps=0.017, last_output_time=0.011731117393121404, write_count=2
+[HDF5 Writer DEBUG] Skipping output: not time yet (current=0.017, last=0.011731117393121404, period=0.01)
+[HDF5 Writer DEBUG] timestep=16550018, current_time_ps=0.018, last_output_time=0.011731117393121404, write_count=2
+[HDF5 Writer DEBUG] Skipping output: not time yet (current=0.018, last=0.011731117393121404, period=0.01)
+[HDF5 Writer DEBUG] timestep=16550019, current_time_ps=0.019, last_output_time=0.011731117393121404, write_count=2
+[HDF5 Writer DEBUG] Skipping output: not time yet (current=0.019, last=0.011731117393121404, period=0.01)
+[HDF5 Writer DEBUG] timestep=16550020, current_time_ps=0.020, last_output_time=0.011731117393121404, write_count=2
+[HDF5 Writer DEBUG] Skipping output: not time yet (current=0.020, last=0.011731117393121404, period=0.01)
+[HDF5 Writer DEBUG] timestep=16550021, current_time_ps=0.021, last_output_time=0.011731117393121404, write_count=2
+[HDF5 Writer DEBUG] Skipping output: not time yet (current=0.021, last=0.011731117393121404, period=0.01)
+[HDF5 Writer DEBUG] timestep=16550022, current_time_ps=0.022, last_output_time=0.011731117393121404, write_count=2
+[HDF5 Writer DEBUG] Skipping output: not time yet (current=0.022, last=0.011731117393121404, period=0.01)
+[HDF5 Writer DEBUG] timestep=16550023, current_time_ps=0.022, last_output_time=0.011731117393121404, write_count=2
+[HDF5 Writer DEBUG] Writing data point 2 at time 0.022 ps
+✓ SWMR mode enabled - file can now be read concurrently
+Simulation.timestep  Simulation.tps Time.elapsed_ps Performance.ns_per_day Performance.eta   Cavity.lambda Adaptive.error_tolerance
+       16551027        69.19084         1.00022            5.71        12:37:23        4.20e-02        2.00e+00
+       16552242        69.49621         2.00078            5.31        13:33:29        4.20e-02        2.00e+00
+       16553542        69.67175         3.00141            5.07        14:11:16        4.20e-02        2.00e+00
+       16554749        69.79623         4.00216            5.06        14:12:49        4.20e-02        2.00e+00
+       16555924        69.80619         5.00254            5.07        14:09:55        4.20e-02        2.00e+00
+       16557131        69.70621         6.00272            5.05        14:13:02        4.20e-02        2.00e+00
+       16558270        69.74335         7.00275            5.09        14:06:54        4.20e-02        2.00e+00
+       16559390        69.71778         8.00368            5.12        14:01:07        4.20e-02        2.00e+00
+DEBUG @ t=16560000: current_coupling=0.042, last=0.042
+       16560452        69.68669         9.00373            5.18        13:52:09        4.20e-02        2.00e+00
+       16561543        69.66452        10.00409            5.21        13:46:56        4.20e-02        2.00e+00
+       16562697        69.69997        11.00426            5.21        13:46:06        4.20e-02        2.00e+00
+       16563835        69.74808        12.00451            5.22        13:44:10        4.20e-02        2.00e+00
+       16564967        69.75002        13.00480            5.23        13:42:38        4.20e-02        2.00e+00
+       16566105        69.68431        14.00537            5.23        13:42:21        4.20e-02        2.00e+00
+       16567171        69.61958        15.00603            5.25        13:38:44        4.20e-02        2.00e+00
+       16568326        69.58405        16.00687            5.24        13:39:15        4.20e-02        2.00e+00
+       16569414        69.56628        17.00743            5.26        13:36:42        4.20e-02        2.00e+00
+DEBUG @ t=16570000: current_coupling=0.042, last=0.042
+       16570513        69.58289        18.00782            5.27        13:34:29        4.20e-02        2.00e+00
+       16571622        69.53962        19.00858            5.28        13:33:30        4.20e-02        2.00e+00
+       16572814        69.51961        20.00881            5.26        13:35:22        4.20e-02        2.00e+00
+       16574003        69.49966        21.00889            5.25        13:36:56        4.20e-02        2.00e+00
+       16575222        69.51713        22.00932            5.24        13:38:53        4.20e-02        2.00e+00
+       16576345        69.51659        23.00938            5.24        13:37:53        4.20e-02        2.00e+00
+       16577369        69.53954        24.00968            5.27        13:33:43        4.20e-02        2.00e+00
+       16578415        69.51551        25.01024            5.28        13:30:59        4.20e-02        2.00e+00
+       16579520        69.53984        26.01026            5.29        13:29:33        4.20e-02        2.00e+00
+DEBUG @ t=16580000: current_coupling=0.042, last=0.042
+       16580675        69.60451        27.01031            5.29        13:29:02        4.20e-02        2.00e+00
+       16581847        69.69803        28.01076            5.29        13:28:34        4.20e-02        2.00e+00
+       16583049        69.72005        29.01148            5.28        13:29:35        4.20e-02        2.00e+00
+       16584171        69.71390        30.01203            5.29        13:28:57        4.20e-02        2.00e+00
+       16585248        69.67789        31.01229            5.29        13:27:40        4.20e-02        2.00e+00
+       16586340        69.64227        32.01231            5.30        13:26:48        4.20e-02        2.00e+00
+       16587422        69.63706        33.01286            5.30        13:25:25        4.20e-02        2.00e+00
+       16588503        69.62702        34.01308            5.31        13:24:09        4.20e-02        2.00e+00
+       16589585        69.63835        35.01400            5.32        13:22:41        4.20e-02        2.00e+00
+DEBUG @ t=16590000: current_coupling=0.042, last=0.042
+       16590720        69.65042        36.01403            5.32        13:22:21        4.20e-02        2.00e+00
+       16591861        69.66648        37.01477            5.32        13:22:04        4.20e-02        2.00e+00
+       16592854        69.62319        38.01520            5.33        13:19:42        4.20e-02        2.00e+00
+       16593895        69.61517        39.01522            5.34        13:17:57        4.20e-02        2.00e+00
+       16594938        69.59912        40.01609            5.35        13:16:23        4.20e-02        2.00e+00
+       16596059        69.61139        41.01635            5.35        13:15:55        4.20e-02        2.00e+00
+       16597150        69.60736        42.01721            5.36        13:15:08        4.20e-02        2.00e+00
+       16598304        69.60465        43.01763            5.35        13:15:24        4.20e-02        2.00e+00
+       16599486        69.66704        44.01845            5.35        13:15:21        4.20e-02        2.00e+00
+DEBUG @ t=16600000: current_coupling=0.042, last=0.042
+[HDF5 Writer DEBUG] timestep=16600000, current_time_ps=44.460, last_output_time=44.45927016223481, write_count=4269
+       16600633        69.70186        45.01845            5.35        13:15:02        4.20e-02        2.00e+00
+       16601757        69.69945        46.01891            5.35        13:14:46        4.20e-02        2.00e+00
+       16602868        69.70213        47.01925            5.35        13:14:15        4.20e-02        2.00e+00
+       16604009        69.69050        48.01944            5.35        13:14:21        4.20e-02        2.00e+00
+       16605145        69.67905        49.02018            5.35        13:14:21        4.20e-02        2.00e+00
+       16606238        69.66729        50.02093            5.35        13:13:45        4.20e-02        2.00e+00
+       16607338        69.66825        51.02137            5.35        13:13:07        4.20e-02        2.00e+00
+       16608513        69.66679        52.02202            5.35        13:13:33        4.20e-02        2.00e+00
+       16609695        69.68239        53.02215            5.35        13:13:51        4.20e-02        2.00e+00
+DEBUG @ t=16610000: current_coupling=0.042, last=0.042
+       16610797        69.67413        54.02227            5.35        13:13:21        4.20e-02        2.00e+00
+       16611908        69.67573        55.02268            5.35        13:12:52        4.20e-02        2.00e+00
+       16613021        69.67271        56.02296            5.35        13:12:29        4.20e-02        2.00e+00
+       16614091        69.67777        57.02305            5.35        13:11:28        4.20e-02        2.00e+00
+       16615255        69.72119        58.02353            5.35        13:11:11        4.20e-02        2.00e+00
+       16616347        69.72192        59.02405            5.36        13:10:30        4.20e-02        2.00e+00
+       16617434        69.71054        60.02466            5.36        13:09:55        4.20e-02        2.00e+00
+       16618521        69.70636        61.02533            5.36        13:09:16        4.20e-02        2.00e+00
+       16619634        69.69534        62.02573            5.36        13:09:00        4.20e-02        2.00e+00
+DEBUG @ t=16620000: current_coupling=0.042, last=0.042
+       16620699        69.68555        63.02625            5.37        13:08:11        4.20e-02        2.00e+00
+       16621748        69.67675        64.02711            5.37        13:07:12        4.20e-02        2.00e+00
+       16622845        69.67345        65.02752            5.37        13:06:43        4.20e-02        2.00e+00
+       16623963        69.67394        66.02809            5.37        13:06:24        4.20e-02        2.00e+00
+       16624977        69.66761        67.02838            5.38        13:05:05        4.20e-02        2.00e+00
+       16626014        69.67147        68.02882            5.39        13:03:56        4.20e-02        2.00e+00
+       16627084        69.67426        69.02931            5.39        13:03:08        4.20e-02        2.00e+00
+       16628169        69.66558        70.02971            5.39        13:02:39        4.20e-02        2.00e+00
+       16629232        69.66245        71.03019            5.39        13:01:53        4.20e-02        2.00e+00
+DEBUG @ t=16630000: current_coupling=0.042, last=0.042
+       16630325        69.65398        72.03080            5.40        13:01:29        4.20e-02        2.00e+00
+       16631392        69.67361        73.03121            5.40        13:00:31        4.20e-02        2.00e+00
+       16632416        69.70084        74.03161            5.41        12:59:05        4.20e-02        2.00e+00
+       16633501        69.71117        75.03252            5.41        12:58:26        4.20e-02        2.00e+00
+       16634564        69.69940        76.03254            5.41        12:57:50        4.20e-02        2.00e+00
+       16635621        69.69418        77.03346            5.42        12:57:07        4.20e-02        2.00e+00
+       16636676        69.70443        78.03410            5.42        12:56:13        4.20e-02        2.00e+00
+       16637746        69.71129        79.03426            5.42        12:55:31        4.20e-02        2.00e+00
+       16638799        69.72031        80.03460            5.43        12:54:38        4.20e-02        2.00e+00
+       16639897        69.72201        81.03520            5.43        12:54:15        4.20e-02        2.00e+00
+DEBUG @ t=16640000: current_coupling=0.042, last=0.042
+       16640915        69.74021        82.03575            5.44        12:53:00        4.20e-02        2.00e+00
+       16642043        69.72844        83.03631            5.43        12:53:01        4.20e-02        2.00e+00
+       16643114        69.72991        84.03672            5.44        12:52:25        4.20e-02        2.00e+00
+       16644164        69.72672        85.03696            5.44        12:51:43        4.20e-02        2.00e+00
+       16645188        69.71965        86.03737            5.44        12:50:51        4.20e-02        2.00e+00
+       16646272        69.71109        87.03750            5.44        12:50:30        4.20e-02        2.00e+00
+       16647361        69.70562        88.03753            5.44        12:50:09        4.20e-02        2.00e+00
+       16648430        69.69737        89.03830            5.45        12:49:41        4.20e-02        2.00e+00
+       16649563        69.69654        90.03830            5.44        12:49:38        4.20e-02        2.00e+00
+DEBUG @ t=16650000: current_coupling=0.042, last=0.042
+       16650727        69.70031        91.03907            5.44        12:49:46        4.20e-02        2.00e+00
+       16651827        69.69114        92.03978            5.44        12:49:33        4.20e-02        2.00e+00
+       16653006        69.68168        93.03990            5.44        12:49:56        4.20e-02        2.00e+00
+       16654076        69.67464        94.03997            5.44        12:49:28        4.20e-02        2.00e+00
+       16655177        69.66543        95.04059            5.44        12:49:15        4.20e-02        2.00e+00
+       16656273        69.65750        96.04107            5.44        12:49:00        4.20e-02        2.00e+00
+       16657316        69.65125        97.04127            5.44        12:48:20        4.20e-02        2.00e+00
+       16658315        69.64201        98.04147            5.45        12:47:25        4.20e-02        2.00e+00
+       16659319        69.63138        99.04219            5.45        12:46:33        4.20e-02        2.00e+00
+DEBUG @ t=16660000: current_coupling=0.042, last=0.042
+       16660371        69.62810       100.04265            5.45        12:45:58        4.20e-02        2.00e+00
+       16661398        69.62382       101.04331            5.46        12:45:13        4.20e-02        2.00e+00
+       16662452        69.61882       102.04389            5.46        12:44:40        4.20e-02        2.00e+00
+       16663512        69.61456       103.04441            5.46        12:44:10        4.20e-02        2.00e+00
+       16664594        69.61389       104.04515            5.46        12:43:46        4.20e-02        2.00e+00
+       16665619        69.60722       105.04609            5.46        12:43:04        4.20e-02        2.00e+00
+       16666661        69.60346       106.04639            5.47        12:42:28        4.20e-02        2.00e+00
+       16667750        69.59847       107.04694            5.47        12:42:10        4.20e-02        2.00e+00
+       16668846        69.59044       108.04727            5.47        12:41:58        4.20e-02        2.00e+00
+       16669927        69.57997       109.04735            5.47        12:41:42        4.20e-02        2.00e+00
+DEBUG @ t=16670000: current_coupling=0.042, last=0.042
+       16670965        69.57884       110.04798            5.47        12:41:03        4.20e-02        2.00e+00
+       16671984        69.57572       111.04894            5.47        12:40:19        4.20e-02        2.00e+00
+       16672982        69.57460       112.04972            5.48        12:39:26        4.20e-02        2.00e+00
+       16674024        69.57163       113.05027            5.48        12:38:52        4.20e-02        2.00e+00
+       16675014        69.56538       114.05065            5.48        12:38:01        4.20e-02        2.00e+00
+       16676015        69.55932       115.05149            5.49        12:37:14        4.20e-02        2.00e+00
+       16677062        69.56458       116.05173            5.49        12:36:38        4.20e-02        2.00e+00
+       16677987        69.55704       117.05214            5.50        12:35:26        4.20e-02        2.00e+00
+       16679006        69.55194       118.05221            5.50        12:34:48        4.20e-02        2.00e+00
+DEBUG @ t=16680000: current_coupling=0.042, last=0.042
+       16680073        69.54905       119.05270            5.50        12:34:25        4.20e-02        2.00e+00
+       16681310        69.56308       120.05296            5.49        12:34:50        4.20e-02        2.00e+00
+       16682464        69.56542       121.05320            5.49        12:34:53        4.20e-02        2.00e+00
+       16683544        69.57111       122.05330            5.49        12:34:28        4.20e-02        2.00e+00
+       16684688        69.57585       123.05407            5.49        12:34:26        4.20e-02        2.00e+00
+       16685817        69.58571       124.05472            5.49        12:34:15        4.20e-02        2.00e+00
+       16686921        69.59108       125.05479            5.49        12:33:59        4.20e-02        2.00e+00
+       16688067        69.59180       126.05504            5.49        12:33:59        4.20e-02        2.00e+00
+       16689178        69.60532       127.05580            5.49        12:33:39        4.20e-02        2.00e+00
+DEBUG @ t=16690000: current_coupling=0.042, last=0.042
+       16690289        69.60447       128.05645            5.49        12:33:29        4.20e-02        2.00e+00
+       16691420        69.60111       129.05698            5.49        12:33:26        4.20e-02        2.00e+00
+       16692500        69.61659       130.05779            5.49        12:32:55        4.20e-02        2.00e+00
+       16693578        69.62241       131.05861            5.49        12:32:30        4.20e-02        2.00e+00
+       16694659        69.63258       132.05862            5.49        12:32:03        4.20e-02        2.00e+00
+       16695760        69.63696       133.05899            5.49        12:31:46        4.20e-02        2.00e+00
+       16696889        69.63237       134.05918            5.49        12:31:43        4.20e-02        2.00e+00
+       16697893        69.63184       135.06001            5.49        12:31:00        4.20e-02        2.00e+00
+       16698970        69.62591       136.06065            5.49        12:30:42        4.20e-02        2.00e+00
+DEBUG @ t=16700000: current_coupling=0.042, last=0.042
+[HDF5 Writer DEBUG] timestep=16700000, current_time_ps=136.988, last_output_time=136.98480280450005, write_count=13149
+       16700078        69.62364       137.06112            5.49        12:30:32        4.20e-02        2.00e+00
+       16701150        69.62706       138.06119            5.49        12:30:07        4.20e-02        2.00e+00
+       16702253        69.62705       139.06169            5.49        12:29:53        4.20e-02        2.00e+00
+       16703440        69.63409       140.06239            5.49        12:30:00        4.20e-02        2.00e+00
+       16704553        69.64337       141.06275            5.49        12:29:43        4.20e-02        2.00e+00
+       16705705        69.64284       142.06296            5.49        12:29:44        4.20e-02        2.00e+00
+       16706879        69.63974       143.06323            5.49        12:29:52        4.20e-02        2.00e+00
+       16708044        69.63349       144.06326            5.48        12:30:00        4.20e-02        2.00e+00
+       16709326        69.63463       145.06349            5.48        12:30:36        4.20e-02        2.00e+00
+DEBUG @ t=16710000: current_coupling=0.042, last=0.042
+       16710590        69.66469       146.06398            5.47        12:30:47        4.20e-02        2.00e+00
+       16711849        69.67401       147.06445            5.47        12:31:09        4.20e-02        2.00e+00
+       16713137        69.68408       148.06492            5.46        12:31:38        4.20e-02        2.00e+00
+       16714355        69.68277       149.06551            5.46        12:31:55        4.20e-02        2.00e+00
+       16715561        69.67840       150.06631            5.46        12:32:10        4.20e-02        2.00e+00
+       16716675        69.67299       151.06647            5.46        12:32:00        4.20e-02        2.00e+00
+       16717802        69.66845       152.06689            5.45        12:31:54        4.20e-02        2.00e+00
+       16718835        69.66377       153.06719            5.46        12:31:22        4.20e-02        2.00e+00
+       16719933        69.66177       154.06740            5.46        12:31:06        4.20e-02        2.00e+00
+DEBUG @ t=16720000: current_coupling=0.042, last=0.042
+       16721148        69.65868       155.06789            5.45        12:31:21        4.20e-02        2.00e+00
+       16722304        69.65541       156.06837            5.45        12:31:21        4.20e-02        2.00e+00
+       16723504        69.65397       157.06838            5.45        12:31:31        4.20e-02        2.00e+00
+       16724614        69.65644       158.06864            5.45        12:31:15        4.20e-02        2.00e+00
+       16725690        69.65595       159.06909            5.45        12:30:52        4.20e-02        2.00e+00
+       16726811        69.65388       160.06983            5.45        12:30:41        4.20e-02        2.00e+00
+       16728017        69.65143       161.07072            5.44        12:30:52        4.20e-02        2.00e+00
+       16729052        69.64939       162.07111            5.45        12:30:20        4.20e-02        2.00e+00
+DEBUG @ t=16730000: current_coupling=0.042, last=0.042
+       16730199        69.64938       163.07128            5.45        12:30:15        4.20e-02        2.00e+00
+       16731338        69.65274       164.07132            5.44        12:30:05        4.20e-02        2.00e+00
+       16732453        69.65468       165.07211            5.44        12:29:50        4.20e-02        2.00e+00
+       16733536        69.65573       166.07246            5.44        12:29:28        4.20e-02        2.00e+00
+       16734665        69.65452       167.07329            5.44        12:29:18        4.20e-02        2.00e+00
+       16735863        69.65903       168.07341            5.44        12:29:22        4.20e-02        2.00e+00
+       16736970        69.65924       169.07370            5.44        12:29:06        4.20e-02        2.00e+00
+       16738154        69.66642       170.07438            5.44        12:29:04        4.20e-02        2.00e+00
+       16739325        69.67883       171.07508            5.44        12:28:55        4.20e-02        2.00e+00
+DEBUG @ t=16740000: current_coupling=0.042, last=0.042
+       16740434        69.67221       172.07522            5.44        12:28:44        4.20e-02        2.00e+00
+       16741584        69.66988       173.07532            5.44        12:28:40        4.20e-02        2.00e+00
+       16742735        69.66534       174.07591            5.44        12:28:37        4.20e-02        2.00e+00
+       16743848        69.66797       175.07613            5.44        12:28:21        4.20e-02        2.00e+00
+       16745003        69.67987       176.07679            5.44        12:28:08        4.20e-02        2.00e+00
+       16746175        69.69687       177.07699            5.43        12:27:56        4.20e-02        2.00e+00
+       16747293        69.70223       178.07718            5.44        12:27:39        4.20e-02        2.00e+00
+       16748307        69.70373       179.07765            5.44        12:27:00        4.20e-02        2.00e+00
+       16749412        69.70357       180.07829            5.44        12:26:44        4.20e-02        2.00e+00
+DEBUG @ t=16750000: current_coupling=0.042, last=0.042
+       16750453        69.69858       181.07907            5.44        12:26:16        4.20e-02        2.00e+00
+       16751469        69.69354       182.07958            5.44        12:25:43        4.20e-02        2.00e+00
+       16752512        69.69055       183.08028            5.44        12:25:15        4.20e-02        2.00e+00
+       16753560        69.68752       184.08108            5.44        12:24:48        4.20e-02        2.00e+00
+       16754624        69.68425       185.08114            5.45        12:24:25        4.20e-02        2.00e+00
+       16755712        69.68547       186.08146            5.45        12:24:04        4.20e-02        2.00e+00
+       16756813        69.68344       187.08170            5.45        12:23:49        4.20e-02        2.00e+00
+       16757921        69.68101       188.08255            5.45        12:23:35        4.20e-02        2.00e+00
+       16759018        69.67847       189.08274            5.45        12:23:19        4.20e-02        2.00e+00
+DEBUG @ t=16760000: current_coupling=0.042, last=0.042
+       16760141        69.67694       190.08310            5.44        12:23:07        4.20e-02        2.00e+00
+       16761225        69.67291       191.08360            5.45        12:22:49        4.20e-02        2.00e+00
+       16762226        69.67200       192.08451            5.45        12:22:12        4.20e-02        2.00e+00
+       16763230        69.67030       193.08532            5.45        12:21:36        4.20e-02        2.00e+00
+       16764266        69.67029       194.08548            5.45        12:21:06        4.20e-02        2.00e+00
+       16765424        69.66843       195.08573            5.45        12:21:02        4.20e-02        2.00e+00
+       16766572        69.66815       196.08587            5.45        12:20:56        4.20e-02        2.00e+00
+       16767616        69.66453       197.08648            5.45        12:20:29        4.20e-02        2.00e+00
+       16768690        69.66290       198.08710            5.45        12:20:08        4.20e-02        2.00e+00
+       16769739        69.66095       199.08777            5.45        12:19:42        4.20e-02        2.00e+00
+DEBUG @ t=16770000: current_coupling=0.042, last=0.042
+SWITCH DETECTED at timestep 16770750: t = 200.000183 ps
+  Forcing immediate timestep adjustment for shock dampening
+Added F(k,t) reference 1 at t = 200.001 ps
+       16770851        69.65859       200.08854            5.45        12:19:30        4.20e-02        2.00e+00
+       16771978        69.65633       201.08868            5.45        12:19:20        4.20e-02        2.00e+00
+       16773034        69.65182       202.08918            5.45        12:18:57        4.20e-02        2.00e+00
+       16774057        69.66651       203.08970            5.46        12:18:16        4.20e-02        2.00e+00
+       16775116        69.66488       204.09045            5.46        12:17:52        4.20e-02        2.00e+00
+       16776218        69.66051       205.09100            5.46        12:17:39        4.20e-02        2.00e+00
+       16777242        69.65655       206.09142            5.46        12:17:10        4.20e-02        2.00e+00
+       16778253        69.65404       207.09191            5.46        12:16:38        4.20e-02        2.00e+00
+       16779327        69.65429       208.09205            5.46        12:16:16        4.20e-02        2.00e+00
+DEBUG @ t=16780000: current_coupling=0.042, last=0.042
+       16780454        69.65675       209.09208            5.46        12:16:04        4.20e-02        2.00e+00
+       16781524        69.65569       210.09253            5.46        12:15:42        4.20e-02        2.00e+00
+       16782552        69.65638       211.09261            5.46        12:15:12        4.20e-02        2.00e+00
+       16783622        69.65477       212.09267            5.46        12:14:51        4.20e-02        2.00e+00
+       16784699        69.65000       213.09332            5.46        12:14:34        4.20e-02        2.00e+00
+       16785697        69.64609       214.09399            5.47        12:14:01        4.20e-02        2.00e+00
+       16786690        69.64577       215.09448            5.47        12:13:25        4.20e-02        2.00e+00
+       16787752        69.65304       216.09497            5.47        12:12:57        4.20e-02        2.00e+00
+       16788805        69.65292       217.09540            5.47        12:12:33        4.20e-02        2.00e+00
+       16789870        69.64523       218.09567            5.47        12:12:15        4.20e-02        2.00e+00
+DEBUG @ t=16790000: current_coupling=0.042, last=0.042
+       16790861        69.64074       219.09576            5.47        12:11:43        4.20e-02        2.00e+00
+       16791931        69.63806       220.09665            5.47        12:11:23        4.20e-02        2.00e+00
+       16792988        69.63658       221.09757            5.47        12:11:00        4.20e-02        2.00e+00
+       16794023        69.63925       222.09808            5.48        12:10:31        4.20e-02        2.00e+00
+       16795054        69.63940       223.09842            5.48        12:10:03        4.20e-02        2.00e+00
+       16796092        69.63854       224.09860            5.48        12:09:37        4.20e-02        2.00e+00
+       16797063        69.64124       225.09868            5.48        12:08:57        4.20e-02        2.00e+00
+       16798021        69.63939       226.09961            5.48        12:08:18        4.20e-02        2.00e+00
+       16799038        69.64096       227.10037            5.49        12:07:47        4.20e-02        2.00e+00
+DEBUG @ t=16800000: current_coupling=0.042, last=0.042
+[HDF5 Writer DEBUG] timestep=16800000, current_time_ps=228.027, last_output_time=228.02585758182715, write_count=21865
+       16800074        69.65122       228.10071            5.49        12:07:14        4.20e-02        2.00e+00
+       16801060        69.64992       229.10108            5.49        12:06:40        4.20e-02        2.00e+00
+       16802040        69.64742       230.10193            5.49        12:06:05        4.20e-02        2.00e+00
+       16803090        69.65255       231.10224            5.49        12:05:39        4.20e-02        2.00e+00
+       16804102        69.65704       232.10239            5.50        12:05:06        4.20e-02        2.00e+00
+       16805066        69.65259       233.10262            5.50        12:04:30        4.20e-02        2.00e+00
+       16806069        69.64853       234.10272            5.50        12:04:02        4.20e-02        2.00e+00
+       16807088        69.64604       235.10308            5.50        12:03:35        4.20e-02        2.00e+00
+       16808065        69.64335       236.10315            5.50        12:03:01        4.20e-02        2.00e+00
+       16809055        69.64470       237.10359            5.51        12:02:27        4.20e-02        2.00e+00
+DEBUG @ t=16810000: current_coupling=0.042, last=0.042
+       16810081        69.64034       238.10426            5.51        12:02:03        4.20e-02        2.00e+00
+       16811106        69.63957       239.10488            5.51        12:01:37        4.20e-02        2.00e+00
+       16812133        69.63831       240.10549            5.51        12:01:11        4.20e-02        2.00e+00
+       16813196        69.63630       241.10583            5.51        12:00:52        4.20e-02        2.00e+00
+       16814242        69.64202       242.10622            5.51        12:00:25        4.20e-02        2.00e+00
+       16815308        69.64465       243.10624            5.51        12:00:03        4.20e-02        2.00e+00
+       16816411        69.64846       244.10712            5.51        11:59:47        4.20e-02        2.00e+00
+       16817466        69.64873       245.10736            5.51        11:59:25        4.20e-02        2.00e+00
+       16818515        69.65618       246.10814            5.52        11:58:58        4.20e-02        2.00e+00
+       16819596        69.65814       247.10879            5.52        11:58:39        4.20e-02        2.00e+00
+DEBUG @ t=16820000: current_coupling=0.042, last=0.042
+       16820681        69.65983       248.10942            5.52        11:58:22        4.20e-02        2.00e+00
+       16821731        69.66025       249.10999            5.52        11:57:59        4.20e-02        2.00e+00
+       16822831        69.66104       250.11058            5.52        11:57:44        4.20e-02        2.00e+00
+       16823949        69.66258       251.11111            5.52        11:57:32        4.20e-02        2.00e+00
+       16825063        69.66393       252.11137            5.52        11:57:19        4.20e-02        2.00e+00
+       16826185        69.66549       253.11211            5.52        11:57:07        4.20e-02        2.00e+00
+       16827295        69.66525       254.11260            5.52        11:56:54        4.20e-02        2.00e+00
+       16828389        69.66631       255.11279            5.52        11:56:38        4.20e-02        2.00e+00
+       16829520        69.67352       256.11327            5.52        11:56:24        4.20e-02        2.00e+00
+DEBUG @ t=16830000: current_coupling=0.042, last=0.042
+       16830531        69.67378       257.11380            5.52        11:55:56        4.20e-02        2.00e+00
+       16831643        69.67606       258.11465            5.52        11:55:42        4.20e-02        2.00e+00
+       16832845        69.67359       259.11511            5.51        11:55:44        4.20e-02        2.00e+00
+       16833951        69.67285       260.11559            5.51        11:55:31        4.20e-02        2.00e+00
+       16835054        69.67297       261.11626            5.51        11:55:17        4.20e-02        2.00e+00
+       16836164        69.67709       262.11688            5.51        11:55:02        4.20e-02        2.00e+00
+       16837241        69.68089       263.11749            5.51        11:54:41        4.20e-02        2.00e+00
+       16838295        69.67896       264.11820            5.51        11:54:21        4.20e-02        2.00e+00
+       16839430        69.67891       265.11821            5.51        11:54:12        4.20e-02        2.00e+00
+DEBUG @ t=16840000: current_coupling=0.042, last=0.042
+       16840499        69.67668       266.11866            5.51        11:53:54        4.20e-02        2.00e+00
+       16841589        69.67288       267.11936            5.51        11:53:40        4.20e-02        2.00e+00
+       16842676        69.67422       268.11961            5.51        11:53:23        4.20e-02        2.00e+00
+       16843807        69.67152       269.11981            5.51        11:53:15        4.20e-02        2.00e+00
+       16844884        69.67247       270.11994            5.51        11:52:56        4.20e-02        2.00e+00
+       16846006        69.67893       271.12082            5.51        11:52:41        4.20e-02        2.00e+00
+       16847076        69.67993       272.12095            5.51        11:52:22        4.20e-02        2.00e+00
+       16848093        69.67936       273.12134            5.52        11:51:55        4.20e-02        2.00e+00
+       16849159        69.67894       274.12226            5.52        11:51:36        4.20e-02        2.00e+00
+DEBUG @ t=16850000: current_coupling=0.042, last=0.042
+       16850201        69.68136       275.12249            5.52        11:51:12        4.20e-02        2.00e+00
+       16851317        69.68825       276.12253            5.52        11:50:56        4.20e-02        2.00e+00
+       16852451        69.69540       277.12259            5.52        11:50:42        4.20e-02        2.00e+00
+       16853472        69.69601       278.12338            5.52        11:50:16        4.20e-02        2.00e+00
+       16854604        69.69261       279.12365            5.52        11:50:08        4.20e-02        2.00e+00
+       16855612        69.68974       280.12389            5.52        11:49:42        4.20e-02        2.00e+00
+       16856807        69.68898       281.12446            5.52        11:49:41        4.20e-02        2.00e+00
+       16857913        69.68758       282.12478            5.52        11:49:28        4.20e-02        2.00e+00
+       16859036        69.68469       283.12520            5.52        11:49:19        4.20e-02        2.00e+00
+DEBUG @ t=16860000: current_coupling=0.042, last=0.042
+       16860180        69.68254       284.12527            5.51        11:49:12        4.20e-02        2.00e+00
+       16861206        69.68051       285.12579            5.52        11:48:48        4.20e-02        2.00e+00
+       16862154        69.67807       286.12652            5.52        11:48:14        4.20e-02        2.00e+00
+       16863140        69.67515       287.12681            5.52        11:47:46        4.20e-02        2.00e+00
+       16864256        69.67499       288.12729            5.52        11:47:34        4.20e-02        2.00e+00
+       16865388        69.67738       289.12739            5.52        11:47:22        4.20e-02        2.00e+00
+       16866418        69.67493       290.12787            5.52        11:47:00        4.20e-02        2.00e+00
+       16867478        69.67350       291.12822            5.52        11:46:41        4.20e-02        2.00e+00
+       16868519        69.67201       292.12881            5.52        11:46:19        4.20e-02        2.00e+00
+       16869628        69.67073       293.12926            5.52        11:46:07        4.20e-02        2.00e+00
+DEBUG @ t=16870000: current_coupling=0.042, last=0.042
+       16870745        69.66966       294.13012            5.52        11:45:55        4.20e-02        2.00e+00
+       16871865        69.66938       295.13090            5.52        11:45:44        4.20e-02        2.00e+00
+       16873007        69.67084       296.13159            5.52        11:45:34        4.20e-02        2.00e+00
+       16874114        69.67637       297.13249            5.52        11:45:17        4.20e-02        2.00e+00
+       16875221        69.67493       298.13313            5.52        11:45:04        4.20e-02        2.00e+00
+       16876309        69.67464       299.13333            5.52        11:44:48        4.20e-02        2.00e+00
+       16877351        69.67446       300.13404            5.52        11:44:26        4.20e-02        2.00e+00
+       16878464        69.67393       301.13476            5.52        11:44:13        4.20e-02        2.00e+00
+       16879627        69.67558       302.13519            5.52        11:44:06        4.20e-02        2.00e+00
+DEBUG @ t=16880000: current_coupling=0.042, last=0.042
+       16880755        69.67528       303.13559            5.52        11:43:55        4.20e-02        2.00e+00
+       16881979        69.67719       304.13628            5.51        11:43:55        4.20e-02        2.00e+00
+       16883085        69.67643       305.13663            5.51        11:43:42        4.20e-02        2.00e+00
+       16884159        69.67662       306.13739            5.51        11:43:24        4.20e-02        2.00e+00
+       16885242        69.67673       307.13806            5.52        11:43:07        4.20e-02        2.00e+00
+       16886321        69.67823       308.13830            5.52        11:42:48        4.20e-02        2.00e+00
+       16887385        69.68104       309.13850            5.52        11:42:28        4.20e-02        2.00e+00
+       16888524        69.68102       310.13881            5.52        11:42:18        4.20e-02        2.00e+00
+       16889592        69.68218       311.13914            5.52        11:41:58        4.20e-02        2.00e+00
+DEBUG @ t=16890000: current_coupling=0.042, last=0.042
+       16890639        69.68182       312.13933            5.52        11:41:37        4.20e-02        2.00e+00
+       16891699        69.68173       313.13997            5.52        11:41:18        4.20e-02        2.00e+00
+       16892791        69.68428       314.14071            5.52        11:41:01        4.20e-02        2.00e+00
+       16893850        69.68536       315.14167            5.52        11:40:40        4.20e-02        2.00e+00
+       16894825        69.68516       316.14183            5.52        11:40:11        4.20e-02        2.00e+00
+       16895841        69.68798       317.14197            5.52        11:39:44        4.20e-02        2.00e+00
+       16896936        69.69854       318.14242            5.52        11:39:23        4.20e-02        2.00e+00
+       16897988        69.69775       319.14333            5.52        11:39:03        4.20e-02        2.00e+00
+       16899044        69.69730       320.14361            5.52        11:38:43        4.20e-02        2.00e+00
+DEBUG @ t=16900000: current_coupling=0.042, last=0.042
+[HDF5 Writer DEBUG] timestep=16900000, current_time_ps=321.027, last_output_time=321.0259962675687, write_count=30736
+       16900134        69.69534       321.14426            5.52        11:38:28        4.20e-02        2.00e+00
+       16901274        69.69320       322.14443            5.52        11:38:20        4.20e-02        2.00e+00
+       16902355        69.69177       323.14452            5.52        11:38:04        4.20e-02        2.00e+00
+       16903427        69.69001       324.14537            5.52        11:37:47        4.20e-02        2.00e+00
+       16904532        69.68725       325.14580            5.52        11:37:35        4.20e-02        2.00e+00
+       16905635        69.68506       326.14600            5.52        11:37:22        4.20e-02        2.00e+00
+       16906719        69.68268       327.14648            5.52        11:37:07        4.20e-02        2.00e+00
+       16907777        69.68106       328.14726            5.52        11:36:48        4.20e-02        2.00e+00
+       16908855        69.67996       329.14760            5.52        11:36:32        4.20e-02        2.00e+00
+DEBUG @ t=16910000: current_coupling=0.042, last=0.042
+       16910003        69.67894       330.14775            5.52        11:36:24        4.20e-02        2.00e+00
+       16911092        69.67751       331.14809            5.52        11:36:08        4.20e-02        2.00e+00
+       16912143        69.67522       332.14864            5.52        11:35:50        4.20e-02        2.00e+00
+       16913212        69.67289       333.14890            5.52        11:35:33        4.20e-02        2.00e+00
+       16914279        69.67065       334.14934            5.52        11:35:16        4.20e-02        2.00e+00
+       16915301        69.66752       335.14970            5.52        11:34:54        4.20e-02        2.00e+00
+       16916264        69.66505       336.15052            5.52        11:34:25        4.20e-02        2.00e+00
+       16917226        69.66358       337.15082            5.53        11:33:56        4.20e-02        2.00e+00
+       16918238        69.66392       338.15148            5.53        11:33:32        4.20e-02        2.00e+00
+       16919265        69.66203       339.15244            5.53        11:33:10        4.20e-02        2.00e+00
+DEBUG @ t=16920000: current_coupling=0.042, last=0.042
+       16920317        69.66092       340.15317            5.53        11:32:51        4.20e-02        2.00e+00
+       16921372        69.66309       341.15384            5.53        11:32:30        4.20e-02        2.00e+00
+       16922444        69.66133       342.15471            5.53        11:32:13        4.20e-02        2.00e+00
+       16923540        69.66039       343.15544            5.53        11:31:59        4.20e-02        2.00e+00
+       16924639        69.65746       344.15631            5.53        11:31:46        4.20e-02        2.00e+00
+       16925713        69.65574       345.15632            5.53        11:31:30        4.20e-02        2.00e+00
+       16926720        69.65373       346.15644            5.53        11:31:06        4.20e-02        2.00e+00
+       16927752        69.65108       347.15723            5.53        11:30:46        4.20e-02        2.00e+00
+       16928899        69.64910       348.15737            5.53        11:30:38        4.20e-02        2.00e+00
+DEBUG @ t=16930000: current_coupling=0.042, last=0.042
+       16930063        69.64857       349.15745            5.53        11:30:31        4.20e-02        2.00e+00
+       16931180        69.64741       350.15811            5.53        11:30:19        4.20e-02        2.00e+00
+       16932238        69.64614       351.15830            5.53        11:30:01        4.20e-02        2.00e+00
+       16933349        69.64388       352.15861            5.53        11:29:49        4.20e-02        2.00e+00
+       16934446        69.64358       353.15886            5.53        11:29:34        4.20e-02        2.00e+00
+       16935561        69.64422       354.15895            5.53        11:29:21        4.20e-02        2.00e+00
+       16936688        69.63994       355.15947            5.53        11:29:12        4.20e-02        2.00e+00
+       16937757        69.63748       356.16000            5.53        11:28:56        4.20e-02        2.00e+00
+       16938751        69.63581       357.16080            5.53        11:28:31        4.20e-02        2.00e+00
+       16939785        69.63543       358.16084            5.53        11:28:10        4.20e-02        2.00e+00
+DEBUG @ t=16940000: current_coupling=0.042, last=0.042
+       16940842        69.63796       359.16130            5.53        11:27:49        4.20e-02        2.00e+00
+       16941914        69.64067       360.16140            5.53        11:27:30        4.20e-02        2.00e+00
+       16942937        69.64091       361.16228            5.53        11:27:08        4.20e-02        2.00e+00
+       16943941        69.64157       362.16278            5.53        11:26:43        4.20e-02        2.00e+00
+       16944952        69.64224       363.16294            5.53        11:26:19        4.20e-02        2.00e+00
+       16945968        69.64071       364.16346            5.53        11:25:56        4.20e-02        2.00e+00
+       16947103        69.63991       365.16367            5.53        11:25:46        4.20e-02        2.00e+00
+       16948314        69.64068       366.16398            5.53        11:25:43        4.20e-02        2.00e+00
+       16949431        69.63878       367.16440            5.53        11:25:31        4.20e-02        2.00e+00
+DEBUG @ t=16950000: current_coupling=0.042, last=0.042
+       16950462        69.63724       368.16493            5.53        11:25:11        4.20e-02        2.00e+00
+       16951455        69.63486       369.16519            5.53        11:24:47        4.20e-02        2.00e+00
+       16952503        69.63397       370.16594            5.53        11:24:28        4.20e-02        2.00e+00
+       16953571        69.63299       371.16621            5.53        11:24:10        4.20e-02        2.00e+00
+       16954598        69.63285       372.16639            5.53        11:23:49        4.20e-02        2.00e+00
+       16955627        69.63709       373.16667            5.53        11:23:25        4.20e-02        2.00e+00
+       16956696        69.63789       374.16669            5.54        11:23:07        4.20e-02        2.00e+00
+       16957744        69.63761       375.16693            5.54        11:22:47        4.20e-02        2.00e+00
+       16958832        69.63668       376.16750            5.54        11:22:32        4.20e-02        2.00e+00
+       16959839        69.63873       377.16816            5.54        11:22:08        4.20e-02        2.00e+00
+DEBUG @ t=16960000: current_coupling=0.042, last=0.042
+       16960884        69.63747       378.16872            5.54        11:21:48        4.20e-02        2.00e+00
+       16961950        69.63910       379.16927            5.54        11:21:30        4.20e-02        2.00e+00
+       16962951        69.63856       380.16967            5.54        11:21:06        4.20e-02        2.00e+00
+       16964046        69.64190       381.17012            5.54        11:20:49        4.20e-02        2.00e+00
+       16965211        69.64344       382.17025            5.54        11:20:40        4.20e-02        2.00e+00
+       16966300        69.64242       383.17088            5.54        11:20:26        4.20e-02        2.00e+00
+       16967408        69.64282       384.17151            5.54        11:20:12        4.20e-02        2.00e+00
+       16968449        69.64141       385.17245            5.54        11:19:53        4.20e-02        2.00e+00
+       16969440        69.64090       386.17261            5.54        11:19:28        4.20e-02        2.00e+00
+DEBUG @ t=16970000: current_coupling=0.042, last=0.042
+       16970410        69.63940       387.17341            5.54        11:19:02        4.20e-02        2.00e+00
+       16971427        69.63885       388.17417            5.54        11:18:40        4.20e-02        2.00e+00
+       16972490        69.63972       389.17503            5.54        11:18:21        4.20e-02        2.00e+00
+       16973499        69.63946       390.17547            5.54        11:17:59        4.20e-02        2.00e+00
+       16974532        69.63805       391.17586            5.54        11:17:39        4.20e-02        2.00e+00
+       16975673        69.63698       392.17665            5.54        11:17:29        4.20e-02        2.00e+00
+       16976688        69.63561       393.17745            5.54        11:17:07        4.20e-02        2.00e+00
+       16977734        69.63406       394.17759            5.54        11:16:49        4.20e-02        2.00e+00
+       16978832        69.63336       395.17834            5.54        11:16:35        4.20e-02        2.00e+00
+DEBUG @ t=16980000: current_coupling=0.042, last=0.042
+       16980000        69.63881       396.17878            5.54        11:16:24        4.20e-02        2.00e+00
+       16981152        69.64087       397.17931            5.54        11:16:13        4.20e-02        2.00e+00
+       16982244        69.64310       398.17943            5.54        11:15:57        4.20e-02        2.00e+00
+       16983343        69.64444       399.17984            5.54        11:15:42        4.20e-02        2.00e+00
+Added F(k,t) reference 2 at t = 400.002 ps
+       16984460        69.64308       400.17984            5.54        11:15:30        4.20e-02        2.00e+00
+       16985621        69.64377       401.18037            5.54        11:15:21        4.20e-02        2.00e+00
+       16986749        69.64276       402.18079            5.54        11:15:10        4.20e-02        2.00e+00
+       16987806        69.63965       403.18122            5.54        11:14:53        4.20e-02        2.00e+00
+       16988950        69.63845       404.18128            5.54        11:14:44        4.20e-02        2.00e+00
+DEBUG @ t=16990000: current_coupling=0.042, last=0.042
+       16990088        69.63703       405.18209            5.54        11:14:34        4.20e-02        2.00e+00
+       16991202        69.63488       406.18283            5.54        11:14:22        4.20e-02        2.00e+00
+       16992329        69.63338       407.18367            5.54        11:14:11        4.20e-02        2.00e+00
+       16993422        69.63180       408.18447            5.54        11:13:57        4.20e-02        2.00e+00
+       16994557        69.63202       409.18477            5.54        11:13:45        4.20e-02        2.00e+00
+       16995738        69.62955       410.18559            5.54        11:13:39        4.20e-02        2.00e+00
+       16996694        69.62805       411.18651            5.54        11:13:13        4.20e-02        2.00e+00
+       16997768        69.62557       412.18681            5.54        11:12:57        4.20e-02        2.00e+00
+       16998811        69.62371       413.18710            5.54        11:12:39        4.20e-02        2.00e+00
+       16999949        69.62247       414.18776            5.54        11:12:29        4.20e-02        2.00e+00
+DEBUG @ t=17000000: current_coupling=0.042, last=0.042
+[HDF5 Writer DEBUG] timestep=17000000, current_time_ps=414.236, last_output_time=414.2277106388958, write_count=39674
+       17001012        69.61920       415.18850            5.54        11:12:13        4.20e-02        2.00e+00
+       17002109        69.61760       416.18932            5.54        11:11:59        4.20e-02        2.00e+00
+       17003226        69.61449       417.18964            5.54        11:11:48        4.20e-02        2.00e+00
+       17004268        69.61148       418.19050            5.54        11:11:30        4.20e-02        2.00e+00
+       17005367        69.61000       419.19129            5.54        11:11:16        4.20e-02        2.00e+00
+       17006440        69.60823       420.19212            5.54        11:11:00        4.20e-02        2.00e+00
+       17007548        69.60908       421.19219            5.54        11:10:46        4.20e-02        2.00e+00
+       17008664        69.60911       422.19224            5.54        11:10:33        4.20e-02        2.00e+00
+       17009778        69.60755       423.19302            5.54        11:10:21        4.20e-02        2.00e+00
+DEBUG @ t=17010000: current_coupling=0.042, last=0.042
+       17010769        69.60545       424.19330            5.54        11:09:58        4.20e-02        2.00e+00
+       17011737        69.60416       425.19346            5.54        11:09:33        4.20e-02        2.00e+00
+       17012942        69.60758       426.19383            5.54        11:09:26        4.20e-02        2.00e+00
+       17014021        69.60669       427.19388            5.54        11:09:10        4.20e-02        2.00e+00
+       17015081        69.60631       428.19412            5.54        11:08:52        4.20e-02        2.00e+00
+       17016235        69.60907       429.19431            5.54        11:08:41        4.20e-02        2.00e+00
+       17017459        69.61321       430.19504            5.53        11:08:35        4.20e-02        2.00e+00
+       17018588        69.61196       431.19586            5.53        11:08:23        4.20e-02        2.00e+00
+       17019578        69.61051       432.19626            5.54        11:08:00        4.20e-02        2.00e+00
+DEBUG @ t=17020000: current_coupling=0.042, last=0.042
+       17020634        69.60878       433.19644            5.54        11:07:43        4.20e-02        2.00e+00
+       17021682        69.60784       434.19674            5.54        11:07:25        4.20e-02        2.00e+00
+       17022912        69.60752       435.19695            5.53        11:07:21        4.20e-02        2.00e+00
+       17024068        69.60947       436.19762            5.53        11:07:10        4.20e-02        2.00e+00
+       17025223        69.60922       437.19787            5.53        11:07:01        4.20e-02        2.00e+00
+       17026251        69.60809       438.19793            5.53        11:06:41        4.20e-02        2.00e+00
+       17027315        69.60763       439.19811            5.53        11:06:23        4.20e-02        2.00e+00
+       17028429        69.60716       440.19868            5.53        11:06:10        4.20e-02        2.00e+00
+       17029496        69.60897       441.19953            5.53        11:05:52        4.20e-02        2.00e+00
+DEBUG @ t=17030000: current_coupling=0.042, last=0.042
+       17030505        69.61068       442.20028            5.53        11:05:29        4.20e-02        2.00e+00
+       17031567        69.61112       443.20072            5.53        11:05:11        4.20e-02        2.00e+00
+       17032658        69.61253       444.20108            5.54        11:04:55        4.20e-02        2.00e+00
+       17033718        69.61192       445.20135            5.54        11:04:37        4.20e-02        2.00e+00
+       17034858        69.60923       446.20223            5.53        11:04:27        4.20e-02        2.00e+00
+       17035936        69.60879       447.20227            5.53        11:04:11        4.20e-02        2.00e+00
+       17036974        69.60740       448.20263            5.54        11:03:52        4.20e-02        2.00e+00
+       17038080        69.60562       449.20311            5.53        11:03:39        4.20e-02        2.00e+00
+       17039270        69.60542       450.20319            5.53        11:03:32        4.20e-02        2.00e+00
+DEBUG @ t=17040000: current_coupling=0.042, last=0.042
+       17040634        69.60471       451.20336            5.53        11:03:40        4.20e-02        2.00e+00
+       17041759        69.60662       452.20386            5.53        11:03:26        4.20e-02        2.00e+00
+       17042943        69.60673       453.20404            5.53        11:03:18        4.20e-02        2.00e+00
+       17044075        69.60707       454.20468            5.53        11:03:06        4.20e-02        2.00e+00
+       17045294        69.60573       455.20476            5.53        11:03:01        4.20e-02        2.00e+00
+       17046415        69.60415       456.20483            5.53        11:02:49        4.20e-02        2.00e+00
+       17047520        69.60473       457.20561            5.53        11:02:34        4.20e-02        2.00e+00
+       17048760        69.60517       458.20582            5.52        11:02:31        4.20e-02        2.00e+00
+       17049844        69.60384       459.20604            5.52        11:02:15        4.20e-02        2.00e+00
+DEBUG @ t=17050000: current_coupling=0.042, last=0.042
+       17051123        69.60671       460.20614            5.52        11:02:13        4.20e-02        2.00e+00
+       17052255        69.60622       461.20620            5.52        11:02:01        4.20e-02        2.00e+00
+       17053345        69.60488       462.20669            5.52        11:01:46        4.20e-02        2.00e+00
+       17054474        69.60597       463.20737            5.52        11:01:33        4.20e-02        2.00e+00
+       17055757        69.60495       464.20798            5.52        11:01:33        4.20e-02        2.00e+00
+       17056989        69.60480       465.20836            5.52        11:01:29        4.20e-02        2.00e+00
+       17058131        69.60428       466.20859            5.52        11:01:17        4.20e-02        2.00e+00
+       17059430        69.60332       467.20881            5.52        11:01:19        4.20e-02        2.00e+00
+DEBUG @ t=17060000: current_coupling=0.042, last=0.042
+       17060590        69.60252       468.20965            5.51        11:01:09        4.20e-02        2.00e+00
+       17061755        69.60341       469.20971            5.51        11:00:58        4.20e-02        2.00e+00
+       17063029        69.60439       470.20988            5.51        11:00:56        4.20e-02        2.00e+00
+       17064251        69.60470       471.21070            5.51        11:00:50        4.20e-02        2.00e+00
+       17065489        69.60616       472.21142            5.51        11:00:45        4.20e-02        2.00e+00
+       17066777        69.60545       473.21231            5.51        11:00:45        4.20e-02        2.00e+00
+       17067836        69.60459       474.21292            5.51        11:00:27        4.20e-02        2.00e+00
+       17069065        69.60392       475.21317            5.51        11:00:22        4.20e-02        2.00e+00
+DEBUG @ t=17070000: current_coupling=0.042, last=0.042
+       17070281        69.60439       476.21395            5.50        11:00:15        4.20e-02        2.00e+00
+       17071436        69.60510       477.21451            5.50        11:00:04        4.20e-02        2.00e+00
+       17072623        69.60885       478.21522            5.50        10:59:53        4.20e-02        2.00e+00
+       17073546        69.60824       479.21578            5.50        10:59:25        4.20e-02        2.00e+00
+       17074727        69.60610       480.21601            5.50        10:59:17        4.20e-02        2.00e+00
+       17075813        69.60487       481.21625            5.50        10:59:02        4.20e-02        2.00e+00
+       17076989        69.60492       482.21661            5.50        10:58:52        4.20e-02        2.00e+00
+       17078258        69.60403       483.21675            5.50        10:58:50        4.20e-02        2.00e+00
+       17079381        69.60372       484.21741            5.50        10:58:37        4.20e-02        2.00e+00
+DEBUG @ t=17080000: current_coupling=0.042, last=0.042
+       17080548        69.60360       485.21769            5.50        10:58:27        4.20e-02        2.00e+00
+       17081620        69.60416       486.21850            5.50        10:58:09        4.20e-02        2.00e+00
+       17082629        69.60539       487.21852            5.50        10:57:46        4.20e-02        2.00e+00
+       17083612        69.60395       488.21949            5.50        10:57:23        4.20e-02        2.00e+00
+       17084790        69.60285       489.22014            5.50        10:57:14        4.20e-02        2.00e+00
+       17085861        69.60268       490.22077            5.50        10:56:57        4.20e-02        2.00e+00
+       17086997        69.60251       491.22139            5.50        10:56:44        4.20e-02        2.00e+00
+       17087998        69.60078       492.22176            5.50        10:56:23        4.20e-02        2.00e+00
+       17089062        69.59950       493.22235            5.50        10:56:06        4.20e-02        2.00e+00
+DEBUG @ t=17090000: current_coupling=0.042, last=0.042
+       17090170        69.59929       494.22273            5.50        10:55:51        4.20e-02        2.00e+00
+       17091249        69.60090       495.22316            5.50        10:55:33        4.20e-02        2.00e+00
+       17092323        69.60342       496.22339            5.50        10:55:15        4.20e-02        2.00e+00
+       17093381        69.60314       497.22349            5.50        10:54:57        4.20e-02        2.00e+00
+       17094374        69.60317       498.22366            5.50        10:54:34        4.20e-02        2.00e+00
+       17095315        69.60270       499.22427            5.51        10:54:08        4.20e-02        2.00e+00
+       17096283        69.60114       500.22436            5.51        10:53:44        4.20e-02        2.00e+00
+       17097370        69.59983       501.22444            5.51        10:53:28        4.20e-02        2.00e+00
+       17098400        69.59859       502.22541            5.51        10:53:09        4.20e-02        2.00e+00
+       17099596        69.59882       503.22614            5.51        10:53:00        4.20e-02        2.00e+00
+DEBUG @ t=17100000: current_coupling=0.042, last=0.042
+[HDF5 Writer DEBUG] timestep=17100000, current_time_ps=503.540, last_output_time=503.5381787314627, write_count=48267
+       17100845        69.59876       504.22646            5.50        10:52:56        4.20e-02        2.00e+00
+       17101868        69.59718       505.22664            5.50        10:52:36        4.20e-02        2.00e+00
+       17103030        69.59667       506.22742            5.50        10:52:26        4.20e-02        2.00e+00
+       17104108        69.59742       507.22804            5.50        10:52:08        4.20e-02        2.00e+00
+       17105254        69.59760       508.22895            5.50        10:51:56        4.20e-02        2.00e+00
+       17106415        69.60072       509.22903            5.50        10:51:44        4.20e-02        2.00e+00
+       17107529        69.60173       510.22963            5.50        10:51:29        4.20e-02        2.00e+00
+       17108807        69.60032       511.22989            5.50        10:51:27        4.20e-02        2.00e+00
+DEBUG @ t=17110000: current_coupling=0.042, last=0.042
+       17110069        69.59930       512.23014            5.50        10:51:23        4.20e-02        2.00e+00
+       17111268        69.59958       513.23066            5.50        10:51:15        4.20e-02        2.00e+00
+       17112313        69.59974       514.23081            5.50        10:50:56        4.20e-02        2.00e+00
+       17113555        69.59898       515.23116            5.50        10:50:51        4.20e-02        2.00e+00
+       17114710        69.59978       516.23153            5.50        10:50:39        4.20e-02        2.00e+00
+       17115773        69.60148       517.23245            5.50        10:50:20        4.20e-02        2.00e+00
+       17116859        69.60291       518.23325            5.50        10:50:03        4.20e-02        2.00e+00
+       17117958        69.60429       519.23362            5.50        10:49:47        4.20e-02        2.00e+00
+       17119237        69.60711       520.23391            5.50        10:49:42        4.20e-02        2.00e+00
+DEBUG @ t=17120000: current_coupling=0.042, last=0.042
+       17120351        69.60793       521.23401            5.50        10:49:27        4.20e-02        2.00e+00
+       17121393        69.60828       522.23447            5.50        10:49:08        4.20e-02        2.00e+00
+       17122532        69.60897       523.23452            5.50        10:48:54        4.20e-02        2.00e+00
+       17123609        69.61033       524.23482            5.50        10:48:37        4.20e-02        2.00e+00
+       17124690        69.61365       525.23513            5.50        10:48:18        4.20e-02        2.00e+00
+       17125749        69.61648       526.23529            5.50        10:47:59        4.20e-02        2.00e+00
+       17126865        69.61895       527.23534            5.50        10:47:43        4.20e-02        2.00e+00
+       17127977        69.62065       528.23621            5.50        10:47:27        4.20e-02        2.00e+00
+       17129088        69.62139       529.23639            5.50        10:47:12        4.20e-02        2.00e+00
+DEBUG @ t=17130000: current_coupling=0.042, last=0.042
+       17130296        69.62340       530.23659            5.50        10:47:03        4.20e-02        2.00e+00
+       17131507        69.62782       531.23670            5.50        10:46:53        4.20e-02        2.00e+00
+       17132771        69.62986       532.23700            5.49        10:46:47        4.20e-02        2.00e+00
+       17134001        69.63194       533.23717            5.49        10:46:39        4.20e-02        2.00e+00
+       17135325        69.63701       534.23748            5.49        10:46:36        4.20e-02        2.00e+00
+       17136619        69.64502       535.23783            5.49        10:46:29        4.20e-02        2.00e+00
+       17137889        69.64697       536.23852            5.49        10:46:23        4.20e-02        2.00e+00
+       17138949        69.64745       537.23900            5.49        10:46:05        4.20e-02        2.00e+00
+DEBUG @ t=17140000: current_coupling=0.042, last=0.042
+       17140078        69.64834       538.23964            5.49        10:45:51        4.20e-02        2.00e+00
+       17141213        69.65159       539.24048            5.49        10:45:36        4.20e-02        2.00e+00
+       17142241        69.65407       540.24103            5.49        10:45:14        4.20e-02        2.00e+00
+       17143375        69.65488       541.24124            5.49        10:45:00        4.20e-02        2.00e+00
+       17144443        69.65558       542.24210            5.49        10:44:42        4.20e-02        2.00e+00
+       17145554        69.65780       543.24278            5.49        10:44:26        4.20e-02        2.00e+00
+       17146554        69.65850       544.24280            5.49        10:44:04        4.20e-02        2.00e+00
+       17147501        69.65742       545.24325            5.49        10:43:39        4.20e-02        2.00e+00
+       17148657        69.65847       546.24347            5.49        10:43:26        4.20e-02        2.00e+00
+       17149620        69.65824       547.24395            5.49        10:43:02        4.20e-02        2.00e+00
+DEBUG @ t=17150000: current_coupling=0.042, last=0.042
+       17150537        69.65809       548.24441            5.49        10:42:35        4.20e-02        2.00e+00
+       17151620        69.65864       549.24493            5.49        10:42:18        4.20e-02        2.00e+00
+       17152579        69.65923       550.24506            5.50        10:41:53        4.20e-02        2.00e+00
+       17153693        69.65921       551.24519            5.50        10:41:39        4.20e-02        2.00e+00
+       17154788        69.66017       552.24609            5.50        10:41:23        4.20e-02        2.00e+00
+       17155854        69.66005       553.24693            5.50        10:41:05        4.20e-02        2.00e+00
+       17156970        69.66366       554.24775            5.50        10:40:49        4.20e-02        2.00e+00
+       17158075        69.66634       555.24858            5.50        10:40:32        4.20e-02        2.00e+00
+       17159150        69.66706       556.24962            5.50        10:40:14        4.20e-02        2.00e+00
+DEBUG @ t=17160000: current_coupling=0.042, last=0.042
+       17160230        69.66813       557.25008            5.50        10:39:57        4.20e-02        2.00e+00
+       17161464        69.67036       558.25040            5.50        10:39:49        4.20e-02        2.00e+00
+       17162456        69.67059       559.25074            5.50        10:39:26        4.20e-02        2.00e+00
+       17163408        69.66986       560.25130            5.50        10:39:02        4.20e-02        2.00e+00
+       17164376        69.66892       561.25142            5.50        10:38:39        4.20e-02        2.00e+00
+       17165327        69.66807       562.25238            5.50        10:38:15        4.20e-02        2.00e+00
+       17166359        69.66849       563.25245            5.50        10:37:55        4.20e-02        2.00e+00
+       17167365        69.66834       564.25266            5.50        10:37:34        4.20e-02        2.00e+00
+       17168395        69.66846       565.25347            5.50        10:37:14        4.20e-02        2.00e+00
+       17169405        69.66814       566.25391            5.50        10:36:53        4.20e-02        2.00e+00
+DEBUG @ t=17170000: current_coupling=0.042, last=0.042
+       17170441        69.66907       567.25456            5.50        10:36:33        4.20e-02        2.00e+00
+       17171448        69.66679       568.25458            5.50        10:36:14        4.20e-02        2.00e+00
+       17172460        69.66603       569.25502            5.50        10:35:53        4.20e-02        2.00e+00
+       17173566        69.66561       570.25534            5.50        10:35:39        4.20e-02        2.00e+00
+       17174475        69.66470       571.25608            5.51        10:35:12        4.20e-02        2.00e+00
+       17175395        69.66594       572.25653            5.51        10:34:45        4.20e-02        2.00e+00
+       17176282        69.66677       573.25710            5.51        10:34:16        4.20e-02        2.00e+00
+       17177165        69.66663       574.25773            5.51        10:33:48        4.20e-02        2.00e+00
+       17178084        69.66674       575.25793            5.51        10:33:22        4.20e-02        2.00e+00
+       17179000        69.66645       576.25876            5.51        10:32:56        4.20e-02        2.00e+00
+       17179911        69.66588       577.25952            5.52        10:32:29        4.20e-02        2.00e+00
+DEBUG @ t=17180000: current_coupling=0.042, last=0.042
+       17180813        69.66489       578.25975            5.52        10:32:03        4.20e-02        2.00e+00
+       17181880        69.66415       579.26036            5.52        10:31:46        4.20e-02        2.00e+00
+       17182928        69.66430       580.26061            5.52        10:31:28        4.20e-02        2.00e+00
+       17184057        69.66460       581.26103            5.52        10:31:14        4.20e-02        2.00e+00
+       17185134        69.66464       582.26188            5.52        10:30:58        4.20e-02        2.00e+00
+       17186134        69.66535       583.26222            5.52        10:30:36        4.20e-02        2.00e+00
+       17187101        69.66515       584.26278            5.52        10:30:13        4.20e-02        2.00e+00
+       17188081        69.66589       585.26282            5.52        10:29:51        4.20e-02        2.00e+00
+       17189035        69.66307       586.26312            5.52        10:29:28        4.20e-02        2.00e+00
+DEBUG @ t=17190000: current_coupling=0.042, last=0.042
+       17190101        69.66295       587.26361            5.52        10:29:11        4.20e-02        2.00e+00
+       17191129        69.66236       588.26404            5.52        10:28:52        4.20e-02        2.00e+00
+       17192141        69.66156       589.26440            5.52        10:28:33        4.20e-02        2.00e+00
+       17193196        69.66129       590.26510            5.52        10:28:15        4.20e-02        2.00e+00
+       17194201        69.66075       591.26603            5.52        10:27:55        4.20e-02        2.00e+00
+       17195241        69.66101       592.26662            5.52        10:27:36        4.20e-02        2.00e+00
+       17196288        69.66228       593.26685            5.52        10:27:17        4.20e-02        2.00e+00
+       17197319        69.66374       594.26766            5.53        10:26:57        4.20e-02        2.00e+00
+       17198411        69.66549       595.26806            5.53        10:26:41        4.20e-02        2.00e+00
+       17199448        69.66621       596.26896            5.53        10:26:22        4.20e-02        2.00e+00
+DEBUG @ t=17200000: current_coupling=0.042, last=0.042
+[HDF5 Writer DEBUG] timestep=17200000, current_time_ps=596.815, last_output_time=596.804245899211, write_count=57167
+       17200467        69.66741       597.26915            5.53        10:26:01        4.20e-02        2.00e+00
+       17201459        69.66767       598.26924            5.53        10:25:40        4.20e-02        2.00e+00
+       17202514        69.66762       599.26978            5.53        10:25:22        4.20e-02        2.00e+00
+Added F(k,t) reference 3 at t = 600.002 ps
+       17203594        69.66780       600.27069            5.53        10:25:06        4.20e-02        2.00e+00
+       17204714        69.66793       601.27132            5.53        10:24:52        4.20e-02        2.00e+00
+       17205707        69.66589       602.27221            5.53        10:24:32        4.20e-02        2.00e+00
+       17206763        69.66683       603.27274            5.53        10:24:14        4.20e-02        2.00e+00
+       17207791        69.66602       604.27366            5.53        10:23:55        4.20e-02        2.00e+00
+       17208812        69.66462       605.27371            5.53        10:23:36        4.20e-02        2.00e+00
+       17209890        69.66405       606.27427            5.53        10:23:20        4.20e-02        2.00e+00
+DEBUG @ t=17210000: current_coupling=0.042, last=0.042
+       17210963        69.66412       607.27461            5.53        10:23:04        4.20e-02        2.00e+00
+       17211989        69.66429       608.27542            5.53        10:22:45        4.20e-02        2.00e+00
+       17213114        69.66423       609.27556            5.53        10:22:31        4.20e-02        2.00e+00
+       17214244        69.66358       610.27599            5.53        10:22:18        4.20e-02        2.00e+00
+       17215270        69.66379       611.27676            5.53        10:21:59        4.20e-02        2.00e+00
+       17216244        69.66443       612.27689            5.53        10:21:36        4.20e-02        2.00e+00
+       17217221        69.66421       613.27745            5.53        10:21:15        4.20e-02        2.00e+00
+       17218277        69.66504       614.27810            5.53        10:20:57        4.20e-02        2.00e+00
+       17219454        69.66745       615.27858            5.53        10:20:45        4.20e-02        2.00e+00
+DEBUG @ t=17220000: current_coupling=0.042, last=0.042
+       17220526        69.66855       616.27909            5.53        10:20:28        4.20e-02        2.00e+00
+       17221559        69.66897       617.27933            5.53        10:20:09        4.20e-02        2.00e+00
+       17222582        69.66548       618.28021            5.53        10:19:51        4.20e-02        2.00e+00
+       17223679        69.66529       619.28066            5.53        10:19:36        4.20e-02        2.00e+00
+       17224622        69.66470       620.28122            5.53        10:19:13        4.20e-02        2.00e+00
+       17225780        69.66485       621.28156            5.53        10:19:01        4.20e-02        2.00e+00
+       17226727        69.66404       622.28171            5.53        10:18:38        4.20e-02        2.00e+00
+       17227851        69.66384       623.28186            5.53        10:18:25        4.20e-02        2.00e+00
+       17228919        69.66289       624.28199            5.53        10:18:08        4.20e-02        2.00e+00
+       17229984        69.66321       625.28214            5.53        10:17:51        4.20e-02        2.00e+00
+DEBUG @ t=17230000: current_coupling=0.042, last=0.042
+       17230984        69.66144       626.28268            5.54        10:17:32        4.20e-02        2.00e+00
+       17232062        69.66031       627.28314            5.54        10:17:16        4.20e-02        2.00e+00
+       17233117        69.66002       628.28358            5.54        10:16:59        4.20e-02        2.00e+00
+       17234121        69.66026       629.28395            5.54        10:16:39        4.20e-02        2.00e+00
+       17235128        69.65930       630.28414            5.54        10:16:19        4.20e-02        2.00e+00
+       17236192        69.66039       631.28439            5.54        10:16:02        4.20e-02        2.00e+00
+       17237204        69.66160       632.28451            5.54        10:15:42        4.20e-02        2.00e+00
+       17238183        69.65874       633.28470            5.54        10:15:22        4.20e-02        2.00e+00
+       17239203        69.65738       634.28508            5.54        10:15:03        4.20e-02        2.00e+00
+DEBUG @ t=17240000: current_coupling=0.042, last=0.042
+       17240229        69.65645       635.28523            5.54        10:14:45        4.20e-02        2.00e+00
+       17241220        69.65620       636.28579            5.54        10:14:24        4.20e-02        2.00e+00
+       17242194        69.65586       637.28662            5.54        10:14:03        4.20e-02        2.00e+00
+       17243235        69.65483       638.28677            5.54        10:13:45        4.20e-02        2.00e+00
+       17244320        69.65434       639.28753            5.54        10:13:30        4.20e-02        2.00e+00
+       17245397        69.65422       640.28821            5.54        10:13:14        4.20e-02        2.00e+00
+       17246434        69.65340       641.28904            5.54        10:12:56        4.20e-02        2.00e+00
+       17247548        69.65425       642.28955            5.54        10:12:42        4.20e-02        2.00e+00
+       17248689        69.65630       643.29005            5.54        10:12:28        4.20e-02        2.00e+00
+       17249641        69.65586       644.29014            5.54        10:12:05        4.20e-02        2.00e+00
+DEBUG @ t=17250000: current_coupling=0.042, last=0.042
+       17250669        69.65721       645.29037            5.54        10:11:46        4.20e-02        2.00e+00
+       17251615        69.65671       646.29049            5.54        10:11:23        4.20e-02        2.00e+00
+       17252511        69.65637       647.29121            5.55        10:10:58        4.20e-02        2.00e+00
+       17253524        69.65697       648.29187            5.55        10:10:38        4.20e-02        2.00e+00
+       17254649        69.65764       649.29261            5.55        10:10:24        4.20e-02        2.00e+00
+       17255824        69.65772       650.29317            5.54        10:10:13        4.20e-02        2.00e+00
+       17256965        69.65872       651.29337            5.54        10:10:00        4.20e-02        2.00e+00
+       17257998        69.66029       652.29431            5.54        10:09:41        4.20e-02        2.00e+00
+       17258968        69.66083       653.29453            5.55        10:09:19        4.20e-02        2.00e+00
+DEBUG @ t=17260000: current_coupling=0.042, last=0.042
+       17260115        69.66201       654.29477            5.55        10:09:06        4.20e-02        2.00e+00
+       17261185        69.66371       655.29502            5.55        10:08:49        4.20e-02        2.00e+00
+       17262161        69.66436       656.29535            5.55        10:08:27        4.20e-02        2.00e+00
+       17263134        69.66436       657.29551            5.55        10:08:06        4.20e-02        2.00e+00
+       17264138        69.66517       658.29639            5.55        10:07:46        4.20e-02        2.00e+00
+       17265194        69.66603       659.29642            5.55        10:07:28        4.20e-02        2.00e+00
+       17266185        69.66650       660.29692            5.55        10:07:08        4.20e-02        2.00e+00
+       17267187        69.66689       661.29772            5.55        10:06:48        4.20e-02        2.00e+00
+       17268170        69.66669       662.29846            5.55        10:06:27        4.20e-02        2.00e+00
+       17269106        69.66660       663.29855            5.55        10:06:04        4.20e-02        2.00e+00
+DEBUG @ t=17270000: current_coupling=0.042, last=0.042
+       17270080        69.66771       664.29864            5.55        10:05:42        4.20e-02        2.00e+00
+       17271126        69.66889       665.29898            5.55        10:05:24        4.20e-02        2.00e+00
+       17272171        69.66947       666.29976            5.55        10:05:06        4.20e-02        2.00e+00
+       17273186        69.67112       667.30004            5.55        10:04:46        4.20e-02        2.00e+00
+       17274267        69.67207       668.30056            5.55        10:04:30        4.20e-02        2.00e+00
+       17275372        69.67315       669.30126            5.55        10:04:15        4.20e-02        2.00e+00
+       17276412        69.67311       670.30157            5.55        10:03:57        4.20e-02        2.00e+00
+       17277486        69.67006       671.30182            5.55        10:03:43        4.20e-02        2.00e+00
+       17278623        69.67031       672.30182            5.55        10:03:30        4.20e-02        2.00e+00
+       17279647        69.66984       673.30215            5.55        10:03:11        4.20e-02        2.00e+00
+DEBUG @ t=17280000: current_coupling=0.042, last=0.042
+       17280733        69.66892       674.30301            5.55        10:02:56        4.20e-02        2.00e+00
+       17281834        69.66897       675.30325            5.55        10:02:42        4.20e-02        2.00e+00
+       17282828        69.66897       676.30379            5.55        10:02:22        4.20e-02        2.00e+00
+       17283920        69.67008       677.30415            5.55        10:02:06        4.20e-02        2.00e+00
+       17284990        69.67100       678.30452            5.56        10:01:49        4.20e-02        2.00e+00
+       17286054        69.67073       679.30472            5.56        10:01:33        4.20e-02        2.00e+00
+       17287203        69.67022       680.30492            5.55        10:01:21        4.20e-02        2.00e+00
+       17288382        69.66972       681.30494            5.55        10:01:10        4.20e-02        2.00e+00
+       17289422        69.67042       682.30536            5.55        10:00:52        4.20e-02        2.00e+00
+DEBUG @ t=17290000: current_coupling=0.042, last=0.042
+       17290462        69.67092       683.30571            5.55        10:00:34        4.20e-02        2.00e+00
+       17291481        69.67295       684.30663            5.56        10:00:14        4.20e-02        2.00e+00
+       17292503        69.67450       685.30702            5.56        09:59:55        4.20e-02        2.00e+00
+       17293454        69.67503       686.30732            5.56        09:59:33        4.20e-02        2.00e+00
+       17294377        69.67585       687.30752            5.56        09:59:09        4.20e-02        2.00e+00
+       17295322        69.67405       688.30756            5.56        09:58:48        4.20e-02        2.00e+00
+       17296368        69.67379       689.30819            5.56        09:58:30        4.20e-02        2.00e+00
+       17297469        69.67512       690.30858            5.56        09:58:15        4.20e-02        2.00e+00
+       17298499        69.67534       691.30926            5.56        09:57:57        4.20e-02        2.00e+00
+       17299482        69.67591       692.31022            5.56        09:57:36        4.20e-02        2.00e+00
+DEBUG @ t=17300000: current_coupling=0.042, last=0.042
+[HDF5 Writer DEBUG] timestep=17300000, current_time_ps=692.855, last_output_time=692.8459782956235, write_count=66319
+       17300424        69.67562       693.31110            5.56        09:57:14        4.20e-02        2.00e+00
+       17301446        69.67582       694.31129            5.56        09:56:55        4.20e-02        2.00e+00
+       17302518        69.67610       695.31150            5.56        09:56:39        4.20e-02        2.00e+00
+       17303497        69.67549       696.31242            5.56        09:56:19        4.20e-02        2.00e+00
+       17304476        69.67470       697.31313            5.56        09:55:59        4.20e-02        2.00e+00
+       17305508        69.67387       698.31352            5.56        09:55:41        4.20e-02        2.00e+00
+       17306611        69.67383       699.31366            5.56        09:55:27        4.20e-02        2.00e+00
+       17307612        69.67435       700.31464            5.56        09:55:07        4.20e-02        2.00e+00
+       17308622        69.67486       701.31525            5.57        09:54:48        4.20e-02        2.00e+00
+       17309616        69.67543       702.31557            5.57        09:54:28        4.20e-02        2.00e+00
+DEBUG @ t=17310000: current_coupling=0.042, last=0.042
+       17310563        69.67662       703.31569            5.57        09:54:06        4.20e-02        2.00e+00
+       17311561        69.67691       704.31573            5.57        09:53:46        4.20e-02        2.00e+00
+       17312613        69.67664       705.31602            5.57        09:53:29        4.20e-02        2.00e+00
+       17313552        69.67659       706.31611            5.57        09:53:07        4.20e-02        2.00e+00
+       17314509        69.67802       707.31646            5.57        09:52:45        4.20e-02        2.00e+00
+       17315479        69.67850       708.31659            5.57        09:52:24        4.20e-02        2.00e+00
+       17316437        69.67709       709.31745            5.57        09:52:04        4.20e-02        2.00e+00
+       17317429        69.67626       710.31826            5.57        09:51:44        4.20e-02        2.00e+00
+       17318406        69.67560       711.31882            5.57        09:51:24        4.20e-02        2.00e+00
+       17319361        69.67577       712.31907            5.57        09:51:03        4.20e-02        2.00e+00
+DEBUG @ t=17320000: current_coupling=0.042, last=0.042
+       17320322        69.67673       713.31927            5.57        09:50:42        4.20e-02        2.00e+00
+       17321332        69.67815       714.31984            5.58        09:50:22        4.20e-02        2.00e+00
+       17322395        69.67981       715.32068            5.58        09:50:05        4.20e-02        2.00e+00
+       17323386        69.68086       716.32144            5.58        09:49:45        4.20e-02        2.00e+00
+       17324358        69.68203       717.32200            5.58        09:49:24        4.20e-02        2.00e+00
+       17325316        69.68245       718.32223            5.58        09:49:02        4.20e-02        2.00e+00
+       17326266        69.68181       719.32271            5.58        09:48:41        4.20e-02        2.00e+00
+       17327211        69.68135       720.32347            5.58        09:48:20        4.20e-02        2.00e+00
+       17328192        69.68137       721.32437            5.58        09:48:00        4.20e-02        2.00e+00
+       17329269        69.68169       722.32503            5.58        09:47:44        4.20e-02        2.00e+00
+DEBUG @ t=17330000: current_coupling=0.042, last=0.042
+       17330355        69.67943       723.32581            5.58        09:47:30        4.20e-02        2.00e+00
+       17331342        69.67802       724.32650            5.58        09:47:11        4.20e-02        2.00e+00
+       17332334        69.67774       725.32678            5.58        09:46:52        4.20e-02        2.00e+00
+       17333387        69.67799       726.32736            5.58        09:46:35        4.20e-02        2.00e+00
+       17334425        69.67704       727.32833            5.58        09:46:18        4.20e-02        2.00e+00
+       17335509        69.67668       728.32921            5.58        09:46:03        4.20e-02        2.00e+00
+       17336508        69.67660       729.32947            5.58        09:45:44        4.20e-02        2.00e+00
+       17337581        69.67676       730.33037            5.58        09:45:28        4.20e-02        2.00e+00
+       17338599        69.67723       731.33109            5.58        09:45:10        4.20e-02        2.00e+00
+       17339636        69.67795       732.33183            5.58        09:44:52        4.20e-02        2.00e+00
+DEBUG @ t=17340000: current_coupling=0.042, last=0.042
+       17340641        69.67998       733.33246            5.58        09:44:32        4.20e-02        2.00e+00
+       17341709        69.68057       734.33280            5.58        09:44:16        4.20e-02        2.00e+00
+       17342701        69.68053       735.33310            5.58        09:43:57        4.20e-02        2.00e+00
+       17343709        69.68183       736.33391            5.59        09:43:38        4.20e-02        2.00e+00
+       17344744        69.68199       737.33410            5.59        09:43:20        4.20e-02        2.00e+00
+       17345735        69.68202       738.33426            5.59        09:43:01        4.20e-02        2.00e+00
+       17346748        69.68233       739.33459            5.59        09:42:42        4.20e-02        2.00e+00
+       17347718        69.67956       740.33502            5.59        09:42:23        4.20e-02        2.00e+00
+       17348606        69.67792       741.33571            5.59        09:42:00        4.20e-02        2.00e+00
+       17349602        69.67649       742.33618            5.59        09:41:42        4.20e-02        2.00e+00
+DEBUG @ t=17350000: current_coupling=0.042, last=0.042
+       17350567        69.67602       743.33651            5.59        09:41:22        4.20e-02        2.00e+00
+       17351535        69.67550       744.33705            5.59        09:41:02        4.20e-02        2.00e+00
+       17352501        69.67466       745.33805            5.59        09:40:42        4.20e-02        2.00e+00
+       17353537        69.67607       746.33851            5.59        09:40:24        4.20e-02        2.00e+00
+       17354495        69.67543       747.33857            5.59        09:40:04        4.20e-02        2.00e+00
+       17355429        69.67454       748.33890            5.59        09:39:43        4.20e-02        2.00e+00
+       17356363        69.67534       749.33937            5.59        09:39:21        4.20e-02        2.00e+00
+       17357344        69.67530       750.34016            5.59        09:39:01        4.20e-02        2.00e+00
+       17358384        69.67436       751.34087            5.59        09:38:45        4.20e-02        2.00e+00
+       17359492        69.67382       752.34162            5.59        09:38:31        4.20e-02        2.00e+00
+DEBUG @ t=17360000: current_coupling=0.042, last=0.042
+       17360511        69.67352       753.34188            5.60        09:38:13        4.20e-02        2.00e+00
+       17361572        69.67593       754.34229            5.60        09:37:56        4.20e-02        2.00e+00
+       17362603        69.67695       755.34305            5.60        09:37:38        4.20e-02        2.00e+00
+       17363599        69.67653       756.34335            5.60        09:37:19        4.20e-02        2.00e+00
+       17364681        69.67577       757.34391            5.60        09:37:04        4.20e-02        2.00e+00
+       17365736        69.67487       758.34431            5.60        09:36:48        4.20e-02        2.00e+00
+       17366635        69.67419       759.34432            5.60        09:36:26        4.20e-02        2.00e+00
+       17367678        69.67431       760.34434            5.60        09:36:09        4.20e-02        2.00e+00
+       17368683        69.67404       761.34468            5.60        09:35:51        4.20e-02        2.00e+00
+       17369623        69.67348       762.34572            5.60        09:35:30        4.20e-02        2.00e+00
+DEBUG @ t=17370000: current_coupling=0.042, last=0.042
+       17370696        69.67406       763.34602            5.60        09:35:14        4.20e-02        2.00e+00
+       17371646        69.67429       764.34618            5.60        09:34:53        4.20e-02        2.00e+00
+       17372702        69.67444       765.34624            5.60        09:34:37        4.20e-02        2.00e+00
+       17373711        69.67424       766.34625            5.60        09:34:19        4.20e-02        2.00e+00
+       17374847        69.67457       767.34662            5.60        09:34:06        4.20e-02        2.00e+00
+       17375892        69.67447       768.34689            5.60        09:33:49        4.20e-02        2.00e+00
+       17376972        69.67466       769.34735            5.60        09:33:34        4.20e-02        2.00e+00
+       17377936        69.67448       770.34779            5.60        09:33:14        4.20e-02        2.00e+00
+       17379060        69.67478       771.34792            5.60        09:33:00        4.20e-02        2.00e+00
+DEBUG @ t=17380000: current_coupling=0.042, last=0.042
+       17380175        69.67602       772.34794            5.60        09:32:46        4.20e-02        2.00e+00
+       17381207        69.67688       773.34892            5.60        09:32:28        4.20e-02        2.00e+00
+       17382172        69.67681       774.34957            5.60        09:32:08        4.20e-02        2.00e+00
+       17383232        69.67717       775.34995            5.60        09:31:52        4.20e-02        2.00e+00
+       17384254        69.67674       776.34998            5.60        09:31:35        4.20e-02        2.00e+00
+       17385227        69.67617       777.35075            5.60        09:31:15        4.20e-02        2.00e+00
+       17386238        69.67597       778.35092            5.60        09:30:57        4.20e-02        2.00e+00
+       17387235        69.67567       779.35099            5.60        09:30:39        4.20e-02        2.00e+00
+       17388262        69.67561       780.35155            5.60        09:30:21        4.20e-02        2.00e+00
+       17389291        69.67583       781.35231            5.60        09:30:04        4.20e-02        2.00e+00
+DEBUG @ t=17390000: current_coupling=0.042, last=0.042
+       17390305        69.67668       782.35231            5.60        09:29:46        4.20e-02        2.00e+00
+       17391283        69.67687       783.35261            5.61        09:29:26        4.20e-02        2.00e+00
+       17392230        69.67695       784.35281            5.61        09:29:06        4.20e-02        2.00e+00
+       17393185        69.67701       785.35283            5.61        09:28:45        4.20e-02        2.00e+00
+       17394180        69.67808       786.35315            5.61        09:28:26        4.20e-02        2.00e+00
+       17395195        69.67829       787.35370            5.61        09:28:08        4.20e-02        2.00e+00
+       17396187        69.67798       788.35406            5.61        09:27:50        4.20e-02        2.00e+00
+       17397194        69.67785       789.35473            5.61        09:27:32        4.20e-02        2.00e+00
+       17398184        69.67740       790.35502            5.61        09:27:13        4.20e-02        2.00e+00
+       17399185        69.67752       791.35579            5.61        09:26:55        4.20e-02        2.00e+00
+DEBUG @ t=17400000: current_coupling=0.042, last=0.042
+[HDF5 Writer DEBUG] timestep=17400000, current_time_ps=792.163, last_output_time=792.1621769121341, write_count=75777
+       17400193        69.67838       792.35662            5.61        09:26:36        4.20e-02        2.00e+00
+       17401182        69.67867       793.35737            5.61        09:26:17        4.20e-02        2.00e+00
+       17402191        69.67818       794.35774            5.61        09:26:00        4.20e-02        2.00e+00
+       17403233        69.67823       795.35806            5.61        09:25:43        4.20e-02        2.00e+00
+       17404306        69.68038       796.35808            5.61        09:25:27        4.20e-02        2.00e+00
+       17405323        69.68221       797.35808            5.61        09:25:08        4.20e-02        2.00e+00
+       17406309        69.68214       798.35873            5.61        09:24:49        4.20e-02        2.00e+00
+       17407296        69.68302       799.35901            5.61        09:24:30        4.20e-02        2.00e+00
+Added F(k,t) reference 4 at t = 800.003 ps
+       17408294        69.68316       800.35923            5.61        09:24:12        4.20e-02        2.00e+00
+       17409290        69.68295       801.36001            5.61        09:23:53        4.20e-02        2.00e+00
+DEBUG @ t=17410000: current_coupling=0.042, last=0.042
+       17410255        69.68230       802.36039            5.62        09:23:34        4.20e-02        2.00e+00
+       17411307        69.68199       803.36082            5.62        09:23:18        4.20e-02        2.00e+00
+       17412346        69.68188       804.36178            5.62        09:23:01        4.20e-02        2.00e+00
+       17413263        69.68158       805.36186            5.62        09:22:40        4.20e-02        2.00e+00
+       17414231        69.68162       806.36221            5.62        09:22:20        4.20e-02        2.00e+00
+       17415236        69.68178       807.36237            5.62        09:22:02        4.20e-02        2.00e+00
+       17416205        69.68157       808.36254            5.62        09:21:43        4.20e-02        2.00e+00
+       17417245        69.68206       809.36281            5.62        09:21:26        4.20e-02        2.00e+00
+       17418301        69.68228       810.36303            5.62        09:21:10        4.20e-02        2.00e+00
+       17419307        69.68209       811.36347            5.62        09:20:52        4.20e-02        2.00e+00
+DEBUG @ t=17420000: current_coupling=0.042, last=0.042
+       17420304        69.68163       812.36349            5.62        09:20:34        4.20e-02        2.00e+00
+       17421442        69.68174       813.36404            5.62        09:20:21        4.20e-02        2.00e+00
+       17422575        69.68241       814.36411            5.62        09:20:08        4.20e-02        2.00e+00
+       17423615        69.68254       815.36479            5.62        09:19:51        4.20e-02        2.00e+00
+       17424805        69.68232       816.36539            5.62        09:19:41        4.20e-02        2.00e+00
+       17425818        69.68246       817.36632            5.62        09:19:23        4.20e-02        2.00e+00
+       17426837        69.68468       818.36660            5.62        09:19:04        4.20e-02        2.00e+00
+       17427807        69.68565       819.36679            5.62        09:18:45        4.20e-02        2.00e+00
+       17428866        69.68624       820.36687            5.62        09:18:29        4.20e-02        2.00e+00
+       17429771        69.68603       821.36721            5.62        09:18:07        4.20e-02        2.00e+00
+DEBUG @ t=17430000: current_coupling=0.042, last=0.042
+       17430861        69.68581       822.36724            5.62        09:17:52        4.20e-02        2.00e+00
+       17431805        69.68531       823.36782            5.62        09:17:32        4.20e-02        2.00e+00
+       17432821        69.68624       824.36795            5.62        09:17:14        4.20e-02        2.00e+00
+       17433933        69.68649       825.36878            5.62        09:17:00        4.20e-02        2.00e+00
+       17434948        69.68602       826.36952            5.62        09:16:43        4.20e-02        2.00e+00
+       17435924        69.68557       827.36966            5.62        09:16:24        4.20e-02        2.00e+00
+       17436937        69.68609       828.37016            5.62        09:16:07        4.20e-02        2.00e+00
+       17437972        69.68611       829.37062            5.62        09:15:50        4.20e-02        2.00e+00
+       17438870        69.68726       830.37105            5.62        09:15:27        4.20e-02        2.00e+00
+       17439725        69.68736       831.37176            5.63        09:15:04        4.20e-02        2.00e+00
+DEBUG @ t=17440000: current_coupling=0.042, last=0.042
+       17440606        69.68717       832.37237            5.63        09:14:42        4.20e-02        2.00e+00
+       17441557        69.68672       833.37242            5.63        09:14:22        4.20e-02        2.00e+00
+       17442430        69.68670       834.37345            5.63        09:13:59        4.20e-02        2.00e+00
+       17443424        69.68734       835.37352            5.63        09:13:41        4.20e-02        2.00e+00
+       17444445        69.68771       836.37438            5.63        09:13:23        4.20e-02        2.00e+00
+       17445366        69.68840       837.37441            5.63        09:13:02        4.20e-02        2.00e+00
+       17446389        69.68915       838.37455            5.63        09:12:45        4.20e-02        2.00e+00
+       17447447        69.69001       839.37489            5.63        09:12:29        4.20e-02        2.00e+00
+       17448496        69.69091       840.37505            5.63        09:12:12        4.20e-02        2.00e+00
+       17449508        69.69077       841.37584            5.63        09:11:55        4.20e-02        2.00e+00
+DEBUG @ t=17450000: current_coupling=0.042, last=0.042
+       17450534        69.69283       842.37668            5.63        09:11:37        4.20e-02        2.00e+00
+       17451561        69.69472       843.37673            5.63        09:11:19        4.20e-02        2.00e+00
+       17452611        69.69622       844.37704            5.63        09:11:02        4.20e-02        2.00e+00
+       17453602        69.69683       845.37753            5.63        09:10:44        4.20e-02        2.00e+00
+       17454571        69.69634       846.37812            5.63        09:10:25        4.20e-02        2.00e+00
+       17455572        69.69596       847.37857            5.63        09:10:07        4.20e-02        2.00e+00
+       17456583        69.69727       848.37955            5.64        09:09:49        4.20e-02        2.00e+00
+       17457529        69.69854       849.37995            5.64        09:09:29        4.20e-02        2.00e+00
+       17458445        69.69886       850.38050            5.64        09:09:08        4.20e-02        2.00e+00
+       17459431        69.70011       851.38095            5.64        09:08:49        4.20e-02        2.00e+00
+DEBUG @ t=17460000: current_coupling=0.042, last=0.042
+       17460470        69.70051       852.38139            5.64        09:08:32        4.20e-02        2.00e+00
+       17461522        69.70113       853.38196            5.64        09:08:16        4.20e-02        2.00e+00
+       17462527        69.70107       854.38275            5.64        09:07:58        4.20e-02        2.00e+00
+       17463535        69.70159       855.38359            5.64        09:07:41        4.20e-02        2.00e+00
+       17464514        69.70117       856.38390            5.64        09:07:22        4.20e-02        2.00e+00
+       17465519        69.70223       857.38404            5.64        09:07:04        4.20e-02        2.00e+00
+       17466568        69.70294       858.38493            5.64        09:06:48        4.20e-02        2.00e+00
+       17467581        69.70286       859.38583            5.64        09:06:31        4.20e-02        2.00e+00
+       17468567        69.70269       860.38611            5.64        09:06:12        4.20e-02        2.00e+00
+       17469532        69.70306       861.38634            5.64        09:05:53        4.20e-02        2.00e+00
+DEBUG @ t=17470000: current_coupling=0.042, last=0.042
+       17470578        69.70373       862.38711            5.64        09:05:37        4.20e-02        2.00e+00
+       17471587        69.70348       863.38712            5.64        09:05:19        4.20e-02        2.00e+00
+       17472610        69.70349       864.38726            5.64        09:05:03        4.20e-02        2.00e+00
+       17473636        69.70387       865.38771            5.64        09:04:46        4.20e-02        2.00e+00
+       17474648        69.70508       866.38857            5.64        09:04:28        4.20e-02        2.00e+00
+       17475611        69.70485       867.38947            5.64        09:04:09        4.20e-02        2.00e+00
+       17476531        69.70557       868.38948            5.64        09:03:48        4.20e-02        2.00e+00
+       17477486        69.70554       869.39039            5.65        09:03:29        4.20e-02        2.00e+00
+       17478414        69.70619       870.39147            5.65        09:03:08        4.20e-02        2.00e+00
+       17479369        69.70772       871.39194            5.65        09:02:48        4.20e-02        2.00e+00
+DEBUG @ t=17480000: current_coupling=0.042, last=0.042
+       17480318        69.70822       872.39256            5.65        09:02:28        4.20e-02        2.00e+00
+       17481281        69.70895       873.39261            5.65        09:02:09        4.20e-02        2.00e+00
+       17482321        69.70908       874.39282            5.65        09:01:53        4.20e-02        2.00e+00
+       17483387        69.70920       875.39343            5.65        09:01:38        4.20e-02        2.00e+00
+       17484467        69.70977       876.39382            5.65        09:01:22        4.20e-02        2.00e+00
+       17485423        69.70977       877.39485            5.65        09:01:03        4.20e-02        2.00e+00
+       17486479        69.70929       878.39568            5.65        09:00:48        4.20e-02        2.00e+00
+       17487410        69.70879       879.39676            5.65        09:00:28        4.20e-02        2.00e+00
+       17488287        69.70836       880.39686            5.65        09:00:06        4.20e-02        2.00e+00
+       17489269        69.70791       881.39697            5.65        08:59:48        4.20e-02        2.00e+00
+DEBUG @ t=17490000: current_coupling=0.042, last=0.042
+       17490369        69.70772       882.39739            5.65        08:59:34        4.20e-02        2.00e+00
+       17491399        69.70859       883.39798            5.65        08:59:17        4.20e-02        2.00e+00
+       17492419        69.70983       884.39889            5.65        08:59:00        4.20e-02        2.00e+00
+       17493471        69.71022       885.39917            5.65        08:58:44        4.20e-02        2.00e+00
+       17494438        69.71025       886.39973            5.65        08:58:25        4.20e-02        2.00e+00
+       17495411        69.71083       887.40006            5.65        08:58:07        4.20e-02        2.00e+00
+       17496378        69.71351       888.40074            5.65        08:57:47        4.20e-02        2.00e+00
+       17497409        69.71390       889.40112            5.65        08:57:30        4.20e-02        2.00e+00
+       17498475        69.71419       890.40117            5.65        08:57:15        4.20e-02        2.00e+00
+       17499471        69.71479       891.40123            5.65        08:56:57        4.20e-02        2.00e+00
+DEBUG @ t=17500000: current_coupling=0.042, last=0.042
+[HDF5 Writer DEBUG] timestep=17500000, current_time_ps=891.932, last_output_time=891.9262289720111, write_count=85289
+       17500480        69.71521       892.40123            5.66        08:56:39        4.20e-02        2.00e+00
+       17501423        69.71569       893.40142            5.66        08:56:20        4.20e-02        2.00e+00
+       17502433        69.71623       894.40183            5.66        08:56:02        4.20e-02        2.00e+00
+       17503479        69.71808       895.40202            5.66        08:55:46        4.20e-02        2.00e+00
+       17504529        69.71996       896.40249            5.66        08:55:29        4.20e-02        2.00e+00
+       17505528        69.72050       897.40265            5.66        08:55:11        4.20e-02        2.00e+00
+       17506485        69.72149       898.40334            5.66        08:54:52        4.20e-02        2.00e+00
+       17507474        69.72104       899.40387            5.66        08:54:34        4.20e-02        2.00e+00
+       17508455        69.72053       900.40437            5.66        08:54:16        4.20e-02        2.00e+00
+       17509466        69.72038       901.40464            5.66        08:53:59        4.20e-02        2.00e+00
+DEBUG @ t=17510000: current_coupling=0.042, last=0.042
+       17510514        69.71937       902.40510            5.66        08:53:44        4.20e-02        2.00e+00
+       17511552        69.71937       903.40581            5.66        08:53:28        4.20e-02        2.00e+00
+       17512486        69.71859       904.40621            5.66        08:53:08        4.20e-02        2.00e+00
+       17513476        69.71869       905.40706            5.66        08:52:51        4.20e-02        2.00e+00
+       17514487        69.71890       906.40713            5.66        08:52:33        4.20e-02        2.00e+00
+       17515500        69.71911       907.40769            5.66        08:52:16        4.20e-02        2.00e+00
+       17516563        69.72070       908.40821            5.66        08:52:00        4.20e-02        2.00e+00
+       17517560        69.72296       909.40841            5.66        08:51:42        4.20e-02        2.00e+00
+       17518523        69.72407       910.40910            5.66        08:51:23        4.20e-02        2.00e+00
+       17519561        69.72594       911.40961            5.66        08:51:06        4.20e-02        2.00e+00
+DEBUG @ t=17520000: current_coupling=0.042, last=0.042
+       17520540        69.72642       912.41024            5.66        08:50:47        4.20e-02        2.00e+00
+       17521545        69.72684       913.41118            5.66        08:50:30        4.20e-02        2.00e+00
+       17522587        69.72781       914.41171            5.66        08:50:14        4.20e-02        2.00e+00
+       17523610        69.72877       915.41224            5.66        08:49:57        4.20e-02        2.00e+00
+       17524522        69.72919       916.41229            5.67        08:49:36        4.20e-02        2.00e+00
+       17525501        69.72959       917.41231            5.67        08:49:18        4.20e-02        2.00e+00
+       17526415        69.73022       918.41269            5.67        08:48:58        4.20e-02        2.00e+00
+       17527373        69.73020       919.41273            5.67        08:48:39        4.20e-02        2.00e+00
+       17528346        69.72992       920.41331            5.67        08:48:21        4.20e-02        2.00e+00
+       17529355        69.72797       921.41365            5.67        08:48:05        4.20e-02        2.00e+00
+DEBUG @ t=17530000: current_coupling=0.042, last=0.042
+       17530354        69.72750       922.41434            5.67        08:47:48        4.20e-02        2.00e+00
+       17531305        69.72682       923.41474            5.67        08:47:29        4.20e-02        2.00e+00
+       17532288        69.72634       924.41496            5.67        08:47:11        4.20e-02        2.00e+00
+       17533269        69.72564       925.41593            5.67        08:46:54        4.20e-02        2.00e+00
+       17534208        69.72470       926.41605            5.67        08:46:35        4.20e-02        2.00e+00
+       17535143        69.72386       927.41702            5.67        08:46:16        4.20e-02        2.00e+00
+       17536125        69.72327       928.41705            5.67        08:45:59        4.20e-02        2.00e+00
+       17537185        69.72327       929.41751            5.67        08:45:43        4.20e-02        2.00e+00
+       17538183        69.72259       930.41835            5.67        08:45:26        4.20e-02        2.00e+00
+       17539220        69.72215       931.41901            5.67        08:45:10        4.20e-02        2.00e+00
+DEBUG @ t=17540000: current_coupling=0.042, last=0.042
+       17540334        69.72218       932.41975            5.67        08:44:57        4.20e-02        2.00e+00
+       17541381        69.72223       933.42019            5.67        08:44:41        4.20e-02        2.00e+00
+       17542451        69.72424       934.42020            5.67        08:44:25        4.20e-02        2.00e+00
+       17543571        69.72687       935.42084            5.67        08:44:10        4.20e-02        2.00e+00
+       17544655        69.72876       936.42140            5.67        08:43:55        4.20e-02        2.00e+00
+       17545575        69.72933       937.42148            5.67        08:43:35        4.20e-02        2.00e+00
+       17546564        69.72755       938.42207            5.67        08:43:18        4.20e-02        2.00e+00
+       17547604        69.72708       939.42283            5.67        08:43:02        4.20e-02        2.00e+00
+       17548663        69.72657       940.42330            5.67        08:42:47        4.20e-02        2.00e+00
+       17549642        69.72569       941.42380            5.67        08:42:30        4.20e-02        2.00e+00
+DEBUG @ t=17550000: current_coupling=0.042, last=0.042
+       17550572        69.72595       942.42407            5.67        08:42:10        4.20e-02        2.00e+00
+       17551561        69.72604       943.42505            5.67        08:41:53        4.20e-02        2.00e+00
+       17552549        69.72539       944.42508            5.67        08:41:36        4.20e-02        2.00e+00
+       17553515        69.72561       945.42596            5.68        08:41:17        4.20e-02        2.00e+00
+       17554538        69.72567       946.42600            5.68        08:41:01        4.20e-02        2.00e+00
+       17555575        69.72695       947.42657            5.68        08:40:44        4.20e-02        2.00e+00
+       17556567        69.72643       948.42678            5.68        08:40:27        4.20e-02        2.00e+00
+       17557625        69.72571       949.42696            5.68        08:40:12        4.20e-02        2.00e+00
+       17558575        69.72506       950.42749            5.68        08:39:54        4.20e-02        2.00e+00
+       17559555        69.72432       951.42841            5.68        08:39:36        4.20e-02        2.00e+00
+DEBUG @ t=17560000: current_coupling=0.042, last=0.042
+       17560537        69.72410       952.42857            5.68        08:39:19        4.20e-02        2.00e+00
+       17561533        69.72431       953.42880            5.68        08:39:01        4.20e-02        2.00e+00
+       17562525        69.72403       954.42918            5.68        08:38:44        4.20e-02        2.00e+00
+       17563536        69.72441       955.42968            5.68        08:38:27        4.20e-02        2.00e+00
+       17564479        69.72232       956.43000            5.68        08:38:09        4.20e-02        2.00e+00
+       17565474        69.72151       957.43005            5.68        08:37:52        4.20e-02        2.00e+00
+       17566448        69.72090       958.43083            5.68        08:37:35        4.20e-02        2.00e+00
+       17567471        69.72065       959.43106            5.68        08:37:18        4.20e-02        2.00e+00
+       17568477        69.72018       960.43176            5.68        08:37:02        4.20e-02        2.00e+00
+       17569457        69.72076       961.43208            5.68        08:36:44        4.20e-02        2.00e+00
+DEBUG @ t=17570000: current_coupling=0.042, last=0.042
+       17570572        69.72102       962.43262            5.68        08:36:30        4.20e-02        2.00e+00
+       17571498        69.72056       963.43342            5.68        08:36:11        4.20e-02        2.00e+00
+       17572400        69.72024       964.43356            5.68        08:35:51        4.20e-02        2.00e+00
+       17573370        69.72045       965.43447            5.68        08:35:33        4.20e-02        2.00e+00
+       17574429        69.72099       966.43481            5.68        08:35:18        4.20e-02        2.00e+00
+       17575459        69.72107       967.43560            5.68        08:35:01        4.20e-02        2.00e+00
+       17576513        69.72083       968.43590            5.68        08:34:46        4.20e-02        2.00e+00
+       17577589        69.72215       969.43637            5.68        08:34:31        4.20e-02        2.00e+00
+       17578672        69.72223       970.43651            5.68        08:34:16        4.20e-02        2.00e+00
+       17579686        69.72188       971.43750            5.68        08:34:00        4.20e-02        2.00e+00
+DEBUG @ t=17580000: current_coupling=0.042, last=0.042
+       17580832        69.72239       972.43788            5.68        08:33:47        4.20e-02        2.00e+00
+       17581849        69.72076       973.43862            5.68        08:33:31        4.20e-02        2.00e+00
+       17582803        69.72021       974.43871            5.68        08:33:13        4.20e-02        2.00e+00
+       17583693        69.71946       975.43909            5.68        08:32:53        4.20e-02        2.00e+00
+       17584785        69.71905       976.43930            5.68        08:32:39        4.20e-02        2.00e+00
+       17585722        69.71860       977.43968            5.68        08:32:20        4.20e-02        2.00e+00
+       17586748        69.71959       978.44027            5.68        08:32:04        4.20e-02        2.00e+00
+       17587585        69.71844       979.44063            5.69        08:31:42        4.20e-02        2.00e+00
+       17588563        69.71765       980.44083            5.69        08:31:25        4.20e-02        2.00e+00
+       17589533        69.71622       981.44126            5.69        08:31:08        4.20e-02        2.00e+00
+DEBUG @ t=17590000: current_coupling=0.042, last=0.042
+       17590629        69.71612       982.44153            5.69        08:30:54        4.20e-02        2.00e+00
+       17591592        69.71528       983.44248            5.69        08:30:36        4.20e-02        2.00e+00
+       17592566        69.71448       984.44321            5.69        08:30:19        4.20e-02        2.00e+00
+       17593681        69.71452       985.44395            5.69        08:30:05        4.20e-02        2.00e+00
+       17594589        69.71368       986.44472            5.69        08:29:46        4.20e-02        2.00e+00
+       17595493        69.71366       987.44558            5.69        08:29:26        4.20e-02        2.00e+00
+       17596427        69.71357       988.44616            5.69        08:29:07        4.20e-02        2.00e+00
+       17597315        69.71325       989.44732            5.69        08:28:47        4.20e-02        2.00e+00
+       17598247        69.71310       990.44784            5.69        08:28:28        4.20e-02        2.00e+00
+       17599188        69.71284       991.44846            5.69        08:28:10        4.20e-02        2.00e+00
+DEBUG @ t=17600000: current_coupling=0.042, last=0.042
+[HDF5 Writer DEBUG] timestep=17600000, current_time_ps=992.348, last_output_time=992.3461461437486, write_count=94828
+       17600098        69.71232       992.44857            5.69        08:27:51        4.20e-02        2.00e+00
+       17601070        69.71167       993.44928            5.69        08:27:33        4.20e-02        2.00e+00
+       17602028        69.71113       994.45030            5.69        08:27:15        4.20e-02        2.00e+00
+       17602967        69.71058       995.45111            5.69        08:26:57        4.20e-02        2.00e+00
+       17603887        69.71058       996.45196            5.69        08:26:38        4.20e-02        2.00e+00
+       17604872        69.71162       997.45237            5.70        08:26:20        4.20e-02        2.00e+00
+       17605949        69.71143       998.45299            5.69        08:26:05        4.20e-02        2.00e+00
+       17606988        69.71152       999.45352            5.70        08:25:50        4.20e-02        2.00e+00
+Added F(k,t) reference 5 at t = 1000.003 ps
+       17607982        69.71215      1000.45379            5.70        08:25:32        4.20e-02        2.00e+00
+       17609011        69.71241      1001.45484            5.70        08:25:16        4.20e-02        2.00e+00
+       17609973        69.71220      1002.45552            5.70        08:24:58        4.20e-02        2.00e+00
+DEBUG @ t=17610000: current_coupling=0.042, last=0.042
+       17610987        69.71225      1003.45576            5.70        08:24:42        4.20e-02        2.00e+00
+       17611989        69.71186      1004.45584            5.70        08:24:25        4.20e-02        2.00e+00
+       17612900        69.71226      1005.45608            5.70        08:24:06        4.20e-02        2.00e+00
+       17613872        69.71282      1006.45612            5.70        08:23:48        4.20e-02        2.00e+00
+       17614967        69.71450      1007.45698            5.70        08:23:33        4.20e-02        2.00e+00
+       17616009        69.71441      1008.45744            5.70        08:23:18        4.20e-02        2.00e+00
+       17617044        69.71468      1009.45763            5.70        08:23:02        4.20e-02        2.00e+00
+       17618032        69.71468      1010.45832            5.70        08:22:45        4.20e-02        2.00e+00
+       17618968        69.71478      1011.45871            5.70        08:22:26        4.20e-02        2.00e+00
+       17619858        69.71529      1012.45959            5.70        08:22:06        4.20e-02        2.00e+00
+DEBUG @ t=17620000: current_coupling=0.042, last=0.042
+       17620787        69.71575      1013.46042            5.70        08:21:47        4.20e-02        2.00e+00
+       17621749        69.71595      1014.46074            5.70        08:21:29        4.20e-02        2.00e+00
+       17622711        69.71534      1015.46147            5.70        08:21:11        4.20e-02        2.00e+00
+       17623675        69.71548      1016.46207            5.70        08:20:53        4.20e-02        2.00e+00
+       17624671        69.71519      1017.46302            5.70        08:20:37        4.20e-02        2.00e+00
+       17625699        69.71618      1018.46344            5.70        08:20:20        4.20e-02        2.00e+00
+       17626631        69.71621      1019.46441            5.70        08:20:02        4.20e-02        2.00e+00
+       17627533        69.71607      1020.46498            5.70        08:19:42        4.20e-02        2.00e+00
+       17628459        69.71726      1021.46561            5.71        08:19:23        4.20e-02        2.00e+00
+       17629366        69.71739      1022.46599            5.71        08:19:04        4.20e-02        2.00e+00
+DEBUG @ t=17630000: current_coupling=0.042, last=0.042
+       17630346        69.71709      1023.46653            5.71        08:18:46        4.20e-02        2.00e+00
+       17631308        69.71730      1024.46719            5.71        08:18:29        4.20e-02        2.00e+00
+       17632221        69.71674      1025.46747            5.71        08:18:10        4.20e-02        2.00e+00
+       17633150        69.71657      1026.46845            5.71        08:17:51        4.20e-02        2.00e+00
+       17634090        69.71629      1027.46942            5.71        08:17:33        4.20e-02        2.00e+00
+       17635037        69.71597      1028.47043            5.71        08:17:15        4.20e-02        2.00e+00
+       17636025        69.71535      1029.47098            5.71        08:16:58        4.20e-02        2.00e+00
+       17637018        69.71489      1030.47112            5.71        08:16:42        4.20e-02        2.00e+00
+       17638011        69.71519      1031.47187            5.71        08:16:25        4.20e-02        2.00e+00
+       17638981        69.71494      1032.47217            5.71        08:16:07        4.20e-02        2.00e+00
+       17639997        69.71548      1033.47266            5.71        08:15:51        4.20e-02        2.00e+00
+DEBUG @ t=17640000: current_coupling=0.042, last=0.042
+       17640986        69.71451      1034.47346            5.71        08:15:34        4.20e-02        2.00e+00
+       17641953        69.71398      1035.47412            5.71        08:15:17        4.20e-02        2.00e+00
+       17642929        69.71375      1036.47415            5.71        08:15:00        4.20e-02        2.00e+00
+       17643922        69.71412      1037.47479            5.71        08:14:43        4.20e-02        2.00e+00
+       17644861        69.71365      1038.47561            5.71        08:14:25        4.20e-02        2.00e+00
+       17645779        69.71334      1039.47612            5.71        08:14:06        4.20e-02        2.00e+00
+       17646722        69.71323      1040.47715            5.71        08:13:48        4.20e-02        2.00e+00
+       17647736        69.71372      1041.47730            5.71        08:13:31        4.20e-02        2.00e+00
+       17648653        69.71383      1042.47819            5.72        08:13:13        4.20e-02        2.00e+00
+       17649572        69.71499      1043.47854            5.72        08:12:53        4.20e-02        2.00e+00
+DEBUG @ t=17650000: current_coupling=0.042, last=0.042
+       17650619        69.71612      1044.47854            5.72        08:12:38        4.20e-02        2.00e+00
+       17651669        69.71693      1045.47921            5.72        08:12:22        4.20e-02        2.00e+00
+       17652743        69.71762      1046.47934            5.72        08:12:07        4.20e-02        2.00e+00
+       17653797        69.71900      1047.48020            5.72        08:11:51        4.20e-02        2.00e+00
+       17654798        69.71883      1048.48024            5.72        08:11:35        4.20e-02        2.00e+00
+       17655803        69.71912      1049.48086            5.72        08:11:18        4.20e-02        2.00e+00
+       17656820        69.71953      1050.48097            5.72        08:11:02        4.20e-02        2.00e+00
+       17657871        69.72267      1051.48112            5.72        08:10:46        4.20e-02        2.00e+00
+       17658857        69.72243      1052.48187            5.72        08:10:29        4.20e-02        2.00e+00
+       17659985        69.72226      1053.48271            5.72        08:10:16        4.20e-02        2.00e+00
+DEBUG @ t=17660000: current_coupling=0.042, last=0.042
+       17660988        69.72151      1054.48293            5.72        08:09:59        4.20e-02        2.00e+00
+       17662002        69.72169      1055.48324            5.72        08:09:43        4.20e-02        2.00e+00
+       17663101        69.72181      1056.48391            5.72        08:09:29        4.20e-02        2.00e+00
+       17664222        69.72227      1057.48473            5.72        08:09:16        4.20e-02        2.00e+00
+       17665246        69.72215      1058.48555            5.72        08:09:00        4.20e-02        2.00e+00
+       17666281        69.72140      1059.48580            5.72        08:08:44        4.20e-02        2.00e+00
+       17667359        69.72134      1060.48618            5.72        08:08:30        4.20e-02        2.00e+00
+       17668375        69.72161      1061.48637            5.72        08:08:14        4.20e-02        2.00e+00
+       17669457        69.72174      1062.48696            5.72        08:07:59        4.20e-02        2.00e+00
+DEBUG @ t=17670000: current_coupling=0.042, last=0.042
+       17670436        69.72173      1063.48698            5.72        08:07:42        4.20e-02        2.00e+00
+       17671521        69.72150      1064.48779            5.72        08:07:28        4.20e-02        2.00e+00
+       17672556        69.72140      1065.48786            5.72        08:07:13        4.20e-02        2.00e+00
+       17673547        69.72130      1066.48823            5.72        08:06:56        4.20e-02        2.00e+00
+       17674573        69.72183      1067.48910            5.72        08:06:40        4.20e-02        2.00e+00
+       17675677        69.72243      1068.48962            5.72        08:06:26        4.20e-02        2.00e+00
+       17676658        69.72254      1069.49008            5.72        08:06:09        4.20e-02        2.00e+00
+       17677615        69.72386      1070.49047            5.72        08:05:50        4.20e-02        2.00e+00
+       17678667        69.72492      1071.49129            5.72        08:05:35        4.20e-02        2.00e+00
+       17679751        69.72617      1072.49176            5.72        08:05:20        4.20e-02        2.00e+00
+DEBUG @ t=17680000: current_coupling=0.042, last=0.042
+       17680824        69.72755      1073.49231            5.72        08:05:05        4.20e-02        2.00e+00
+       17681919        69.72727      1074.49270            5.72        08:04:51        4.20e-02        2.00e+00
+       17682998        69.72663      1075.49325            5.72        08:04:37        4.20e-02        2.00e+00
+       17684041        69.72631      1076.49330            5.72        08:04:21        4.20e-02        2.00e+00
+       17685097        69.72775      1077.49343            5.72        08:04:06        4.20e-02        2.00e+00
+       17686113        69.72772      1078.49404            5.72        08:03:50        4.20e-02        2.00e+00
+       17687073        69.72791      1079.49450            5.72        08:03:32        4.20e-02        2.00e+00
+       17688054        69.72867      1080.49481            5.72        08:03:15        4.20e-02        2.00e+00
+       17688989        69.72833      1081.49514            5.72        08:02:57        4.20e-02        2.00e+00
+DEBUG @ t=17690000: current_coupling=0.042, last=0.042
+       17690030        69.72822      1082.49563            5.72        08:02:41        4.20e-02        2.00e+00
+       17691065        69.72804      1083.49653            5.72        08:02:26        4.20e-02        2.00e+00
+       17692182        69.72792      1084.49723            5.72        08:02:12        4.20e-02        2.00e+00
+       17693259        69.72814      1085.49737            5.72        08:01:58        4.20e-02        2.00e+00
+       17694162        69.72769      1086.49764            5.72        08:01:39        4.20e-02        2.00e+00
+       17695107        69.72760      1087.49845            5.72        08:01:21        4.20e-02        2.00e+00
+       17696251        69.72748      1088.49889            5.72        08:01:08        4.20e-02        2.00e+00
+       17697246        69.72755      1089.49923            5.72        08:00:52        4.20e-02        2.00e+00
+       17698190        69.72742      1090.49942            5.72        08:00:34        4.20e-02        2.00e+00
+       17699156        69.72707      1091.50022            5.72        08:00:17        4.20e-02        2.00e+00
+DEBUG @ t=17700000: current_coupling=0.042, last=0.042
+[HDF5 Writer DEBUG] timestep=17700000, current_time_ps=1092.336, last_output_time=1092.3247322386524, write_count=104346
+       17700183        69.72763      1092.50101            5.72        08:00:01        4.20e-02        2.00e+00
+       17701291        69.72784      1093.50116            5.72        07:59:47        4.20e-02        2.00e+00
+       17702288        69.72806      1094.50145            5.72        07:59:30        4.20e-02        2.00e+00
+       17703293        69.72789      1095.50201            5.72        07:59:14        4.20e-02        2.00e+00
+       17704331        69.72768      1096.50253            5.72        07:58:59        4.20e-02        2.00e+00
+       17705280        69.72756      1097.50356            5.72        07:58:41        4.20e-02        2.00e+00
+       17706256        69.72753      1098.50413            5.72        07:58:24        4.20e-02        2.00e+00
+       17707329        69.72777      1099.50483            5.72        07:58:09        4.20e-02        2.00e+00
+       17708403        69.72819      1100.50561            5.72        07:57:55        4.20e-02        2.00e+00
+       17709423        69.72781      1101.50643            5.72        07:57:39        4.20e-02        2.00e+00
+DEBUG @ t=17710000: current_coupling=0.042, last=0.042
+       17710390        69.72727      1102.50695            5.72        07:57:22        4.20e-02        2.00e+00
+       17711338        69.72658      1103.50699            5.72        07:57:04        4.20e-02        2.00e+00
+       17712273        69.72602      1104.50804            5.72        07:56:47        4.20e-02        2.00e+00
+       17713228        69.72568      1105.50889            5.73        07:56:29        4.20e-02        2.00e+00
+       17714191        69.72566      1106.50949            5.73        07:56:12        4.20e-02        2.00e+00
+       17715186        69.72607      1107.51028            5.73        07:55:55        4.20e-02        2.00e+00
+       17716267        69.72612      1108.51030            5.73        07:55:41        4.20e-02        2.00e+00
+       17717345        69.72630      1109.51041            5.73        07:55:26        4.20e-02        2.00e+00
+       17718283        69.72585      1110.51091            5.73        07:55:09        4.20e-02        2.00e+00
+       17719235        69.72551      1111.51148            5.73        07:54:51        4.20e-02        2.00e+00
+DEBUG @ t=17720000: current_coupling=0.042, last=0.042
+       17720254        69.72559      1112.51217            5.73        07:54:35        4.20e-02        2.00e+00
+       17721236        69.72560      1113.51235            5.73        07:54:18        4.20e-02        2.00e+00
+       17722257        69.72506      1114.51306            5.73        07:54:03        4.20e-02        2.00e+00
+       17723298        69.72506      1115.51402            5.73        07:53:47        4.20e-02        2.00e+00
+       17724309        69.72477      1116.51443            5.73        07:53:31        4.20e-02        2.00e+00
+       17725282        69.72446      1117.51491            5.73        07:53:15        4.20e-02        2.00e+00
+       17726225        69.72381      1118.51506            5.73        07:52:57        4.20e-02        2.00e+00
+       17727190        69.72330      1119.51571            5.73        07:52:40        4.20e-02        2.00e+00
+       17728183        69.72368      1120.51608            5.73        07:52:24        4.20e-02        2.00e+00
+       17729154        69.72332      1121.51611            5.73        07:52:07        4.20e-02        2.00e+00
+DEBUG @ t=17730000: current_coupling=0.042, last=0.042
+       17730128        69.72331      1122.51673            5.73        07:51:50        4.20e-02        2.00e+00
+       17731089        69.72300      1123.51772            5.73        07:51:33        4.20e-02        2.00e+00
+       17732012        69.72295      1124.51874            5.73        07:51:14        4.20e-02        2.00e+00
+       17732966        69.72323      1125.51922            5.73        07:50:57        4.20e-02        2.00e+00
+       17733984        69.72460      1126.51935            5.73        07:50:40        4.20e-02        2.00e+00
+       17735015        69.72445      1127.52012            5.73        07:50:25        4.20e-02        2.00e+00
+       17736050        69.72454      1128.52021            5.73        07:50:09        4.20e-02        2.00e+00
+       17737001        69.72436      1129.52066            5.73        07:49:52        4.20e-02        2.00e+00
+       17737886        69.72361      1130.52166            5.73        07:49:33        4.20e-02        2.00e+00
+       17738756        69.72309      1131.52225            5.73        07:49:14        4.20e-02        2.00e+00
+       17739739        69.72399      1132.52246            5.73        07:48:57        4.20e-02        2.00e+00
+DEBUG @ t=17740000: current_coupling=0.042, last=0.042
+       17740693        69.72430      1133.52279            5.73        07:48:40        4.20e-02        2.00e+00
+       17741782        69.72600      1134.52353            5.73        07:48:25        4.20e-02        2.00e+00
+       17742836        69.72648      1135.52372            5.73        07:48:10        4.20e-02        2.00e+00
+       17743906        69.72651      1136.52387            5.73        07:47:55        4.20e-02        2.00e+00
+       17744912        69.72627      1137.52467            5.73        07:47:39        4.20e-02        2.00e+00
+       17745882        69.72681      1138.52504            5.74        07:47:22        4.20e-02        2.00e+00
+       17746840        69.72661      1139.52592            5.74        07:47:04        4.20e-02        2.00e+00
+       17747786        69.72681      1140.52616            5.74        07:46:47        4.20e-02        2.00e+00
+       17748780        69.72706      1141.52626            5.74        07:46:30        4.20e-02        2.00e+00
+       17749705        69.72693      1142.52641            5.74        07:46:12        4.20e-02        2.00e+00
+DEBUG @ t=17750000: current_coupling=0.042, last=0.042
+       17750839        69.72652      1143.52703            5.74        07:45:59        4.20e-02        2.00e+00
+       17751864        69.72613      1144.52776            5.74        07:45:44        4.20e-02        2.00e+00
+       17752931        69.72708      1145.52783            5.74        07:45:29        4.20e-02        2.00e+00
+       17753882        69.72730      1146.52846            5.74        07:45:11        4.20e-02        2.00e+00
+       17754936        69.72826      1147.52851            5.74        07:44:56        4.20e-02        2.00e+00
+       17755877        69.72798      1148.52871            5.74        07:44:39        4.20e-02        2.00e+00
+       17757015        69.72890      1149.52936            5.74        07:44:25        4.20e-02        2.00e+00
+       17758014        69.72975      1150.53006            5.74        07:44:09        4.20e-02        2.00e+00
+       17758938        69.72976      1151.53092            5.74        07:43:51        4.20e-02        2.00e+00
+       17759919        69.72958      1152.53148            5.74        07:43:34        4.20e-02        2.00e+00
+DEBUG @ t=17760000: current_coupling=0.042, last=0.042
+       17760822        69.72928      1153.53159            5.74        07:43:16        4.20e-02        2.00e+00
+       17761919        69.72923      1154.53191            5.74        07:43:02        4.20e-02        2.00e+00
+       17763024        69.72893      1155.53230            5.74        07:42:48        4.20e-02        2.00e+00
+       17764028        69.72865      1156.53231            5.74        07:42:32        4.20e-02        2.00e+00
+       17765035        69.72911      1157.53295            5.74        07:42:16        4.20e-02        2.00e+00
+       17766158        69.72956      1158.53372            5.74        07:42:02        4.20e-02        2.00e+00
+       17767233        69.72956      1159.53424            5.74        07:41:48        4.20e-02        2.00e+00
+       17768290        69.72913      1160.53455            5.74        07:41:33        4.20e-02        2.00e+00
+       17769345        69.72889      1161.53541            5.74        07:41:18        4.20e-02        2.00e+00
+DEBUG @ t=17770000: current_coupling=0.042, last=0.042
+       17770396        69.72871      1162.53617            5.74        07:41:03        4.20e-02        2.00e+00
+       17771407        69.72872      1163.53673            5.74        07:40:47        4.20e-02        2.00e+00
+       17772396        69.72912      1164.53709            5.74        07:40:31        4.20e-02        2.00e+00
+       17773356        69.72943      1165.53758            5.74        07:40:13        4.20e-02        2.00e+00
+       17774370        69.73050      1166.53845            5.74        07:39:57        4.20e-02        2.00e+00
+       17775377        69.72983      1167.53907            5.74        07:39:41        4.20e-02        2.00e+00
+       17776367        69.72935      1168.53936            5.74        07:39:25        4.20e-02        2.00e+00
+       17777377        69.72912      1169.53987            5.74        07:39:09        4.20e-02        2.00e+00
+       17778422        69.72921      1170.54069            5.74        07:38:54        4.20e-02        2.00e+00
+       17779471        69.72891      1171.54164            5.74        07:38:39        4.20e-02        2.00e+00
+DEBUG @ t=17780000: current_coupling=0.042, last=0.042
+       17780501        69.72806      1172.54227            5.74        07:38:24        4.20e-02        2.00e+00
+       17781530        69.72808      1173.54266            5.74        07:38:08        4.20e-02        2.00e+00
+       17782592        69.72775      1174.54282            5.74        07:37:54        4.20e-02        2.00e+00
+       17783616        69.72755      1175.54358            5.74        07:37:38        4.20e-02        2.00e+00
+       17784567        69.72586      1176.54419            5.74        07:37:21        4.20e-02        2.00e+00
+       17785539        69.72639      1177.54481            5.74        07:37:04        4.20e-02        2.00e+00
+       17786506        69.72565      1178.54577            5.74        07:36:48        4.20e-02        2.00e+00
+       17787482        69.72497      1179.54634            5.74        07:36:31        4.20e-02        2.00e+00
+       17788451        69.72422      1180.54680            5.74        07:36:15        4.20e-02        2.00e+00
+       17789419        69.72333      1181.54699            5.74        07:35:58        4.20e-02        2.00e+00
+DEBUG @ t=17790000: current_coupling=0.042, last=0.042
+       17790327        69.72251      1182.54778            5.74        07:35:41        4.20e-02        2.00e+00
+       17791256        69.72180      1183.54852            5.74        07:35:23        4.20e-02        2.00e+00
+       17792189        69.72166      1184.54940            5.74        07:35:06        4.20e-02        2.00e+00
+       17793127        69.72170      1185.54941            5.74        07:34:48        4.20e-02        2.00e+00
+       17794124        69.72195      1186.54972            5.75        07:34:32        4.20e-02        2.00e+00
+       17795095        69.72149      1187.55038            5.75        07:34:15        4.20e-02        2.00e+00
+       17796124        69.72154      1188.55108            5.75        07:34:00        4.20e-02        2.00e+00
+       17797130        69.72121      1189.55161            5.75        07:33:44        4.20e-02        2.00e+00
+       17798108        69.72088      1190.55180            5.75        07:33:27        4.20e-02        2.00e+00
+       17799191        69.72048      1191.55185            5.75        07:33:13        4.20e-02        2.00e+00
+DEBUG @ t=17800000: current_coupling=0.042, last=0.042
+[HDF5 Writer DEBUG] timestep=17800000, current_time_ps=1192.296, last_output_time=1192.2933928187028, write_count=113908
+       17800262        69.72043      1192.55225            5.75        07:32:59        4.20e-02        2.00e+00
+       17801282        69.72068      1193.55228            5.75        07:32:43        4.20e-02        2.00e+00
+       17802316        69.72100      1194.55293            5.75        07:32:27        4.20e-02        2.00e+00
+       17803312        69.71903      1195.55334            5.75        07:32:12        4.20e-02        2.00e+00
+       17804272        69.71779      1196.55347            5.75        07:31:56        4.20e-02        2.00e+00
+       17805316        69.71683      1197.55394            5.75        07:31:41        4.20e-02        2.00e+00
+       17806425        69.71601      1198.55481            5.75        07:31:27        4.20e-02        2.00e+00
+       17807486        69.71503      1199.55515            5.75        07:31:13        4.20e-02        2.00e+00
+Added F(k,t) reference 6 at t = 1200.003 ps
+       17808531        69.71485      1200.55558            5.75        07:30:58        4.20e-02        2.00e+00
+       17809646        69.71454      1201.55589            5.75        07:30:44        4.20e-02        2.00e+00
+DEBUG @ t=17810000: current_coupling=0.042, last=0.042
+       17810659        69.71385      1202.55599            5.75        07:30:29        4.20e-02        2.00e+00
+       17811665        69.71344      1203.55681            5.75        07:30:13        4.20e-02        2.00e+00
+       17812651        69.71426      1204.55776            5.75        07:29:56        4.20e-02        2.00e+00
+       17813647        69.71476      1205.55788            5.75        07:29:40        4.20e-02        2.00e+00
+       17814654        69.71526      1206.55886            5.75        07:29:24        4.20e-02        2.00e+00
+       17815699        69.71527      1207.55937            5.75        07:29:09        4.20e-02        2.00e+00
+       17816688        69.71543      1208.56028            5.75        07:28:52        4.20e-02        2.00e+00
+       17817749        69.71555      1209.56077            5.75        07:28:38        4.20e-02        2.00e+00
+       17818804        69.71667      1210.56177            5.75        07:28:22        4.20e-02        2.00e+00
+       17819747        69.71679      1211.56206            5.75        07:28:05        4.20e-02        2.00e+00
+DEBUG @ t=17820000: current_coupling=0.042, last=0.042
+       17820888        69.71627      1212.56228            5.75        07:27:52        4.20e-02        2.00e+00
+       17821934        69.71584      1213.56232            5.75        07:27:37        4.20e-02        2.00e+00
+       17822955        69.71512      1214.56268            5.75        07:27:22        4.20e-02        2.00e+00
+       17824019        69.71414      1215.56299            5.75        07:27:07        4.20e-02        2.00e+00
+       17825073        69.71396      1216.56346            5.75        07:26:53        4.20e-02        2.00e+00
+       17826064        69.71307      1217.56425            5.75        07:26:37        4.20e-02        2.00e+00
+       17827026        69.71257      1218.56482            5.75        07:26:20        4.20e-02        2.00e+00
+       17828009        69.71171      1219.56514            5.75        07:26:04        4.20e-02        2.00e+00
+       17829017        69.71095      1220.56540            5.75        07:25:48        4.20e-02        2.00e+00
+       17829951        69.71047      1221.56594            5.75        07:25:31        4.20e-02        2.00e+00
+DEBUG @ t=17830000: current_coupling=0.042, last=0.042
+       17830881        69.70973      1222.56647            5.75        07:25:14        4.20e-02        2.00e+00
+       17831850        69.70868      1223.56678            5.75        07:24:58        4.20e-02        2.00e+00
+       17832836        69.70751      1224.56778            5.75        07:24:42        4.20e-02        2.00e+00
+       17833775        69.70706      1225.56803            5.75        07:24:25        4.20e-02        2.00e+00
+       17834796        69.70679      1226.56838            5.75        07:24:09        4.20e-02        2.00e+00
+       17835874        69.70596      1227.56938            5.75        07:23:55        4.20e-02        2.00e+00
+       17836849        69.70528      1228.57014            5.75        07:23:39        4.20e-02        2.00e+00
+       17837830        69.70462      1229.57055            5.75        07:23:22        4.20e-02        2.00e+00
+       17838814        69.70255      1230.57151            5.75        07:23:07        4.20e-02        2.00e+00
+       17839770        69.70141      1231.57161            5.75        07:22:50        4.20e-02        2.00e+00
+DEBUG @ t=17840000: current_coupling=0.042, last=0.042
+       17840758        69.70020      1232.57211            5.75        07:22:35        4.20e-02        2.00e+00
+       17841611        69.69907      1233.57266            5.75        07:22:16        4.20e-02        2.00e+00
+       17842627        69.69728      1234.57361            5.75        07:22:01        4.20e-02        2.00e+00
+       17843565        69.69581      1235.57428            5.75        07:21:44        4.20e-02        2.00e+00
+       17844553        69.69538      1236.57432            5.75        07:21:28        4.20e-02        2.00e+00
+       17845602        69.69605      1237.57524            5.75        07:21:13        4.20e-02        2.00e+00
+       17846616        69.69636      1238.57559            5.75        07:20:57        4.20e-02        2.00e+00
+       17847543        69.69565      1239.57642            5.75        07:20:40        4.20e-02        2.00e+00
+       17848510        69.69544      1240.57701            5.75        07:20:23        4.20e-02        2.00e+00
+       17849570        69.69523      1241.57792            5.75        07:20:09        4.20e-02        2.00e+00
+DEBUG @ t=17850000: current_coupling=0.042, last=0.042
+       17850487        69.69516      1242.57821            5.75        07:19:51        4.20e-02        2.00e+00
+       17851378        69.69473      1243.57842            5.75        07:19:33        4.20e-02        2.00e+00
+       17852331        69.69503      1244.57941            5.75        07:19:16        4.20e-02        2.00e+00
+       17853284        69.69507      1245.58042            5.75        07:18:59        4.20e-02        2.00e+00
+       17854272        69.69522      1246.58135            5.76        07:18:43        4.20e-02        2.00e+00
+       17855306        69.69619      1247.58223            5.76        07:18:27        4.20e-02        2.00e+00
+       17856343        69.69626      1248.58280            5.76        07:18:12        4.20e-02        2.00e+00
+       17857283        69.69642      1249.58378            5.76        07:17:54        4.20e-02        2.00e+00
+       17858243        69.69653      1250.58449            5.76        07:17:38        4.20e-02        2.00e+00
+       17859284        69.69645      1251.58520            5.76        07:17:23        4.20e-02        2.00e+00
+DEBUG @ t=17860000: current_coupling=0.042, last=0.042
+       17860313        69.69608      1252.58602            5.76        07:17:07        4.20e-02        2.00e+00
+       17861324        69.69563      1253.58691            5.76        07:16:52        4.20e-02        2.00e+00
+       17862263        69.69557      1254.58703            5.76        07:16:35        4.20e-02        2.00e+00
+       17863200        69.69574      1255.58736            5.76        07:16:17        4.20e-02        2.00e+00
+       17864260        69.69587      1256.58804            5.76        07:16:03        4.20e-02        2.00e+00
+       17865366        69.69623      1257.58853            5.76        07:15:49        4.20e-02        2.00e+00
+       17866426        69.69668      1258.58898            5.76        07:15:34        4.20e-02        2.00e+00
+       17867547        69.69734      1259.58936            5.76        07:15:20        4.20e-02        2.00e+00
+       17868633        69.69824      1260.58947            5.76        07:15:05        4.20e-02        2.00e+00
+       17869741        69.69919      1261.59009            5.76        07:14:51        4.20e-02        2.00e+00
+DEBUG @ t=17870000: current_coupling=0.042, last=0.042
+       17870676        69.69945      1262.59071            5.76        07:14:34        4.20e-02        2.00e+00
+       17871588        69.69946      1263.59132            5.76        07:14:16        4.20e-02        2.00e+00
+       17872523        69.69965      1264.59171            5.76        07:13:59        4.20e-02        2.00e+00
+       17873566        69.69975      1265.59238            5.76        07:13:44        4.20e-02        2.00e+00
+       17874673        69.70021      1266.59296            5.76        07:13:30        4.20e-02        2.00e+00
+       17875720        69.70058      1267.59379            5.76        07:13:15        4.20e-02        2.00e+00
+       17876762        69.70084      1268.59423            5.76        07:12:59        4.20e-02        2.00e+00
+       17877783        69.70130      1269.59510            5.76        07:12:44        4.20e-02        2.00e+00
+       17878828        69.70155      1270.59526            5.76        07:12:29        4.20e-02        2.00e+00
+       17879837        69.70251      1271.59563            5.76        07:12:13        4.20e-02        2.00e+00
+DEBUG @ t=17880000: current_coupling=0.042, last=0.042
+       17880808        69.70373      1272.59627            5.76        07:11:56        4.20e-02        2.00e+00
+       17881786        69.70609      1273.59636            5.76        07:11:38        4.20e-02        2.00e+00
+       17882809        69.70710      1274.59731            5.76        07:11:23        4.20e-02        2.00e+00
+       17883804        69.70723      1275.59803            5.76        07:11:07        4.20e-02        2.00e+00
+       17884809        69.70764      1276.59808            5.76        07:10:51        4.20e-02        2.00e+00
+       17885815        69.70790      1277.59832            5.76        07:10:35        4.20e-02        2.00e+00
+       17886725        69.70833      1278.59874            5.76        07:10:17        4.20e-02        2.00e+00
+       17887623        69.70839      1279.59942            5.76        07:09:59        4.20e-02        2.00e+00
+       17888575        69.70847      1280.60009            5.76        07:09:42        4.20e-02        2.00e+00
+       17889627        69.70944      1281.60079            5.76        07:09:27        4.20e-02        2.00e+00
+DEBUG @ t=17890000: current_coupling=0.042, last=0.042
+       17890679        69.70928      1282.60086            5.76        07:09:12        4.20e-02        2.00e+00
+       17891728        69.70980      1283.60136            5.76        07:08:57        4.20e-02        2.00e+00
+       17892733        69.71015      1284.60192            5.76        07:08:41        4.20e-02        2.00e+00
+       17893661        69.71083      1285.60193            5.76        07:08:24        4.20e-02        2.00e+00
+       17894589        69.71102      1286.60225            5.76        07:08:06        4.20e-02        2.00e+00
+       17895505        69.71084      1287.60281            5.76        07:07:49        4.20e-02        2.00e+00
+       17896447        69.71073      1288.60324            5.76        07:07:32        4.20e-02        2.00e+00
+       17897431        69.71086      1289.60356            5.76        07:07:16        4.20e-02        2.00e+00
+       17898444        69.71043      1290.60417            5.76        07:07:00        4.20e-02        2.00e+00
+       17899448        69.71091      1291.60501            5.76        07:06:44        4.20e-02        2.00e+00
+DEBUG @ t=17900000: current_coupling=0.042, last=0.042
+[HDF5 Writer DEBUG] timestep=17900000, current_time_ps=1292.166, last_output_time=1292.1557751920318, write_count=123412
+       17900426        69.71098      1292.60571            5.77        07:06:28        4.20e-02        2.00e+00
+       17901359        69.71057      1293.60665            5.77        07:06:11        4.20e-02        2.00e+00
+       17902381        69.71042      1294.60751            5.77        07:05:56        4.20e-02        2.00e+00
+       17903403        69.71040      1295.60796            5.77        07:05:40        4.20e-02        2.00e+00
+       17904360        69.71055      1296.60896            5.77        07:05:23        4.20e-02        2.00e+00
+       17905357        69.71168      1297.60979            5.77        07:05:07        4.20e-02        2.00e+00
+       17906414        69.71135      1298.61015            5.77        07:04:53        4.20e-02        2.00e+00
+       17907382        69.71155      1299.61020            5.77        07:04:36        4.20e-02        2.00e+00
+       17908307        69.71237      1300.61023            5.77        07:04:18        4.20e-02        2.00e+00
+       17909339        69.71413      1301.61074            5.77        07:04:03        4.20e-02        2.00e+00
+DEBUG @ t=17910000: current_coupling=0.042, last=0.042
+       17910405        69.71411      1302.61160            5.77        07:03:48        4.20e-02        2.00e+00
+       17911446        69.71410      1303.61194            5.77        07:03:33        4.20e-02        2.00e+00
+2025-11-06 17:27:02 | ERROR | CRITICAL ERROR in simulation: Unable to synchronously flush file (file write failed: time = Thu Nov  6 17:27:02 2025
+, filename = 'observables_replica_80.h5', file descriptor = 4, errno = 122, error message = 'Disk quota exceeded', buf = 0x55d76df4dd90, total write size = 4034, bytes this sub-write = 4034, offset = 889191796)
+2025-11-06 17:27:02 | ERROR | Full traceback:
+2025-11-06 17:27:02 | ERROR | Traceback (most recent call last):
+2025-11-06 17:27:02 | ERROR |   File "/scratch/mh7373/micromamba/envs/hoomd/lib/python3.12/site-packages/hoomd/cavitymd/simulation/core.py", line 4753, in run
+2025-11-06 17:27:02 | ERROR |     self.run_simulation()
+2025-11-06 17:27:02 | ERROR |   File "/scratch/mh7373/micromamba/envs/hoomd/lib/python3.12/site-packages/hoomd/cavitymd/simulation/core.py", line 4807, in run_simulation
+2025-11-06 17:27:02 | ERROR |     self.sim.run(total_steps, write_at_start=True)
+2025-11-06 17:27:02 | ERROR |   File "/scratch/mh7373/micromamba/envs/hoomd/lib/python3.12/site-packages/hoomd/simulation.py", line 561, in run
+2025-11-06 17:27:02 | ERROR |     self._cpp_sys.run(steps_int, write_at_start)
+2025-11-06 17:27:02 | ERROR |   File "/scratch/mh7373/micromamba/envs/hoomd/lib/python3.12/site-packages/hoomd/cavitymd/data.py", line 528, in act
+2025-11-06 17:27:02 | ERROR |     self.file.flush()
+2025-11-06 17:27:02 | ERROR |   File "/scratch/mh7373/micromamba/envs/hoomd/lib/python3.12/site-packages/h5py/_hl/files.py", line 639, in flush
+2025-11-06 17:27:02 | ERROR |     h5f.flush(self.id)
+2025-11-06 17:27:02 | ERROR |   File "h5py/_objects.pyx", line 56, in h5py._objects.with_phil.wrapper
+2025-11-06 17:27:02 | ERROR |   File "h5py/_objects.pyx", line 57, in h5py._objects.with_phil.wrapper
+2025-11-06 17:27:02 | ERROR |   File "h5py/h5f.pyx", line 159, in h5py.h5f.flush
+2025-11-06 17:27:02 | ERROR | RuntimeError: Unable to synchronously flush file (file write failed: time = Thu Nov  6 17:27:02 2025
+2025-11-06 17:27:02 | ERROR | , filename = 'observables_replica_80.h5', file descriptor = 4, errno = 122, error message = 'Disk quota exceeded', buf = 0x55d76df4dd90, total write size = 4034, bytes this sub-write = 4034, offset = 889191796)
+2025-11-06 17:27:02 | INFO | Cleanup initiated...
+2025-11-06 17:27:02 | INFO | Closing HDF5 observable writer...
+2025-11-06 17:27:02 | ERROR | Error closing HDF5 writer: Unable to synchronously flush file (file write failed: time = Thu Nov  6 17:27:02 2025
+, filename = 'observables_replica_80.h5', file descriptor = 4, errno = 122, error message = 'Disk quota exceeded', buf = 0x55d76df655c0, total write size = 4034, bytes this sub-write = 4034, offset = 889191796)
+DEBUG: Cleanup called - checking for fkt_tracker
+DEBUG: No fkt_tracker found or it's None
+2025-11-06 17:27:02 | INFO | Returned to original directory: /scratch/mh7373/cav-hoomd/new_final_offres
+2025-11-06 17:27:02 | INFO | Cleanup completed
+ERROR: Replica 80 failed (coupling: 4.200000e-02 a.u.)
+
+==================================================
+Execution Summary
+==================================================
+Coupling constant used: 4.200000e-02 a.u.
+Total replicas: 1
+Successful: 0
+Failed: 1
+Wall time: 19534.02 seconds
+
+WARNING: 1 replicas failed - check individual logs for details
+✗ FAILED: DEBUG task 80

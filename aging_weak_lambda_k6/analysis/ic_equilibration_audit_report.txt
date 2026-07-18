@@ -1,0 +1,21 @@
+Initial-condition / equilibration audit
+
+Paper protocol:
+  equilibration_length_ns: 150.0
+  n_independent_ics: 500
+  ic_spacing_ps: 300.0
+
+Campaign protocol:
+  init_gsd: /scratch/mh7373/projects/cav-hoomd/examples/init-0.gsd
+  n_unique_structures: 1
+  replica_diversity: velocity reseed only (same packed frame)
+
+Relaxation comparison (lambda=0):
+  fkt_kmag: 6.02
+  equilibrium_table_T_K: 100.82
+  equilibrium_table_tau_ps: 104.985
+  campaign_lambda0_tau_ps: nan
+  tau_campaign_over_tau_eq: nan
+
+Interpretation:
+  IC diversity is below the paper (1 vs 500); if the k=6.02 pilot still overshoots Fig. 2b, generate a multi-IC ensemble from a long NVT run before full re-runs.

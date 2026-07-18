@@ -119,7 +119,8 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
                          device='CPU', gpu_id=0, incavity=True, fixed_timestep=False, 
                          timestep_fs=1.0, enable_energy_tracking=False, 
                          energy_output_period_ps=0.1, fkt_output_period_ps=1.0, 
-                         gsd_output_period_ps=50.0, console_output_period_ps=1.0, 
+                         gsd_output_period_ps=50.0, enable_gsd_output=True,
+                         console_output_period_ps=1.0, 
                          truncate_gsd=False, seed=None, restart_velocities=True,
                          switch_time_ps=None, decay_time_constant_ps=None, damping_ratio=0.0,
                          coupling_variant_type=None,
@@ -164,7 +165,10 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
         print(f"Running experiment:")
         print(f"  Cavity coupling: {'Enabled' if incavity else 'Disabled'}")
         if incavity:
-            print(f"  *** COUPLING STRENGTH: {coupling:.6e} a.u. ***")  # Enhanced prominence
+            print(
+                f"  *** LAMBDA COUPLING: {coupling:.6e} "
+                f"(epsilon = lambda * omega_c = {coupling * omegac:.6e} a.u.) ***"
+            )
             if switch_time_ps is not None:
                 print(f"  Switch time: {switch_time_ps} ps")
                 if decay_time_constant_ps is not None:
@@ -198,12 +202,13 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
             input_gsd_path = Path.cwd() / input_gsd_path
         input_gsd_abs = str(input_gsd_path)
         
-        # Create and run CavityMDSimulation
+        # Create and run CavityMDSimulation.
+        # Pass dimensionless lambda; C++ multiplies by omega_c to form epsilon.
         sim = CavityMDSimulation(
             job_dir=str(exp_dir),
             replica=replica,
             freq=frequency,
-            couplstr=coupling,
+            lambda_coupling=coupling,
             incavity=incavity,
             runtime_ps=runtime_ps,
             input_gsd=input_gsd_abs,  # Use absolute path
@@ -231,6 +236,7 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
             energy_output_period_ps=energy_output_period_ps,
             fkt_output_period_ps=fkt_output_period_ps,
             gsd_output_period_ps=gsd_output_period_ps,
+            enable_gsd_output=enable_gsd_output,
             console_output_period_ps=console_output_period_ps,
             enable_text_output=False,
             text_output_file=None,
@@ -273,8 +279,19 @@ def main():
                        help='Cavity thermostat type (default: langevin)')
     parser.add_argument('--finite-q', action='store_true', 
                        help='Use finite-q cavity mode (default: q=0 mode)')
-    parser.add_argument('--coupling', type=float, default=1e-3, 
-                       help='Cavity coupling strength (default: 1e-3)')
+    parser.add_argument(
+        '--coupling',
+        type=float,
+        default=None,
+        help='Deprecated alias for --lambda-coupling (dimensionless lambda)',
+    )
+    parser.add_argument(
+        '--lambda-coupling',
+        type=float,
+        default=None,
+        help='Dimensionless cavity coupling lambda; epsilon = lambda * omega_c '
+             '(default: 1e-3 if neither this nor --coupling is set)',
+    )
     parser.add_argument('--switch-time', type=float, 
                        help='Time in ps when coupling and dissipation turn on (default: on from start)')
     parser.add_argument(
@@ -371,6 +388,8 @@ def main():
                        help='GPU ID when using GPU device (default: 0)')
     
     # GSD output control
+    parser.add_argument('--disable-gsd', action='store_true',
+                       help='Disable production GSD trajectory output (keep HDF5 and F(k,t))')
     parser.add_argument('--truncate-gsd', action='store_true', 
                        help='Truncate GSD output file if it exists (default: append)')
     
@@ -410,14 +429,28 @@ def main():
     molecular_thermo = args.molecular_bath
     cavity_thermo = args.cavity_bath if incavity else 'none'
     finite_q = args.finite_q
+
+    if args.lambda_coupling is not None and args.coupling is not None:
+        raise ValueError("Specify only one of --lambda-coupling or --coupling")
+    if args.lambda_coupling is not None:
+        lambda_coupling = args.lambda_coupling
+    elif args.coupling is not None:
+        lambda_coupling = args.coupling
+    else:
+        lambda_coupling = 1e-3
+    omega_c = args.frequency / PhysicalConstants.HARTREE_TO_CM_MINUS1
     
     # ENHANCED: Add coupling constant to main header
-    print(f"\n*** COUPLING CONSTANT: {args.coupling:.6e} a.u. ***")
+    print(
+        f"\n*** LAMBDA COUPLING: {lambda_coupling:.6e} "
+        f"(epsilon = {lambda_coupling * omega_c:.6e} a.u.) ***"
+    )
     
     print(f"\nSimulation Configuration:")
     print(f"  Cavity coupling: {'Enabled' if incavity else 'Disabled'}")
     if incavity:
-        print(f"    Coupling strength: {args.coupling:.6e} a.u.")  # Enhanced format
+        print(f"    Lambda coupling: {lambda_coupling:.6e}")
+        print(f"    Epsilon (lambda * omega_c): {lambda_coupling * omega_c:.6e} a.u.")
         print(
             "    Coupling type: "
             f"{resolve_coupling_variant_type(args.switch_time, args.coupling_type)}"
@@ -459,7 +492,7 @@ def main():
             molecular_thermo=molecular_thermo,
             cavity_thermo=cavity_thermo,
             finite_q=finite_q,
-            coupling=args.coupling,
+            coupling=lambda_coupling,
             temperature=args.temperature,
             frequency=args.frequency,
             replica=replica,
@@ -482,6 +515,7 @@ def main():
             energy_output_period_ps=args.energy_output_period_ps,
             fkt_output_period_ps=args.fkt_output_period_ps,
             gsd_output_period_ps=args.gsd_output_period_ps,
+            enable_gsd_output=not args.disable_gsd,
             console_output_period_ps=args.console_output_period_ps,
             truncate_gsd=args.truncate_gsd,
             seed=args.seed,
@@ -505,13 +539,19 @@ def main():
         if success:
             successful_experiments += 1
             if incavity:
-                print(f"SUCCESS: Replica {replica} completed successfully (coupling: {args.coupling:.6e} a.u.)")
+                print(
+                    f"SUCCESS: Replica {replica} completed successfully "
+                    f"(lambda={lambda_coupling:.6e})"
+                )
             else:
                 print(f"SUCCESS: Replica {replica} completed successfully (no cavity)")
         else:
             failed_experiments += 1
             if incavity:
-                print(f"ERROR: Replica {replica} failed (coupling: {args.coupling:.6e} a.u.)")
+                print(
+                    f"ERROR: Replica {replica} failed "
+                    f"(lambda={lambda_coupling:.6e})"
+                )
             else:
                 print(f"ERROR: Replica {replica} failed (no cavity)")
     
@@ -524,7 +564,8 @@ def main():
     print("Execution Summary")
     print("="*50)
     if incavity:
-        print(f"Coupling constant used: {args.coupling:.6e} a.u.")
+        print(f"Lambda coupling used: {lambda_coupling:.6e}")
+        print(f"Epsilon (lambda * omega_c): {lambda_coupling * omega_c:.6e} a.u.")
     else:
         print("No cavity coupling (molecular-only simulation)")
     print(f"Total replicas: {total_experiments}")

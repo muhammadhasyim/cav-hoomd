@@ -40,6 +40,8 @@ DEFAULT_OUTPUT_BASE = Path(
 CAMPAIGN_LAMBDAS = (0.0, 0.01, 0.016667, 0.023333, 0.03)
 CAMPAIGN_SWITCH_TIME_PS = 200.0
 MAX_REPLICA_ID = 999
+# Paper Fig. 2 / Methods (arXiv:2603.15693): |k| = 6.02 a.u.
+PAPER_FKT_KMAG = 6.02
 
 
 @dataclass(frozen=True)
@@ -343,7 +345,7 @@ def build_simulation_command(
         "bussi",
         "--cavity-bath",
         "langevin",
-        "--coupling",
+        "--lambda-coupling",
         f"{lam:g}",
         "--coupling-type",
         "step",
@@ -371,7 +373,7 @@ def build_simulation_command(
         "1.0",
         "--enable-fkt",
         "--fkt-kmag",
-        "1.0085",
+        f"{PAPER_FKT_KMAG:g}",
         "--fkt-wavevectors",
         "50",
         "--fkt-ref-interval",
@@ -380,8 +382,7 @@ def build_simulation_command(
         "13",
         "--fkt-output-period-ps",
         "1.0",
-        "--gsd-output-period-ps",
-        "999999",
+        "--disable-gsd",
         "--console-output-period-ps",
         "100.0",
         "--replicas",
@@ -550,11 +551,14 @@ def main() -> int:
             print("All manifest replicas are already complete", flush=True)
             return 0
 
+        # Run simulations before provenance import: importing hoomd.cavitymd can
+        # initialize a CUDA context in the parent allocation and leave the GPU
+        # busy for the child process ("CUDA-capable device(s) is/are busy").
+        result = run_concurrent_processes(specifications)
         provenance = collect_simulator_provenance(
             python_executable=args.python_executable,
             simulation_script=simulation_script,
         )
-        result = run_concurrent_processes(specifications)
         data_complete = [
             specification.replica
             for specification in specifications

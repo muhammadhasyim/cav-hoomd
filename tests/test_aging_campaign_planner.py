@@ -390,14 +390,15 @@ def test_submit_script_dry_run_generates_combined_packed_array(
     assert "#SBATCH --array=0-0%4" in sbatch_text
     assert "#SBATCH --cpus-per-task=8" in sbatch_text
     assert "#SBATCH --mem=32G" in sbatch_text
-    assert "#SBATCH --time=03:00:00" in sbatch_text
-    assert "#SBATCH --gres=gpu:a100:1" in sbatch_text
+    assert "#SBATCH --time=06:00:00" in sbatch_text
+    assert "#SBATCH --gres=gpu:1" in sbatch_text
+    assert "#SBATCH --partition=l40s_public,h200_public,a100_chemistry" in sbatch_text
     assert "run_packed_aging_task.py" in sbatch_text
     assert "target=2" in result.stdout
     assert "needed=2" in result.stdout
     assert "groups=1" in result.stdout
-    assert "resources=gres:gpu:a100:1 cpus:8 memory:32G" in result.stdout
-    assert "walltime=03:00:00 concurrent_tasks=4" in result.stdout
+    assert "gres:gpu:1" in result.stdout
+    assert "walltime=06:00:00 concurrent_tasks=4" in result.stdout
     assert "Dry run: no job submitted" in result.stdout
 
     syntax = subprocess.run(
@@ -613,3 +614,58 @@ def test_submit_script_rejects_option_as_missing_value(
     assert result.returncode != 0
     assert "--output-base requires a value" in result.stderr
     assert not sbatch_marker.exists()
+
+
+def test_submit_script_honors_partition_gres_account_overrides(
+    tmp_path: Path,
+    fake_sbatch_environment: tuple[dict[str, str], Path],
+) -> None:
+    repository = Path(__file__).parents[1]
+    script = repository / "examples" / "slurm" / "submit_aging_campaign.sh"
+    generated = tmp_path / "generated"
+    environment, sbatch_marker = fake_sbatch_environment
+
+    result = subprocess.run(
+        [
+            "bash",
+            str(script),
+            "--dry-run",
+            "--plan-id",
+            "override-resources",
+            "--output-base",
+            str(tmp_path / "outputs"),
+            "--generated-dir",
+            str(generated),
+            "--target-valid",
+            "2",
+            "--max-replica-id",
+            "3",
+            "--lam",
+            "0.03",
+            "--partition",
+            "l40s_public,h100",
+            "--gres",
+            "gpu:1",
+            "--account",
+            "torch_pr_283_chemistry",
+            "--walltime",
+            "06:00:00",
+        ],
+        cwd=repository,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert not sbatch_marker.exists()
+    sbatch_text = (
+        generated / "aging_packed_override-resources" / "job.sbatch"
+    ).read_text(encoding="utf-8")
+    assert "#SBATCH --partition=l40s_public,h100" in sbatch_text
+    assert "#SBATCH --gres=gpu:1" in sbatch_text
+    assert "#SBATCH --account=torch_pr_283_chemistry" in sbatch_text
+    assert "#SBATCH --time=06:00:00" in sbatch_text
+    assert "partition:l40s_public,h100" in result.stdout
+    assert "gres:gpu:1" in result.stdout

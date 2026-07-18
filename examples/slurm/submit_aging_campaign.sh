@@ -7,16 +7,21 @@ LAMBDAS=(0.0 0.01 0.016667 0.023333 0.03)
 TARGET_VALID=500
 MAX_REPLICA_ID=999
 REPLICAS_PER_TASK=2
-CONCURRENT_TASKS=4
-WALLTIME="03:00:00"
+# Match Torch gpu48 MaxTRESPU (show_slurm_qos: gres/gpu=24).
+CONCURRENT_TASKS=24
+WALLTIME="06:00:00"
 CPUS=8
 MEMORY="32G"
-PARTITION="a100_chemistry"
+# Comma-separated GPU partitions valid for torch_pr_283_chemistry with gpu:1.
+# SLURM places the job on whichever of these is free.
+PARTITION="l40s_public,h200_public,a100_chemistry"
+NO_PARTITION=false
 ACCOUNT="torch_pr_283_chemistry"
-GPU_RESOURCE="gpu:a100:1"
+GPU_RESOURCE="gpu:1"
 DRY_RUN=false
 TEST_MODE=false
 PLAN_ID=""
+LAMBDAS_SET=false
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CAV_HOOMD_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
@@ -37,14 +42,18 @@ usage() {
         "  --dry-run                 Plan and generate files without sbatch" \
         "  --plan-id ID              Immutable filename identifier" \
         "  --test                    Use a four-replica local planning domain" \
-        "  --lam VALUE               Plan one coupling value only" \
+        "  --lam VALUE               Plan this coupling (repeatable; default: all five)" \
         "  --output-base PATH        Campaign output directory" \
         "  --generated-dir PATH      Manifest and SBATCH output directory" \
         "  --target-valid N          Valid replicas requested per coupling" \
         "  --max-replica-id N        Highest eligible replica ID" \
-        "  --replicas-per-task N     Concurrent replicas per task (must be 2)" \
+        "  --replicas-per-task N     Concurrent replicas per task (1 or 2)" \
         "  --concurrent N            Maximum active array tasks" \
         "  --walltime HH:MM:SS       Packed task walltime" \
+        "  --partition NAME[,NAME...] SLURM partition list for flexible GPU" \
+        "  --no-partition            Omit #SBATCH --partition (any available GPU queue)" \
+        "  --gres VALUE              SLURM GRES (default: gpu:1)" \
+        "  --account NAME            SLURM account" \
         "  --resume                  Accepted for backward compatibility" \
         "  --cleanup                 Cleanup occurs safely inside each task" \
         "  --help                    Show this message"
@@ -83,7 +92,11 @@ while [[ $# -gt 0 ]]; do
             ;;
         --lam)
             require_option_value "$@"
-            LAMBDAS=("$2")
+            if [[ "${LAMBDAS_SET}" == "false" ]]; then
+                LAMBDAS=()
+                LAMBDAS_SET=true
+            fi
+            LAMBDAS+=("$2")
             shift 2
             ;;
         --output-base)
@@ -121,6 +134,26 @@ while [[ $# -gt 0 ]]; do
             WALLTIME="$2"
             shift 2
             ;;
+        --partition)
+            require_option_value "$@"
+            PARTITION="$2"
+            NO_PARTITION=false
+            shift 2
+            ;;
+        --no-partition)
+            NO_PARTITION=true
+            shift
+            ;;
+        --gres)
+            require_option_value "$@"
+            GPU_RESOURCE="$2"
+            shift 2
+            ;;
+        --account)
+            require_option_value "$@"
+            ACCOUNT="$2"
+            shift 2
+            ;;
         --resume|--cleanup)
             shift
             ;;
@@ -152,8 +185,8 @@ for lam in "${LAMBDAS[@]}"; do
     esac
 done
 
-if [[ "${REPLICAS_PER_TASK}" -ne 2 ]]; then
-    echo "ERROR: --replicas-per-task must be 2 for this campaign" >&2
+if [[ "${REPLICAS_PER_TASK}" -ne 1 && "${REPLICAS_PER_TASK}" -ne 2 ]]; then
+    echo "ERROR: --replicas-per-task must be 1 or 2" >&2
     exit 2
 fi
 if [[
@@ -241,7 +274,11 @@ with open(sys.argv[1], encoding="utf-8") as handle:
 PY
 )"
 
-echo "resources=gres:${GPU_RESOURCE} cpus:${CPUS} memory:${MEMORY}"
+if [[ "${NO_PARTITION}" == "true" ]]; then
+    echo "resources=partition:(unconstrained) account:${ACCOUNT} gres:${GPU_RESOURCE} cpus:${CPUS} memory:${MEMORY}"
+else
+    echo "resources=partition:${PARTITION} account:${ACCOUNT} gres:${GPU_RESOURCE} cpus:${CPUS} memory:${MEMORY}"
+fi
 echo "walltime=${WALLTIME} concurrent_tasks=${CONCURRENT_TASKS}"
 
 if [[ "${TOTAL_GROUPS}" -eq 0 ]]; then
@@ -261,10 +298,14 @@ printf -v OUTPUT_BASE_Q '%q' "${OUTPUT_BASE}"
 printf -v EXAMPLES_DIR_Q '%q' "${EXAMPLES_DIR}"
 printf -v INPUT_GSD_Q '%q' "${INPUT_GSD}"
 printf -v PACKED_LOG_DIR_Q '%q' "${LOG_DIR}/packed"
+PARTITION_LINE=""
+if [[ "${NO_PARTITION}" != "true" ]]; then
+    PARTITION_LINE="#SBATCH --partition=${PARTITION}"
+fi
 cat > "${SBATCH_FILE}" <<EOF
 #!/bin/bash
 #SBATCH --job-name=cav-aging-packed
-#SBATCH --partition=${PARTITION}
+${PARTITION_LINE}
 #SBATCH --account=${ACCOUNT}
 #SBATCH --gres=${GPU_RESOURCE}
 #SBATCH --cpus-per-task=${CPUS}

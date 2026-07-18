@@ -8,6 +8,8 @@ from pathlib import Path
 from examples.slurm.aging_campaign_status import (
     cleanup_replica_artifacts,
     cleanup_partial_replicas,
+    cleanup_stale_replica_locks,
+    cleanup_stray_gsd_files,
     cleanup_stray_run_dirs,
     coupling_dir_name,
     fkt_file_path,
@@ -16,6 +18,7 @@ from examples.slurm.aging_campaign_status import (
     lambda_to_tag,
     protocol_marker_path,
     run_dir,
+    run_preflight_cleanup,
     scan_lambda_run,
     slurm_array_spec,
     validate_fkt_file,
@@ -542,3 +545,46 @@ def test_cleanup_stray_run_dirs(tmp_path: Path) -> None:
     assert stray in removed
     assert not stray.exists()
     assert expected.exists()
+
+
+def test_cleanup_stray_gsd_preserves_hdf5_and_fkt(tmp_path: Path) -> None:
+    gsd = tmp_path / "prod-7.gsd"
+    h5 = tmp_path / "observables_replica_7.h5"
+    fkt = fkt_file_path(tmp_path, 7, 0)
+    gsd.write_bytes(b"gsd")
+    h5.write_bytes(b"h5")
+    fkt.write_text("ok\n", encoding="utf-8")
+
+    removed = cleanup_stray_gsd_files(tmp_path, dry_run=False)
+
+    assert gsd in removed
+    assert not gsd.exists()
+    assert h5.exists()
+    assert fkt.exists()
+
+
+def test_cleanup_stale_replica_locks(tmp_path: Path) -> None:
+    lock = tmp_path / ".replica_3.lock"
+    lock.write_text("", encoding="utf-8")
+
+    removed = cleanup_stale_replica_locks(tmp_path, dry_run=False)
+
+    assert lock in removed
+    assert not lock.exists()
+
+
+def test_run_preflight_cleanup_dry_run(tmp_path: Path) -> None:
+    directory = run_dir(tmp_path, 0.03)
+    directory.mkdir(parents=True)
+    gsd = directory / "prod-1.gsd"
+    lock = directory / ".replica_1.lock"
+    gsd.write_bytes(b"gsd")
+    lock.write_text("", encoding="utf-8")
+
+    summaries = run_preflight_cleanup(tmp_path, [0.03], dry_run=True)
+
+    assert summaries[0]["lam"] == 0.03
+    assert str(gsd) in summaries[0]["gsd_removed"]
+    assert str(lock) in summaries[0]["locks_removed"]
+    assert gsd.exists()
+    assert lock.exists()

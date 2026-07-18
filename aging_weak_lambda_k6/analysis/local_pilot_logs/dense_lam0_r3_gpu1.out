@@ -1,0 +1,203 @@
+WARNING: cvxpy not available. AdaptiveMPCController will not work.
+Install with: pip install cvxpy
+Advanced Cavity MD Experiment Runner
+==================================================
+Local execution: Replicas [3]
+
+*** LAMBDA COUPLING: 0.000000e+00 (epsilon = 0.000000e+00 a.u.) ***
+
+Simulation Configuration:
+  Cavity coupling: Enabled
+    Lambda coupling: 0.000000e+00
+    Epsilon (lambda * omega_c): 0.000000e+00 a.u.
+    Coupling type: step
+    Frequency: 1560.0 cm⁻¹
+    Finite-q mode: False
+    Cavity thermostat: langevin
+  Molecular thermostat: bussi
+  Temperature: 100.0 K
+  Runtime: 2500.0 ps
+  Device: GPU
+    GPU ID: 0
+  Random seed: 4
+  Velocity restart: Enabled - thermalizing velocities
+  Momentum zeroing: Disabled
+
+Starting execution for 1 replica(s)...
+==================================================
+
+Running replica 3...
+Running experiment:
+  Cavity coupling: Enabled
+  *** LAMBDA COUPLING: 0.000000e+00 (epsilon = lambda * omega_c = 0.000000e+00 a.u.) ***
+  Switch time: 200.0 ps
+  Decay: None (step function)
+  Damping ratio (zeta): 0.0
+  Calculated dissipation (c): 0.0000e+00 a.u.
+  Molecular thermostat: bussi
+  Cavity thermostat: langevin
+  Finite-q mode: False
+  Replica: 3
+  Frame: -1
+  Output directory: cavity_coupling_0epos00_switch_200.0ps
+2026-07-17 21:44:41 | INFO | ============================================================
+2026-07-17 21:44:41 | INFO | CAVITY MD SIMULATION STARTED
+2026-07-17 21:44:41 | INFO | ============================================================
+2026-07-17 21:44:41 | INFO | Simulation: prod-3
+2026-07-17 21:44:41 | INFO | Device: GPU (GPU 0)
+2026-07-17 21:44:41 | INFO | Runtime: 2500.0 ps
+2026-07-17 21:44:41 | INFO | Temperature: 100.0 K
+2026-07-17 21:44:41 | INFO | Random seed: 4
+2026-07-17 21:44:41 | INFO | Cavity coupling: Enabled
+2026-07-17 21:44:41 | INFO |   Frequency: 1560.0 cm^-1
+2026-07-17 21:44:41 | INFO |   Lambda coupling: 0.0
+2026-07-17 21:44:41 | INFO |   Epsilon (lambda * omega_c): 0.000000e+00 a.u.
+2026-07-17 21:44:41 | INFO |   Finite-q mode: False
+2026-07-17 21:44:41 | INFO | Molecular thermostat: bussi (tau=5.0 ps)
+2026-07-17 21:44:41 | INFO | Cavity thermostat: langevin (tau=5.0 ps)
+2026-07-17 21:44:41 | INFO | ============================================================
+2026-07-17 21:44:41 | INFO | === Phase 1: Setting up simulation ===
+2026-07-17 21:44:41 | INFO | Using user-specified timestep for calculations: 1.0 fs = 0.001 ps
+2026-07-17 21:44:41 | INFO | Time conversions:
+2026-07-17 21:44:41 | INFO |   Timestep: 0.001 ps = 41.341379 a.u.
+2026-07-17 21:44:41 | INFO |   Runtime: 2500.0 ps = 2500000 steps
+2026-07-17 21:44:41 | INFO |   Steps per ps: 1000.0
+2026-07-17 21:44:41 | INFO | Output periods (steps):
+2026-07-17 21:44:41 | INFO |   Energy: 1000 (1.000 ps)
+2026-07-17 21:44:41 | INFO |   F(k,t): 1000 (1.000 ps)
+2026-07-17 21:44:41 | INFO |   GSD: 50000 (50.000 ps)
+2026-07-17 21:44:41 | INFO |   Console: 100000 (100.000 ps)
+2026-07-17 21:44:41 | INFO | Initializing simulation on GPU 0
+2026-07-17 21:44:41 | INFO | Using user-specified seed: 4
+2026-07-17 21:44:41 | INFO | Cavity particle already exists in GSD file (1 found)
+2026-07-17 21:44:41 | INFO | Simulation state created from original GSD file with existing cavity particle
+2026-07-17 21:44:41 | INFO | Cavity particle validated at index 500, position [1.95809317 1.72912288 2.03460741]
+2026-07-17 21:44:41 | INFO | === Phase 1.5: Setting up time tracker ===
+2026-07-17 21:44:41 | INFO | === Phase 2: Configuring forces and thermostats ===
+2026-07-17 21:44:41 | INFO | Using lambda_coupling=0.0 (will be scaled by omega_c=0.007108 a.u.)
+StepVariant initialized:
+  Target value: 0.0
+  Switch time: 200.0 ps
+  No decay (standard step function)
+  No turn-off time (runs indefinitely)
+  Using ElapsedTimeTracker for accurate timing
+2026-07-17 21:44:41 | INFO | Using step coupling:
+2026-07-17 21:44:41 | INFO |   Target lambda: 0.0
+2026-07-17 21:44:41 | INFO |   Target epsilon: 0.000000e+00 a.u.
+2026-07-17 21:44:41 | INFO |   Switch time: 200.0 ps
+CavityForce initialized using cpp implementation
+  Using time-varying lambda coupling (dimensionless)
+2026-07-17 21:44:41 | INFO | Thermostat time constant conversions:
+2026-07-17 21:44:41 | INFO |   Molecular: 5.000 ps = 206706.894584 a.u.
+2026-07-17 21:44:41 | INFO |   Cavity: 5.000 ps = 206706.894584 a.u.
+2026-07-17 21:44:41 | INFO | Running molecular system with stock HOOMD Bussi thermostat (NVT ensemble; not BussiReservoir)
+2026-07-17 21:44:41 | INFO | Molecular Bussi thermostat configured: T = 100.0 K, kT = 0.000317 a.u., tau = 5.000 ps
+2026-07-17 21:44:41 | INFO | Running cavity with Langevin thermostat
+2026-07-17 21:44:41 | INFO | Cavity Langevin thermostat configured: T = 100.0 K, kT = 0.000317 a.u.
+2026-07-17 21:44:41 | INFO |   base_gamma = 0.000005 a.u.^-1 (tau = 5.000 ps)
+2026-07-17 21:44:41 | INFO |   effective_gamma = 0.000005 a.u.^-1 (damping_factor = 1.0x)
+2026-07-17 21:44:41 | INFO | === Phase 3: Setting up integrator and thermalization ===
+2026-07-17 21:44:41 | INFO | Integrator configured with initial dt = 41.341379 a.u. (0.001000 ps)
+2026-07-17 21:44:41 | INFO | Number of integration methods: 2
+2026-07-17 21:44:41 | INFO | CavityParticleDisplacer not needed (constant coupling or q=0 mode)
+2026-07-17 21:44:41 | INFO | Using seed 5 for thermalization randomness
+2026-07-17 21:44:41 | INFO | Thermalized molecular particles using HOOMD State object
+2026-07-17 21:44:41 | INFO | Cavity particle thermalized via HOOMD State API:
+2026-07-17 21:44:41 | INFO |   Target temperature: 100.0 K
+2026-07-17 21:44:41 | INFO |   kT: 3.167000e-04 a.u.
+2026-07-17 21:44:41 | INFO | Thermalization completed - velocities properly initialized
+2026-07-17 21:44:41 | INFO | === Phase 4: Setting up trackers and loggers ===
+2026-07-17 21:44:41 | INFO | Fixed timestep mode (error_tolerance = 0)
+CavityForceCompute initialized: omegac=0.00710788 a.u., lambda_coupling=0 (dimensionless, from variant), K=5.0522e-05 a.u.
+GPU arrays initialized successfully
+CUDA CavityForceComputeGPU initialized successfully
+notice(2): charge.pppm: RMS error: 2.31675e-08
+NOTICE: Starting from inherited timestep 37500000
+  Elapsed time will start from 0, not from inherited simulation time
+2026-07-17 21:44:42 | INFO |   Added energy tracking for cavityforce
+2026-07-17 21:44:42 | INFO |   Added detailed cavity energy components
+2026-07-17 21:44:42 | INFO |   Added energy tracking for harmonic
+2026-07-17 21:44:42 | INFO |   Added energy tracking for lj
+2026-07-17 21:44:42 | INFO |   Added energy tracking for ewald
+2026-07-17 21:44:42 | INFO |   Added energy tracking for coulomb
+2026-07-17 21:44:42 | INFO | Energy tracking setup completed: 0 methods, 5 forces
+2026-07-17 21:44:42 | INFO | Setting up energy tracker with output file: prod-3_energy_tracker.txt
+2026-07-17 21:44:42 | INFO | Energy tracker configuration:
+2026-07-17 21:44:42 | INFO |   Using time-based output: 1.000 ps
+2026-07-17 21:44:42 | INFO |   No max time limit
+2026-07-17 21:44:42 | INFO | Energy tracker configuration:
+2026-07-17 21:44:42 | INFO |   Force objects: ['cavity', 'harmonic', 'lj', 'ewald_short', 'ewald_long']
+2026-07-17 21:44:42 | INFO |   Thermostat objects: ['bussi_molecular', 'langevin_cavity']
+2026-07-17 21:44:42 | INFO |   Using internal kinetic computation (no external tracker needed)
+2026-07-17 21:44:42 | INFO |  Energy tracker setup completed with time-based output:
+2026-07-17 21:44:42 | INFO |   Output period: 1.000 ps (accurate timing)
+2026-07-17 21:44:42 | INFO |   Tracker handles timing internally using ElapsedTimeTracker
+2026-07-17 21:44:42 | INFO | Setting up F(k,t) density correlation tracker
+2026-07-17 21:44:42 | INFO |   k magnitude: 6.02
+2026-07-17 21:44:42 | INFO |   Number of wavevectors: 50
+2026-07-17 21:44:42 | INFO |   Reference interval: 200.000 ps
+2026-07-17 21:44:42 | INFO |   Max references: 13
+2026-07-17 21:44:42 | INFO |   Output period: 1.000 ps
+2026-07-17 21:44:42 | INFO |   Using time-based reference intervals for adaptive timestep compatibility
+2026-07-17 21:44:42 | INFO |   Reference interval: 200.000 ps
+2026-07-17 21:44:42 | INFO |   Trigger period: 1 step
+2026-07-17 21:44:42 | INFO |   Logarithmic time spacing: DISABLED (regular spacing)
+FieldAutocorrelationTracker initialized for density_correlation
+  k-magnitude: 6.02
+  Wavevectors: 50
+  Reference interval: 200.0 ps
+  Max references: 13
+2026-07-17 21:44:42 | INFO |  F(k,t) tracker successfully enabled with time-based output:
+2026-07-17 21:44:42 | INFO |   Output period: 1.000 ps (accurate timing)
+2026-07-17 21:44:42 | INFO |   Reference interval: 200.000 ps
+2026-07-17 21:44:42 | INFO |   Tracker handles timing internally using ElapsedTimeTracker
+2026-07-17 21:44:42 | INFO | Dipole autocorrelation tracking disabled
+2026-07-17 21:44:42 | INFO | Momentum zeroing disabled
+2026-07-17 21:44:42 | INFO |  TRACKING AND LOGGING SETUP COMPLETED:
+2026-07-17 21:44:42 | INFO |   All output systems now use precise time-based periods
+2026-07-17 21:44:42 | INFO |  Comprehensive temperature tracker enabled
+2026-07-17 21:44:42 | INFO |   Output file: temperature_tracker_replica_3.csv
+2026-07-17 21:44:42 | INFO |   Output period: 0.1 ps
+2026-07-17 21:44:42 | INFO |   Tracking: kinetic, harmonic fictive, LJ+Coul fictive, cavity bath, molecular bath
+2026-07-17 21:44:42 | INFO |   Empirical data: None (LJ+Coul fictive temp will be 0)
+2026-07-17 21:44:42 | INFO | 
+============================================================
+2026-07-17 21:44:42 | INFO | HDF5 OBSERVABLE OUTPUT CONFIGURATION
+2026-07-17 21:44:42 | INFO | ============================================================
+2026-07-17 21:44:42 | INFO | Output file: observables_replica_3.h5
+2026-07-17 21:44:42 | INFO | Output period: 0.010 ps
+2026-07-17 21:44:42 | INFO | SWMR mode: Enabled (concurrent read access)
+2026-07-17 21:44:42 | INFO | ============================================================
+
+✓ HDF5 file structure created: observables_replica_3.h5
+ObservableWriter initialized:
+  Output file: observables_replica_3.h5
+  Output period: 0.01 ps
+  Chunk size: 1000
+  Compression: gzip
+  SWMR mode: True
+  Pre-allocated size: 300100 data points
+  Flush interval: 10
+✓ Energy tracker registered (18 components)
+2026-07-17 21:44:42 | INFO |   Registered energy tracker for HDF5 output
+✓ Temperature tracker registered (6 components)
+2026-07-17 21:44:42 | INFO |   Registered temperature tracker for HDF5 output
+2026-07-17 21:44:42 | INFO | ✓ HDF5 observable output enabled
+
+2026-07-17 21:44:42 | INFO | Advanced features enabled: detailed energy tracking (1.000 ps), F(k,t) density correlation (1.000 ps, k=6.02), comprehensive temperature tracker (0.1 ps), HDF5 observable output (0.010 ps)
+2026-07-17 21:44:42 | INFO | Console output: 100.000 ps periods (time-based)
+2026-07-17 21:44:42 | INFO |   Works accurately for both adaptive and fixed timestep modes
+2026-07-17 21:44:42 | INFO | DEBUG: PID controller NOT enabled (enable_pid_controller=False)
+2026-07-17 21:44:42 | INFO | === Phase 5: Setting up output writers ===
+2026-07-17 21:44:42 | INFO | GSD trajectory output disabled (enable_gsd_output=False)
+2026-07-17 21:44:42 | INFO |  Console output setup completed:
+2026-07-17 21:44:42 | INFO |   Output period: 100.000 ps (accurate time-based)
+2026-07-17 21:44:42 | INFO |   Lambda coupling column: 0.000000e+00 (dimensionless) (displayed in real-time)
+2026-07-17 21:44:42 | INFO |   Console tracker handles timing internally using ElapsedTimeTracker
+2026-07-17 21:44:42 | INFO |   Works accurately for both adaptive and fixed timestep modes
+2026-07-17 21:44:42 | INFO |  Time-based console output setup for fixed timestep mode
+2026-07-17 21:44:42 | INFO |   Provides consistent behavior across all timestep modes
+2026-07-17 21:44:42 | INFO | === Phase 6: Running simulation ===
+2026-07-17 21:44:42 | INFO | Starting fixed timestep simulation for 2500.0 ps (2500000 steps)
+2026-07-17 21:44:42 | INFO | Initial timestep: 41.341379 a.u. (1.000 fs)
+2026-07-17 21:44:42 | INFO | Fixed timestep mode - steps per ps: 1000.0
