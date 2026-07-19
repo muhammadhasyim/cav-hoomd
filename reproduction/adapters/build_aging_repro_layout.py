@@ -104,30 +104,44 @@ def _write_symlinks(profile: DatasetProfile, dry_run: bool = False) -> list[Path
 def _load_energy_csv(path: Path) -> dict[str, np.ndarray]:
     time_ps: list[float] = []
     harmonic: list[float] = []
+    lj: list[float] | None = None
+    coulombic: list[float] | None = None
     lj_coul: list[float] = []
-    total: list[float] = []
     kinetic: list[float] | None = None
 
     with open(path, encoding="utf-8") as fh:
         reader = csv.DictReader(fh)
         fieldnames = reader.fieldnames or []
         has_kinetic = "kinetic_temp_K" in fieldnames
+        has_lj = "lj_ha" in fieldnames and "coulombic_ha" in fieldnames
         if has_kinetic:
             kinetic = []
+        if has_lj:
+            lj = []
+            coulombic = []
         for row in reader:
             time_ps.append(float(row["time_ps"]))
             harmonic.append(float(row["harmonic_ha"]))
-            lj_coul.append(float(row["lj_coul_ha"]))
-            total.append(float(row["system_total_ha"]))
+            if has_lj and lj is not None and coulombic is not None:
+                lj.append(float(row["lj_ha"]))
+                coulombic.append(float(row["coulombic_ha"]))
+                lj_coul.append(float(row["lj_coul_ha"]))
+            else:
+                lj_coul.append(float(row["lj_coul_ha"]))
             if has_kinetic and kinetic is not None:
                 kinetic.append(float(row["kinetic_temp_K"]))
 
+    harmonic_arr = np.asarray(harmonic, dtype=float)
+    lj_coul_arr = np.asarray(lj_coul, dtype=float)
     result = {
         "time_ps": np.asarray(time_ps, dtype=float),
-        "harmonic_ha": np.asarray(harmonic, dtype=float),
-        "lj_coul_ha": np.asarray(lj_coul, dtype=float),
-        "total_ha": np.asarray(total, dtype=float),
+        "harmonic_ha": harmonic_arr,
+        "lj_coul_ha": lj_coul_arr,
+        "total_ha": harmonic_arr + lj_coul_arr,
     }
+    if lj is not None and coulombic is not None:
+        result["lj_ha"] = np.asarray(lj, dtype=float)
+        result["coulombic_ha"] = np.asarray(coulombic, dtype=float)
     if kinetic is not None:
         result["kinetic_temp_K"] = np.asarray(kinetic, dtype=float)
     return result
@@ -159,10 +173,9 @@ def _load_fictive_csv(path: Path) -> dict[str, np.ndarray]:
 def _write_potential_energy(path: Path, data: dict[str, np.ndarray]) -> None:
     """Write the paper 5-column layout: time, harmonic, lj, coulombic, total.
 
-    The aging CSVs provide a combined LJ+Coulomb component, so it is written in
-    the ``lj`` column with a zero ``coulombic`` column; downstream scripts sum
-    the two (``U_lj + U_coul``) to recover the combined term while reading the
-    system total from the final column.
+    ``total_ha`` is always potential energy (harmonic + lj + coulombic), never
+    ``system_total`` (KE+PE). When separate LJ and Coulomb columns are present
+    they are written explicitly so Figure 3 can show RF Coulomb noise separately.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as fh:
@@ -170,13 +183,20 @@ def _write_potential_energy(path: Path, data: dict[str, np.ndarray]) -> None:
         fh.write("# Columns: time_ps harmonic_ha lj_ha coul_ha total_ha\n")
         fh.write("time_ps harmonic_ha lj_ha coul_ha total_ha\n")
         for idx in range(len(data["time_ps"])):
-            lj = data["lj_coul_ha"][idx]
+            harmonic = float(data["harmonic_ha"][idx])
+            if "lj_ha" in data and "coulombic_ha" in data:
+                lj_val = float(data["lj_ha"][idx])
+                coul_val = float(data["coulombic_ha"][idx])
+            else:
+                lj_val = float(data["lj_coul_ha"][idx])
+                coul_val = 0.0
+            total = harmonic + lj_val + coul_val
             fh.write(
                 f"{data['time_ps'][idx]:.6e} "
-                f"{data['harmonic_ha'][idx]:.6e} "
-                f"{lj:.6e} "
-                f"0.000000e+00 "
-                f"{data['total_ha'][idx]:.6e}\n"
+                f"{harmonic:.6e} "
+                f"{lj_val:.6e} "
+                f"{coul_val:.6e} "
+                f"{total:.6e}\n"
             )
 
 

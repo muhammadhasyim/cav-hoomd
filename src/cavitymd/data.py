@@ -139,7 +139,8 @@ class ObservableWriter(hoomd.custom.Action):
                  compression_level: int = 4,
                  enable_swmr: bool = True,
                  flush_interval: int = 10,
-                 runtime_ps: float = None):
+                 runtime_ps: float = None,
+                 resume_append: bool = False):
         """
         Initialize the ObservableWriter.
         
@@ -148,6 +149,9 @@ class ObservableWriter(hoomd.custom.Action):
         runtime_ps : float, optional
             Expected runtime in ps. Used to pre-allocate datasets for SWMR mode.
             If not provided, datasets will be resized dynamically (SWMR disabled).
+        resume_append : bool, optional
+            When ``True`` and ``output_file`` exists, append new rows after the
+            existing laboratory-time series instead of truncating the file.
         """
         super().__init__()
         
@@ -159,10 +163,14 @@ class ObservableWriter(hoomd.custom.Action):
         self.compression_level = compression_level if compression == 'gzip' else None
         self.flush_interval = flush_interval
         self.runtime_ps = runtime_ps
+        self.resume_append = resume_append
         
         # For SWMR mode, we need to pre-allocate datasets
         # If runtime is provided, calculate expected size; otherwise disable SWMR
-        if enable_swmr and runtime_ps is not None:
+        if resume_append and self.output_file.is_file():
+            self.enable_swmr = False
+            self.preallocated_size = None
+        elif enable_swmr and runtime_ps is not None:
             self.enable_swmr = True
             # Pre-allocate with 20% buffer for safety
             self.preallocated_size = int(1.2 * runtime_ps / output_period_ps) + 100
@@ -202,12 +210,43 @@ class ObservableWriter(hoomd.custom.Action):
         print(f"  Chunk size: {self.chunk_size}")
         print(f"  Compression: {self.compression}")
         print(f"  SWMR mode: {self.enable_swmr}")
+        print(f"  Resume append: {self.resume_append}")
         if self.preallocated_size:
             print(f"  Pre-allocated size: {self.preallocated_size} data points")
         print(f"  Flush interval: {self.flush_interval}")
     
     def _initialize_hdf5_file(self):
         """Initialize HDF5 file with hierarchical structure."""
+        if self.resume_append and self.output_file.is_file():
+            self.file = h5py.File(self.output_file, 'a', libver='latest')
+            self.datasets = {}
+
+            def _attach_dataset(name: str, dataset: h5py.Dataset) -> None:
+                key = name if name == "time" else f"/{name}"
+                self.datasets[key] = dataset
+
+            self.file.visititems(
+                lambda name, obj: _attach_dataset(name, obj)
+                if isinstance(obj, h5py.Dataset)
+                else None
+            )
+            if 'time' not in self.datasets:
+                raise ValueError(
+                    f"Cannot resume append to {self.output_file}: missing /time dataset"
+                )
+            self.current_index = self._infer_existing_write_index(
+                self.datasets['time'][:]
+            )
+            if self.current_index > 0:
+                self.last_output_time = float(self.datasets['time'][self.current_index - 1])
+            else:
+                self.last_output_time = None
+            print(
+                f"✓ Resuming HDF5 append at index {self.current_index} "
+                f"for {self.output_file}"
+            )
+            return
+
         # Create file with latest HDF5 format for better SWMR support
         self.file = h5py.File(
             self.output_file,
@@ -237,6 +276,26 @@ class ObservableWriter(hoomd.custom.Action):
         )
         
         print(f"✓ HDF5 file structure created: {self.output_file}")
+
+    @staticmethod
+    def _infer_existing_write_index(time_values: np.ndarray) -> int:
+        """Infer the next append index for a monotonic laboratory-time series."""
+        times = np.asarray(time_values, dtype=float)
+        if times.size == 0:
+            return 0
+
+        index = 0
+        current_max = -np.inf
+        for position, value in enumerate(times):
+            if not np.isfinite(value):
+                break
+            if position > 0 and value <= 0.0 and current_max > 0.0:
+                break
+            if position > 0 and value + 1e-9 < current_max:
+                break
+            current_max = max(current_max, float(value))
+            index = position + 1
+        return index
     
     def _create_resizable_dataset(self, group_path: str, name: str, 
                                   shape: tuple = (1,),
@@ -281,6 +340,12 @@ class ObservableWriter(hoomd.custom.Action):
                 maxshape = (None,) + shape[1:]
                 chunks = (self.chunk_size,) + shape[1:]
         
+        if name in group:
+            full_path = f"{group_path}/{name}" if group_path != '/' else name
+            existing = group[name]
+            self.datasets[full_path] = existing
+            return existing
+
         # Create dataset
         ds = group.create_dataset(
             name,
@@ -676,14 +741,23 @@ class ObservableWriter(hoomd.custom.Action):
                 self.datasets[ds_path][index] = value
     
     def _write_dipole_data(self, index: int):
-        """Write dipole moment at given index."""
-        # Get dipole moment from tracker
-        if hasattr(self.dipole_tracker, '_calculate_total_dipole_moment'):
-            dipole = self.dipole_tracker._calculate_total_dipole_moment()
-            magnitude = np.linalg.norm(dipole)
-            
-            self.datasets['/order_parameters/dipole/components'][index, :] = dipole
-            self.datasets['/order_parameters/dipole/magnitude'][index] = magnitude
+        """Write dipole moment at given index from tracker history."""
+        if self.dipole_tracker is None:
+            return
+        if hasattr(self.dipole_tracker, "last_dipole_moment"):
+            dipole = np.asarray(self.dipole_tracker.last_dipole_moment, dtype=float)
+        elif getattr(self.dipole_tracker, "dipole_history", None):
+            dipole = np.asarray(self.dipole_tracker.dipole_history[-1], dtype=float)
+        elif hasattr(self.dipole_tracker, "_calculate_total_dipole_moment"):
+            dipole = np.asarray(
+                self.dipole_tracker._calculate_total_dipole_moment(),
+                dtype=float,
+            )
+        else:
+            return
+        magnitude = float(np.linalg.norm(dipole))
+        self.datasets["/order_parameters/dipole/components"][index, :] = dipole
+        self.datasets["/order_parameters/dipole/magnitude"][index] = magnitude
     
     def _write_density_data(self, index: int):
         """Write density at wavevectors at given index."""

@@ -19,29 +19,70 @@ from typing import Iterator, Mapping, Sequence
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     from examples.slurm.aging_campaign_status import (
+        COMPLETE_MIN_BYTES,
         cleanup_replica_artifacts,
         is_complete_replica,
         lambda_to_tag,
+        replica_needs_fresh_run,
         run_dir,
         write_protocol_marker,
     )
+    from examples.slurm.aging_campaign_config import (
+        CAMPAIGN_FKT_KMAG as CONFIG_FKT_KMAG,
+        CAMPAIGN_FKT_MAX_REFS_TARGET,
+        CAMPAIGN_HDF5_PERIOD_PS as CONFIG_HDF5_PERIOD_PS,
+        CAMPAIGN_SWITCH_TIME_PS as CONFIG_SWITCH_TIME_PS,
+        CAMPAIGN_TARGET_RUNTIME_PS,
+    )
 else:
     from .aging_campaign_status import (
+        COMPLETE_MIN_BYTES,
         cleanup_replica_artifacts,
         is_complete_replica,
         lambda_to_tag,
+        replica_needs_fresh_run,
         run_dir,
         write_protocol_marker,
+    )
+    from .aging_campaign_config import (
+        CAMPAIGN_FKT_KMAG as CONFIG_FKT_KMAG,
+        CAMPAIGN_FKT_MAX_REFS_TARGET,
+        CAMPAIGN_HDF5_PERIOD_PS as CONFIG_HDF5_PERIOD_PS,
+        CAMPAIGN_SWITCH_TIME_PS as CONFIG_SWITCH_TIME_PS,
+        CAMPAIGN_TARGET_RUNTIME_PS,
     )
 
 DEFAULT_OUTPUT_BASE = Path(
     "/scratch/mh7373/projects/cav-hoomd/aging_weak_lambda"
 )
 CAMPAIGN_LAMBDAS = (0.0, 0.01, 0.016667, 0.023333, 0.03)
-CAMPAIGN_SWITCH_TIME_PS = 200.0
+_ALLOWED_LAMBDAS: tuple[float, ...] = CAMPAIGN_LAMBDAS
+
+
+def set_allowed_lambdas(lambdas: Sequence[float]) -> None:
+    """Override the coupling values accepted by manifest validation."""
+    global _ALLOWED_LAMBDAS
+    _ALLOWED_LAMBDAS = tuple(float(value) for value in lambdas)
+
+
+def get_allowed_lambdas() -> tuple[float, ...]:
+    """Return the active set of campaign coupling constants."""
+    return _ALLOWED_LAMBDAS
+CAMPAIGN_SWITCH_TIME_PS = CONFIG_SWITCH_TIME_PS
+CAMPAIGN_RUNTIME_PS = CAMPAIGN_TARGET_RUNTIME_PS
+CAMPAIGN_FKT_MAX_REFS = CAMPAIGN_FKT_MAX_REFS_TARGET
+CAMPAIGN_HDF5_PERIOD_PS = CONFIG_HDF5_PERIOD_PS
+CAMPAIGN_ELECTROSTATICS = "reaction_field"
+CAMPAIGN_EPS_RF = 80.0
+CAMPAIGN_COULOMB_RCUT = 16.0
 MAX_REPLICA_ID = 999
-# Paper Fig. 2 / Methods (arXiv:2603.15693): |k| = 6.02 a.u.
-PAPER_FKT_KMAG = 6.02
+CAMPAIGN_FKT_KMAG = CONFIG_FKT_KMAG
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_INPUT_GSD = (
+    REPOSITORY_ROOT
+    / "aging_weak_lambda_ic_library"
+    / "init-500-from-ic-library.gsd"
+)
 
 
 @dataclass(frozen=True)
@@ -64,7 +105,7 @@ class ManifestTask:
             raise ValueError("a manifest task cannot repeat a replica")
         if any(not 0 <= replica <= MAX_REPLICA_ID for replica in self.replicas):
             raise ValueError("replica IDs must be in the campaign domain 0..999")
-        if self.lam not in CAMPAIGN_LAMBDAS:
+        if self.lam not in get_allowed_lambdas():
             raise ValueError("lambda value is not in the aging campaign")
         if self.lambda_tag != lambda_to_tag(self.lam):
             raise ValueError("lambda tag does not match the lambda value")
@@ -331,14 +372,21 @@ def build_simulation_command(
     replica: int,
     lam: float,
     input_gsd: Path,
+    adaptive_timestep: bool = False,
+    error_tolerance: float = 5.0,
+    initial_fraction: float = 1e-5,
+    time_constant_ps: float = 50.0,
 ) -> tuple[str, ...]:
-    """Build the fixed aging-protocol command for one replica.
+    """Build the aging-protocol command for one replica.
 
     Parameters use the established campaign units: temperature in kelvin,
     frequency in inverse centimeters, runtime in picoseconds, and timestep in
-    femtoseconds.
+    femtoseconds. When ``adaptive_timestep`` is True, omit fixed dt and pass
+    shock-dampening parameters (error tolerance drops to
+    ``error_tolerance * initial_fraction`` at the cavity switch, then recovers
+    with time constant ``time_constant_ps``).
     """
-    return (
+    command: list[str] = [
         str(python_executable),
         str(simulation_script),
         "--molecular-bath",
@@ -354,42 +402,66 @@ def build_simulation_command(
         "--frequency",
         "1560.0",
         "--runtime",
-        "2500.0",
+        f"{CAMPAIGN_RUNTIME_PS:g}",
         "--switch-time",
-        "200.0",
+        f"{CAMPAIGN_SWITCH_TIME_PS:g}",
         "--input-gsd",
         str(input_gsd),
         "--frame",
-        "-1",
+        str(replica),
         "--device",
         "GPU",
         "--gpu-id",
         "0",
-        "--fixed-timestep",
-        "--timestep",
-        "1.0",
-        "--enable-energy-tracker",
-        "--energy-output-period-ps",
-        "1.0",
-        "--enable-fkt",
-        "--fkt-kmag",
-        f"{PAPER_FKT_KMAG:g}",
-        "--fkt-wavevectors",
-        "50",
-        "--fkt-ref-interval",
-        "200.0",
-        "--fkt-max-refs",
-        "13",
-        "--fkt-output-period-ps",
-        "1.0",
-        "--disable-gsd",
-        "--console-output-period-ps",
-        "100.0",
-        "--replicas",
-        str(replica),
-        "--seed",
-        str(replica + 1),
+    ]
+    if adaptive_timestep:
+        command.extend(
+            [
+                "--error-tolerance",
+                f"{error_tolerance:g}",
+                "--initial-fraction",
+                f"{initial_fraction:g}",
+                "--time-constant-ps",
+                f"{time_constant_ps:g}",
+            ]
+        )
+    else:
+        command.extend(["--fixed-timestep", "--timestep", "1.0"])
+    command.extend(
+        [
+            "--enable-energy-tracker",
+            "--energy-output-period-ps",
+            f"{CAMPAIGN_HDF5_PERIOD_PS:g}",
+            "--hdf5-output-period-ps",
+            f"{CAMPAIGN_HDF5_PERIOD_PS:g}",
+            "--enable-fkt",
+            "--fkt-kmag",
+            f"{CAMPAIGN_FKT_KMAG:g}",
+            "--fkt-wavevectors",
+            "50",
+            "--fkt-ref-interval",
+            f"{CAMPAIGN_SWITCH_TIME_PS:g}",
+            "--fkt-max-refs",
+            str(CAMPAIGN_FKT_MAX_REFS),
+            "--fkt-output-period-ps",
+            f"{CAMPAIGN_HDF5_PERIOD_PS:g}",
+            "--electrostatics",
+            CAMPAIGN_ELECTROSTATICS,
+            "--eps-rf",
+            f"{CAMPAIGN_EPS_RF:g}",
+            "--coulomb-rcut",
+            f"{CAMPAIGN_COULOMB_RCUT:g}",
+            "--disable-gsd",
+            "--write-checkpoint-gsd",
+            "--console-output-period-ps",
+            "100.0",
+            "--replicas",
+            str(replica),
+            "--seed",
+            str(replica + 1),
+        ]
     )
+    return tuple(command)
 
 
 def collect_simulator_provenance(
@@ -460,7 +532,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--input-gsd",
         type=Path,
-        default=examples_directory / "init-0.gsd",
+        default=DEFAULT_INPUT_GSD,
     )
     parser.add_argument(
         "--log-dir",
@@ -471,6 +543,36 @@ def _parse_args() -> argparse.Namespace:
         "--python-executable",
         type=Path,
         default=Path(sys.executable),
+    )
+    parser.add_argument(
+        "--adaptive-timestep",
+        action="store_true",
+        help="Use adaptive dt with shock dampening at cavity switch",
+    )
+    parser.add_argument(
+        "--error-tolerance",
+        type=float,
+        default=5.0,
+        help="Adaptive target error tolerance (default: 5.0)",
+    )
+    parser.add_argument(
+        "--initial-fraction",
+        type=float,
+        default=1e-5,
+        help="Adaptive shock factor at switch (default: 1e-5)",
+    )
+    parser.add_argument(
+        "--time-constant-ps",
+        type=float,
+        default=50.0,
+        help="Adaptive epsilon recovery tau in ps (default: 50.0)",
+    )
+    parser.add_argument(
+        "--allowed-lambda",
+        action="append",
+        type=float,
+        dest="allowed_lambdas",
+        help="Permitted coupling constant (repeatable; default: weak campaign set)",
     )
     return parser.parse_args()
 
@@ -490,6 +592,8 @@ def _task_index(argument_value: int | None) -> int:
 def main() -> int:
     """Validate, clean, and concurrently execute one packed manifest row."""
     args = _parse_args()
+    if args.allowed_lambdas:
+        set_allowed_lambdas(args.allowed_lambdas)
     task_index = _task_index(args.task_index)
     task = read_manifest_task(args.manifest, task_index)
     coupling_directory = args.output_base / f"lambda{task.lambda_tag}"
@@ -500,7 +604,14 @@ def main() -> int:
     array_id = os.environ.get("SLURM_ARRAY_TASK_ID", str(task_index))
     environment = child_environment(os.environ)
     specifications: list[ReplicaProcessSpec] = []
+    campaign_completion_options = {
+        "runtime_ps": CAMPAIGN_RUNTIME_PS,
+        "max_references": CAMPAIGN_FKT_MAX_REFS,
+        "reference_interval_ps": CAMPAIGN_SWITCH_TIME_PS,
+        "min_bytes": COMPLETE_MIN_BYTES,
+    }
     completion_options = {
+        **campaign_completion_options,
         "require_step_protocol": task.lam != 0.0,
         "expected_lam": task.lam,
         "expected_switch_time_ps": CAMPAIGN_SWITCH_TIME_PS,
@@ -508,16 +619,27 @@ def main() -> int:
 
     with replica_locks(run_directory, task.replicas):
         for replica in task.replicas:
-            if is_complete_replica(
+            if not replica_needs_fresh_run(
                 run_directory,
                 replica,
                 **completion_options,
             ):
-                print(
-                    f"Skipping scientifically complete lambda={task.lam:g} "
-                    f"replica={replica}",
-                    flush=True,
-                )
+                if is_complete_replica(
+                    run_directory,
+                    replica,
+                    **completion_options,
+                ):
+                    print(
+                        f"Skipping scientifically complete lambda={task.lam:g} "
+                        f"replica={replica}",
+                        flush=True,
+                    )
+                else:
+                    print(
+                        f"Skipping preserved lambda={task.lam:g} replica={replica} "
+                        "(primary complete without checkpoint or awaiting extension)",
+                        flush=True,
+                    )
                 continue
             deleted = cleanup_replica_artifacts(run_directory, replica)
             if deleted:
@@ -539,6 +661,10 @@ def main() -> int:
                         replica=replica,
                         lam=task.lam,
                         input_gsd=args.input_gsd,
+                        adaptive_timestep=args.adaptive_timestep,
+                        error_tolerance=args.error_tolerance,
+                        initial_fraction=args.initial_fraction,
+                        time_constant_ps=args.time_constant_ps,
                     ),
                     cwd=coupling_directory,
                     stdout_path=args.log_dir / f"{log_stem}.out",
@@ -566,6 +692,7 @@ def main() -> int:
                 run_directory,
                 specification.replica,
                 require_step_protocol=False,
+                **campaign_completion_options,
             )
         ]
         for replica in data_complete:

@@ -118,6 +118,11 @@ class EmpiricalTemperatureData:
                     self.energies = data['harmonic_hartree'].values
                 else:
                     raise ValueError("Harmonic energy column not found")
+            elif self.energy_component == 'lj':
+                if 'lj_hartree' in data.columns:
+                    self.energies = data['lj_hartree'].values
+                else:
+                    raise ValueError("LJ energy column not found")
             else:
                 raise ValueError(f"Unknown energy component: {self.energy_component}")
                 
@@ -216,14 +221,23 @@ class EmpiricalTemperatureData:
                 'c': self.extended_t35_params[2],
                 'r2': r2
             }
-            
-            self.has_extended_t35_fit = True
-            
-            print(f"Extended T^(3/5) fitting completed:")
-            print(f"  E₀ = {self.extended_t35_fit['e0']:.6f} Ha")
-            print(f"  A = {self.extended_t35_fit['a']:.6f} Ha·K^(-3/5)")
-            print(f"  C = {self.extended_t35_fit['c']:.6f} K^(-3/5)")
-            print(f"  R² = {self.extended_t35_fit['r2']:.12f}")
+
+            # A > 0 is required for the usual PE-decreasing-with-T glass branch.
+            # Reaction-field lj+coulombic tables are inverted (U rises as T falls),
+            # so reject the analytic inverse and use interpolation instead.
+            if self.extended_t35_fit["a"] <= 0.0:
+                print(
+                    "Warning: Extended T^(3/5) fit has A <= 0 "
+                    "(non-invertible / inverted U(T)); using interpolation"
+                )
+                self.has_extended_t35_fit = False
+            else:
+                self.has_extended_t35_fit = True
+                print(f"Extended T^(3/5) fitting completed:")
+                print(f"  E₀ = {self.extended_t35_fit['e0']:.6f} Ha")
+                print(f"  A = {self.extended_t35_fit['a']:.6f} Ha·K^(-3/5)")
+                print(f"  C = {self.extended_t35_fit['c']:.6f} K^(-3/5)")
+                print(f"  R² = {self.extended_t35_fit['r2']:.12f}")
             
         except Exception as e:
             print(f"Warning: Extended T^(3/5) fitting failed: {e}")
@@ -532,37 +546,38 @@ class EmpiricalTemperatureData:
                 e0, a, c = self.extended_t35_fit['e0'], self.extended_t35_fit['a'], self.extended_t35_fit['c']
                 E = instantaneous_energy_hartree
                 
-                if E <= e0:
-                    return 0.0
-                
-                def equation(T):
-                    if T <= 0:
-                        return float('inf')
-                    t_power = T**(3/5)
-                    return e0 + a * t_power / (1 + c * t_power) - E
-                
-                # Initial guess based on simple T^(3/5) scaling
-                T_guess = max(((E - e0) / a) ** (5/3), 1.0) if a > 0 else 300.0
-                
-                solution = fsolve(equation, T_guess, full_output=True)
-                temperature = solution[0][0]
-                
-                # Check if solution converged
-                if solution[2] == 1 and temperature > 0:
-                    return temperature
-                else:
-                    # Extended fit failed to converge, fall back to linear interpolation
-                    pass
-                    
+                if E > e0 and a > 0.0:
+                    def equation(T):
+                        if T <= 0:
+                            return float('inf')
+                        t_power = T**(3/5)
+                        return e0 + a * t_power / (1 + c * t_power) - E
+
+                    # Initial guess based on simple T^(3/5) scaling
+                    T_guess = max(((E - e0) / a) ** (5/3), 1.0)
+
+                    solution = fsolve(equation, T_guess, full_output=True)
+                    temperature = solution[0][0]
+
+                    # Check if solution converged
+                    if solution[2] == 1 and temperature > 0:
+                        return temperature
+                # Else fall through to interpolation (E<=E0 or bad A).
+
             except Exception as e:
                 print(f"Warning: Extended T^(3/5) temperature calculation failed: {e}")
                 # Fall back to linear interpolation
                 pass
         
-        # Fallback to linear interpolation if no extended fits are available
-        # This should rarely happen since we now always try to fit extended functions
-        print(f"Warning: No extended fits available for {self.energy_component}, using linear interpolation")
-        temperature = np.interp(instantaneous_energy_hartree, self.energies, self.temperatures)
+        # Fallback: interpolate T(E). Sort by energy so inverted RF U(T) works.
+        order = np.argsort(self.energies)
+        temperature = float(
+            np.interp(
+                instantaneous_energy_hartree,
+                self.energies[order],
+                self.temperatures[order],
+            )
+        )
         return max(temperature, 0.0)
 
 

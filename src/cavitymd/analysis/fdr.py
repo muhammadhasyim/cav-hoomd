@@ -156,6 +156,7 @@ class DipoleMomentFDRTracker(hoomd.custom.Action):
         # Data storage
         self.dipole_history = []  # List of 3D dipole vectors
         self.time_history = []    # Corresponding time stamps
+        self.last_dipole_moment = np.zeros(3, dtype=np.float64)
         self.last_output_time = 0.0
         
         # Correlation analysis
@@ -189,6 +190,28 @@ class DipoleMomentFDRTracker(hoomd.custom.Action):
             print(f"   Response measurement: Enabled (requires fork-and-clone)")
         else:
             print(f"   Response measurement: Disabled (autocorrelation only)")
+
+    def attach(self, simulation):
+        """Attach to HOOMD simulation and retain reference for snapshot access."""
+        super().attach(simulation)
+        self._simulation = simulation
+
+    def detach(self):
+        """Detach from HOOMD simulation."""
+        self._simulation = None
+        super().detach()
+
+    def _get_hoomd_simulation(self):
+        """Return HOOMD simulation object for local snapshot access."""
+        if hasattr(self, "_simulation") and self._simulation is not None:
+            return self._simulation
+        if hasattr(self, "simulation") and self.simulation is not None:
+            if hasattr(self.simulation, "sim"):
+                return self.simulation.sim
+            return self.simulation
+        raise AttributeError(
+            "DipoleMomentFDRTracker is not attached to a simulation"
+        )
     
     def _initialize_output_file(self):
         """Initialize CSV output file with headers."""
@@ -214,23 +237,24 @@ class DipoleMomentFDRTracker(hoomd.custom.Action):
             3D dipole moment vector [μₓ, μᵧ, μᵤ]
         """
         # Get current simulation state
-        with self._simulation.state.cpu_local_snapshot as snap:
-            positions = snap.particles.position
+        with self._get_hoomd_simulation().state.cpu_local_snapshot as snap:
+            box_lengths = np.asarray(snap.global_box.L, dtype=float)
+            positions = unwrap_positions(
+                snap.particles.position,
+                snap.particles.image,
+                box_lengths,
+            )
             charges = snap.particles.charge
-            N = len(positions)
-            
-            # Calculate total dipole moment
+            n_particles = len(positions)
+
             dipole = np.zeros(3)
-            
-            for i in range(N):
-                # Skip cavity particles if requested
-                if self.exclude_cavity and i >= N - 1:  # Assume cavity is last particle
+            for particle_index in range(n_particles):
+                if self.exclude_cavity and particle_index >= n_particles - 1:
                     continue
-                
-                q_i = charges[i]
-                if abs(q_i) > 1e-12:  # Only consider charged particles
-                    dipole += q_i * positions[i]
-            
+                charge = charges[particle_index]
+                if abs(charge) > 1e-12:
+                    dipole += charge * positions[particle_index]
+
             return dipole
     
     def _compute_autocorrelation(self) -> Tuple[np.ndarray, np.ndarray]:
@@ -259,7 +283,7 @@ class DipoleMomentFDRTracker(hoomd.custom.Action):
         N = len(delta_dipoles)
         correlations = []
         
-        for component in range(3):
+        for component in (0, 1):
             # Use FFT-based autocorrelation
             signal = delta_dipoles[:, component]
             
@@ -457,6 +481,7 @@ class DipoleMomentFDRTracker(hoomd.custom.Action):
         
         # Calculate current dipole moment
         dipole_moment = self._calculate_total_dipole_moment()
+        self.last_dipole_moment = dipole_moment.copy()
         
         # Store in history
         self.dipole_history.append(dipole_moment.copy())

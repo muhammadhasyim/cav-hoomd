@@ -842,6 +842,11 @@ class CavityMDSimulation:
                 enable_hdf5_output: bool = True,
                  hdf5_output_file: Optional[str] = None,
                  hdf5_output_period_ps: float = 0.01,
+                 resume_hdf5_append: bool = False,
+                 time_offset_ps: float = 0.0,
+                 write_checkpoint_gsd: bool = False,
+                 checkpoint_gsd_file: Optional[str] = None,
+                 resume_fkt_state_file: Optional[str] = None,
                  # Molecular temperature decomposition parameters
                  enable_molecular_temps: bool = False,
                  molecular_temps_output_period_ps: float = 1.0,
@@ -1414,6 +1419,11 @@ class CavityMDSimulation:
         self.enable_hdf5_output = enable_hdf5_output
         self.hdf5_output_file = hdf5_output_file
         self.hdf5_output_period_ps = hdf5_output_period_ps
+        self.resume_hdf5_append = resume_hdf5_append
+        self.time_offset_ps = time_offset_ps
+        self.write_checkpoint_gsd = write_checkpoint_gsd
+        self.checkpoint_gsd_file = checkpoint_gsd_file
+        self.resume_fkt_state_file = resume_fkt_state_file
         self.hdf5_writer = None  # Will be initialized during setup
         
         # Molecular temperature decomposition parameters
@@ -2956,6 +2966,13 @@ class CavityMDSimulation:
                     max_log_time_ps=fkt_max_log_time_ps,
                     log_num_points=fkt_log_num_points
                 )
+                self.fkt_tracker = self.density_corr_tracker
+                resume_fkt_state_file = getattr(self, 'resume_fkt_state_file', None)
+                if resume_fkt_state_file:
+                    self.density_corr_tracker.load_state(Path(resume_fkt_state_file))
+                    self.log_info(
+                        f"  Restored F(k,t) state from {resume_fkt_state_file}"
+                    )
                 
                 # Add F(k,t) tracker to simulation
                 fkt_updater = hoomd.update.CustomUpdater(
@@ -3347,9 +3364,17 @@ class CavityMDSimulation:
         if getattr(self, 'enable_harmonic_reset', False):
             self._setup_harmonic_reset()
             enabled_features.append(f"harmonic bond reset (t={self.harmonic_reset_turn_on_time_ps:.1f}ps)")
+
+        # Dipole FDR must be initialized before HDF5 so the writer registers dipole datasets.
+        if getattr(self, 'enable_dipole_fdr', False):
+            self._setup_dipole_fdr()
+            enabled_features.append(
+                f"dipole moment FDR tracker ({self.dipole_fdr_output_period_ps:.1f} ps, "
+                f"τ_max={self.dipole_fdr_max_correlation_time_ps:.1f} ps)"
+            )
         
         # Set up HDF5 observable output if enabled
-        # NOTE: Must be set up AFTER trackers (energy, temperature) so they can be registered
+        # NOTE: Must be set up AFTER trackers (energy, temperature, dipole FDR) so they can be registered
         if getattr(self, 'enable_hdf5_output', False):
             self._setup_hdf5_output()
             enabled_features.append(f"HDF5 observable output ({self.hdf5_output_period_ps:.3f} ps)")
@@ -3393,11 +3418,6 @@ class CavityMDSimulation:
         if getattr(self, 'enable_adaptive_bath', False):
             self._setup_adaptive_bath_controller()
             enabled_features.append(f"adaptive bath controller (scale={self.adaptive_bath_amplitude_scale:.2f}, method={self.adaptive_bath_signal_temperature_method})")
-        
-        # Set up dipole moment FDR tracking if enabled
-        if getattr(self, 'enable_dipole_fdr', False):
-            self._setup_dipole_fdr()
-            enabled_features.append(f"dipole moment FDR tracker ({self.dipole_fdr_output_period_ps:.1f} ps, τ_max={self.dipole_fdr_max_correlation_time_ps:.1f} ps)")
         
         # Set up dipole response force if enabled
         if getattr(self, 'enable_dipole_response', False):
@@ -4019,7 +4039,8 @@ class CavityMDSimulation:
                 time_tracker=self.time_tracker,
                 output_period_ps=self.hdf5_output_period_ps,
                 enable_swmr=True,
-                runtime_ps=self.runtime_ps
+                runtime_ps=self.runtime_ps + self.time_offset_ps,
+                resume_append=self.resume_hdf5_append,
             )
             
             # Register energy tracker if available
@@ -4726,7 +4747,11 @@ class CavityMDSimulation:
 
             # Phase 1.5: Setup time tracker (must be after sim setup, before force setup)
             self.log_info("=== Phase 1.5: Setting up time tracker ===")
-            self.time_tracker = ElapsedTimeTracker(self.sim, self.runtime_ps)
+            self.time_tracker = ElapsedTimeTracker(
+                self.sim,
+                self.runtime_ps,
+                time_offset_ps=self.time_offset_ps,
+            )
             self.sim.operations.updaters.append(hoomd.update.CustomUpdater(
                 action=self.time_tracker, trigger=hoomd.trigger.Periodic(1)
             ))
@@ -4864,10 +4889,35 @@ class CavityMDSimulation:
                 print("DEBUG: Calling fkt_tracker.finalize_output()")
                 self.log_info("Finalizing F(k,t) logarithmic output...")
                 self.fkt_tracker.finalize_output()
-            else:
+            fkt_state_path = getattr(self, 'resume_fkt_state_file', None)
+            if fkt_state_path is None:
+                fkt_state_path = f"{self.name}-{self.replica}_fkt_state.npz"
+            if hasattr(self.fkt_tracker, 'save_state'):
+                try:
+                    self.fkt_tracker.save_state(Path(fkt_state_path))
+                    self.log_info(f"Saved F(k,t) resume state to {fkt_state_path}")
+                except Exception as error:
+                    self.log_error(f"Error saving F(k,t) resume state: {error}")
+            elif not hasattr(self.fkt_tracker, 'finalize_output'):
                 print("DEBUG: fkt_tracker has no finalize_output method")
         else:
             print("DEBUG: No fkt_tracker found or it's None")
+
+        if getattr(self, 'write_checkpoint_gsd', False):
+            checkpoint_path = getattr(self, 'checkpoint_gsd_file', None)
+            if checkpoint_path is None:
+                checkpoint_path = f"checkpoint_replica_{self.replica}.gsd"
+            try:
+                # Use HOOMD's GSD writer (accepts 'wb'/'xb'), not gsd.hoomd.open.
+                hoomd.write.GSD.write(
+                    self.sim.state,
+                    filename=str(checkpoint_path),
+                    mode='wb',
+                    filter=hoomd.filter.All(),
+                )
+                self.log_info(f"Wrote checkpoint GSD: {checkpoint_path}")
+            except Exception as error:
+                self.log_error(f"Error writing checkpoint GSD: {error}")
         
         # Restore original directory
         if hasattr(self, 'original_cwd'):

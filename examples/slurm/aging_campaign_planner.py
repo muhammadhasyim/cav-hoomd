@@ -43,7 +43,9 @@ DEFAULT_OUTPUT_BASE = Path(
 DEFAULT_LAMBDAS = (0.0, 0.01, 0.016667, 0.023333, 0.03)
 DEFAULT_TARGET_VALID = 500
 DEFAULT_MAX_REPLICA_ID = 999
-DEFAULT_REPLICAS_PER_TASK = 2
+# One replica per GPU is the production default; packing two is still allowed.
+DEFAULT_REPLICAS_PER_TASK = 1
+MAX_REPLICAS_PER_TASK = 2
 
 
 @dataclass(frozen=True)
@@ -178,7 +180,7 @@ def pair_replicas(
     tuple[PackedReplicaGroup, ...]
         Same-coupling groups, including a final singleton when necessary.
     """
-    if not 1 <= group_size <= DEFAULT_REPLICAS_PER_TASK:
+    if not 1 <= group_size <= MAX_REPLICAS_PER_TASK:
         raise ValueError("group_size must assign at most two replicas")
     values = tuple(replica_ids)
     if len(set(values)) != len(values):
@@ -239,10 +241,10 @@ def write_manifest(
     path.parent.mkdir(parents=True, exist_ok=True)
     lines = []
     for group in groups:
-        if len(group.replicas) > DEFAULT_REPLICAS_PER_TASK:
+        if len(group.replicas) > MAX_REPLICAS_PER_TASK:
             raise ValueError("manifest groups may contain at most two replicas")
         replicas = [str(replica) for replica in group.replicas]
-        replicas.extend([""] * (DEFAULT_REPLICAS_PER_TASK - len(replicas)))
+        replicas.extend([""] * (MAX_REPLICAS_PER_TASK - len(replicas)))
         lines.append(
             "\t".join(
                 [group.lambda_tag, f"{group.lam:g}", *replicas]
@@ -303,7 +305,7 @@ def build_campaign_plan(
         )
         selected = select_replicas_to_target(
             scan.complete_replicas,
-            scan.missing_replicas,
+            scan.fresh_run_replicas,
             target_valid=target_valid,
         )
         groups = pair_replicas(

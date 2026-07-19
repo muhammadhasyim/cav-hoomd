@@ -1,0 +1,36 @@
+name: aging_weak_lambda_preliminary
+data_root: /scratch/mh7373/projects/cav-hoomd/aging_weak_lambda
+staged_root: /scratch/mh7373/projects/cav-hoomd/aging_weak_lambda/derived/preliminary/layout
+analysis_dir: /scratch/mh7373/projects/cav-hoomd/aging_weak_lambda/derived/preliminary/analysis
+calibration: /scratch/mh7373/projects/cav-hoomd/aging_weak_lambda/analysis/pe_vs_T_calib_rf/potential_energy_vs_T_rf.txt
+relaxation_equilibrium: /scratch/mh7373/projects/cav-hoomd/average_trajectory/relaxation_times_vs_temperature_f01.txt
+figures_dir: /scratch/mh7373/projects/cav-hoomd/aging_weak_lambda/derived/preliminary/figures
+axis: lambda
+switch_time_ps: 200.0
+couplings:
+  - id: lambda0
+    lambda: 0.0
+    epsilon_tag: 0epos00
+    analysis_tag: lam0p0
+    run_dir: lambda0/coupling_000000e+00_switch_200.0ps
+  - id: lambda0p01
+    lambda: 0.01
+    epsilon_tag: 1eneg02
+    analysis_tag: lam0p01
+    run_dir: lambda0p01/coupling_100000e-07_switch_200.0ps
+  - id: lambda0p016667
+    lambda: 0.016667
+    epsilon_tag: 2eneg02
+    analysis_tag: lam0p016667
+    run_dir: lambda0p016667/coupling_166670e-07_switch_200.0ps
+  - id: lambda0p023333
+    lambda: 0.023333
+    epsilon_tag: 2eneg02
+    file_tag: 2eneg02_l2333
+    analysis_tag: lam0p023333
+    run_dir: lambda0p023333/coupling_233330e-07_switch_200.0ps
+  - id: lambda0p03
+    lambda: 0.03
+    epsilon_tag: 3eneg02
+    analysis_tag: lam0p03
+    run_dir: lambda0p03/coupling_300000e-07_switch_200.0ps

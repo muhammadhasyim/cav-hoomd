@@ -266,9 +266,10 @@ def calculate_waiting_time_relaxation(data_dict, coupling_info):
                 # Calculate waiting time: tw = (ref_num - 1) * 200 ps
                 waiting_time = (ref_num - 1) * 200.0
                 
-                # Find relaxation time (where F(k,t) = 1/e of normalized value)
-                rel_time = find_relaxation_time(time, fkt, target_value=1/np.exp(1), 
-                                                normalization_value=normalization_value)
+                # Find relaxation time (F/F0 = 0.1 criterion)
+                rel_time = find_relaxation_time(
+                    time, fkt, normalization_value=normalization_value
+                )
                     
                 if not np.isnan(rel_time):
                     waiting_times.append(waiting_time)

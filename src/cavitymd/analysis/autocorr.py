@@ -132,6 +132,7 @@ class FieldAutocorrelationTracker(hoomd.custom.Action):
         # For caching computed values
         self.current_computed_value = None
         self.current_timestep = -1
+        self.resume_from_existing_files = False
         
         print(f"FieldAutocorrelationTracker initialized for {observable}")
         print(f"  k-magnitude: {kmag}")
@@ -163,6 +164,51 @@ class FieldAutocorrelationTracker(hoomd.custom.Action):
         
         return np.array(points)
     
+    def restore_references(
+        self,
+        references: list[dict[str, Any]],
+        *,
+        last_reference_time: float | None,
+        last_output_time: float | None,
+    ) -> None:
+        """Restore reference frames after loading a serialized F(k,t) state."""
+        self.references = references
+        self.last_reference_time = last_reference_time
+        self.last_output_time = last_output_time
+        self.resume_from_existing_files = True
+        for ref_idx in range(len(self.references)):
+            ref_file = f"{self.output_prefix}_fkt_ref_{ref_idx:03d}.txt"
+            if Path(ref_file).is_file():
+                setattr(self, f"_log_file_created_{ref_idx}", True)
+
+    def save_state(self, path: Path) -> None:
+        """Serialize reference frames for a later runtime extension."""
+        from .fkt_state import save_fkt_state
+
+        save_fkt_state(
+            path,
+            references=self.references,
+            last_reference_time=self.last_reference_time,
+            last_output_time=self.last_output_time,
+            kmag=self.kmag,
+            reference_interval_ps=self.reference_interval_ps,
+        )
+
+    def load_state(self, path: Path) -> None:
+        """Restore reference frames from a serialized F(k,t) state file."""
+        from .fkt_state import load_fkt_state
+
+        payload = load_fkt_state(path)
+        self.restore_references(
+            payload["references"],
+            last_reference_time=payload["last_reference_time"],
+            last_output_time=payload["last_output_time"],
+        )
+
+    def _reference_file_exists(self, ref_idx: int) -> bool:
+        ref_file = f"{self.output_prefix}_fkt_ref_{ref_idx:03d}.txt"
+        return Path(ref_file).is_file()
+
     def _should_add_reference(self, current_time_ps: float) -> bool:
         """Check if we should add a new reference frame."""
         if self.last_reference_time is None:
@@ -367,16 +413,17 @@ class FieldAutocorrelationTracker(hoomd.custom.Action):
             # Create output file for this reference
             ref_idx = len(self.references) - 1
             ref_file = f"{self.output_prefix}_fkt_ref_{ref_idx:03d}.txt"
-            with open(ref_file, 'w') as f:
-                f.write("# F(k,t) correlation function\n")
-                f.write("# Reference time: {:.3f} ps\n".format(current_time_ps))
-                if self.log_time_spacing:
-                    f.write("# Using logarithmic time spacing\n")
-                    f.write("# Time range: {:.3f} - {:.1f} ps\n".format(self.min_log_time_ps, self.max_log_time_ps))
-                f.write("# lag_time_ps\tF(k,t)\n")
+            if not self._reference_file_exists(ref_idx):
+                with open(ref_file, 'w') as f:
+                    f.write("# F(k,t) correlation function\n")
+                    f.write("# Reference time: {:.3f} ps\n".format(current_time_ps))
+                    if self.log_time_spacing:
+                        f.write("# Using logarithmic time spacing\n")
+                        f.write("# Time range: {:.3f} - {:.1f} ps\n".format(self.min_log_time_ps, self.max_log_time_ps))
+                    f.write("# lag_time_ps\tF(k,t)\n")
             
             # Remove old references if we exceed max_references
-            if len(self.references) > self.max_references:
+            if len(self.references) > self.max_references and not self.resume_from_existing_files:
                 self.references.pop(0)
             
             print(f"Added F(k,t) reference {ref_idx} at t = {current_time_ps:.3f} ps")

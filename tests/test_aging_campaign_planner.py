@@ -68,11 +68,14 @@ def _write_complete_replica(
     for reference_index in range(max_references):
         reference_time_ps = reference_index * reference_interval_ps
         max_lag_ps = runtime_ps - reference_time_ps
+        rows = "0.0\t1.0\n"
+        if max_lag_ps > 0.0:
+            rows += f"{max_lag_ps:.3f}\t0.1\n"
         fkt_file_path(directory, replica, reference_index).write_text(
             "# F(k,t) correlation function\n"
             f"# Reference time: {reference_time_ps:.3f} ps\n"
             "# lag_time_ps\tF(k,t)\n"
-            f"0.0\t1.0\n{max_lag_ps:.3f}\t0.1\n",
+            f"{rows}",
             encoding="utf-8",
         )
 
@@ -319,9 +322,9 @@ def test_campaign_plan_summary_reports_valid_selected_and_groups(
             "needed": 2,
             "selected": 2,
             "selected_replicas": [0, 1],
-            "groups": 1,
-            "pairs": 1,
-            "singletons": 0,
+            "groups": 2,
+            "pairs": 0,
+            "singletons": 2,
         }
     ]
 
@@ -385,20 +388,20 @@ def test_submit_script_dry_run_generates_combined_packed_array(
     plan_directory = generated / "aging_packed_test-plan"
     manifest = plan_directory / "manifest.tsv"
     sbatch_file = plan_directory / "job.sbatch"
-    assert manifest.read_text(encoding="utf-8") == "0p03\t0.03\t0\t1\n"
+    assert manifest.read_text(encoding="utf-8") == "0p03\t0.03\t0\t\n0p03\t0.03\t1\t\n"
     sbatch_text = sbatch_file.read_text(encoding="utf-8")
-    assert "#SBATCH --array=0-0%24" in sbatch_text
+    assert "#SBATCH --array=0-1%24" in sbatch_text
     assert "#SBATCH --cpus-per-task=8" in sbatch_text
     assert "#SBATCH --mem=32G" in sbatch_text
-    assert "#SBATCH --time=06:00:00" in sbatch_text
+    assert "#SBATCH --time=02:00:00" in sbatch_text
     assert "#SBATCH --gres=gpu:1" in sbatch_text
     assert "#SBATCH --partition=l40s_public,h200_public,a100_chemistry" in sbatch_text
     assert "run_packed_aging_task.py" in sbatch_text
     assert "target=2" in result.stdout
     assert "needed=2" in result.stdout
-    assert "groups=1" in result.stdout
+    assert "groups=2" in result.stdout
     assert "gres:gpu:1" in result.stdout
-    assert "walltime=06:00:00 concurrent_tasks=24" in result.stdout
+    assert "walltime=02:00:00 concurrent_tasks=24" in result.stdout
     assert "Dry run: no job submitted" in result.stdout
 
     syntax = subprocess.run(
@@ -669,3 +672,38 @@ def test_submit_script_honors_partition_gres_account_overrides(
     assert "#SBATCH --time=06:00:00" in sbatch_text
     assert "partition:l40s_public,h100" in result.stdout
     assert "gres:gpu:1" in result.stdout
+
+
+def test_build_campaign_plan_treats_legacy_2500ps_replicas_as_invalid(
+    tmp_path: Path,
+) -> None:
+    lam = 0.03
+    directory = run_dir(tmp_path, lam)
+    directory.mkdir(parents=True)
+    _write_complete_replica(
+        directory,
+        0,
+        min_bytes=5_000_000,
+        runtime_ps=2500.0,
+        reference_interval_ps=200.0,
+        max_references=13,
+    )
+    write_protocol_marker(
+        directory,
+        replica=0,
+        lam=lam,
+        switch_time_ps=200.0,
+        seed=1,
+        provenance=TEST_PROVENANCE,
+    )
+
+    plan = build_campaign_plan(
+        output_base=tmp_path,
+        lambdas=[lam],
+        target_valid=1,
+        max_replica_id=0,
+    )
+
+    assert plan.lambda_plans[0].scan.complete_replicas == ()
+    assert plan.lambda_plans[0].scan.partial_replicas == (0,)
+    assert plan.lambda_plans[0].selected_replicas == (0,)

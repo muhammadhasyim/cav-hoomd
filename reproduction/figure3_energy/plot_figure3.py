@@ -135,7 +135,87 @@ def moving_average(x: np.ndarray, window: int) -> np.ndarray:
     return smoothed[: len(x)]
 
 
-def load_figure3_data(base_dir: Path, coupling: float, t_switch: float = 200.0, profile=None):
+def apply_display_smoothing(
+    data: dict,
+    *,
+    smooth_window: int = 1,
+    smooth_window_total: int = 1,
+    smooth_harmonic: bool = False,
+) -> dict:
+    """Return a copy with display-only moving averages applied to noisy channels."""
+    display = dict(data)
+    display["dV_harm"] = (
+        moving_average(data["dV_harm"], smooth_window)
+        if smooth_harmonic
+        else data["dV_harm"]
+    )
+    display["dV_ljc"] = moving_average(data["dV_ljc"], smooth_window)
+    display["dV_tot"] = moving_average(data["dV_tot"], smooth_window_total)
+    if data.get("dV_lj") is not None:
+        display["dV_lj"] = moving_average(data["dV_lj"], smooth_window)
+    if data.get("dV_coul") is not None:
+        display["dV_coul"] = moving_average(data["dV_coul"], smooth_window)
+    return display
+
+
+def _load_analysis_energy_uncertainty(
+    path: Path,
+    master_t: np.ndarray,
+    *,
+    t_switch: float,
+) -> dict[str, np.ndarray] | None:
+    """Load replica SEM columns from avg_energies CSV when present."""
+    import csv
+
+    with open(path, encoding="utf-8") as fh:
+        reader = csv.DictReader(fh)
+        fieldnames = reader.fieldnames or []
+        if "coulombic_std_ha" not in fieldnames:
+            return None
+        rows = list(reader)
+
+    if not rows:
+        return None
+
+    time_ps = np.asarray([float(row["time_ps"]) for row in rows], dtype=float)
+    harmonic_std = np.asarray([float(row["harmonic_std_ha"]) for row in rows], dtype=float)
+    lj_std = np.asarray([float(row["lj_std_ha"]) for row in rows], dtype=float)
+    coul_std = np.asarray([float(row["coulombic_std_ha"]) for row in rows], dtype=float)
+    lj_coul_std = np.asarray([float(row["lj_coul_std_ha"]) for row in rows], dtype=float)
+
+    aligned = np.column_stack(
+        [
+            time_ps,
+            harmonic_std,
+            lj_std,
+            coul_std,
+            lj_coul_std,
+        ]
+    )
+    aligned = align_to_master(master_t, aligned)
+    total_std = np.sqrt(
+        aligned[:, 1] ** 2 + aligned[:, 2] ** 2 + aligned[:, 3] ** 2
+    )
+    pre = master_t < t_switch
+    if pre.any():
+        # Baseline subtraction is constant; replica std of ΔV equals component std.
+        pass
+    return {
+        "dV_harm_sem": aligned[:, 1],
+        "dV_lj_sem": aligned[:, 2],
+        "dV_coul_sem": aligned[:, 3],
+        "dV_ljc_sem": aligned[:, 4],
+        "dV_tot_sem": total_std,
+    }
+
+
+def load_figure3_data(
+    base_dir: Path,
+    coupling: float,
+    t_switch: float = 200.0,
+    profile=None,
+    analysis_energy_csv: Path | None = None,
+):
     tag = coupling_tag_for(coupling, profile=profile)
     pe_file = base_dir / f"coupling_{tag}_averaged_potential_energy.txt"
     fict_file = base_dir / f"coupling_{tag}_averaged_fictive_temperatures.txt"
@@ -167,7 +247,7 @@ def load_figure3_data(base_dir: Path, coupling: float, t_switch: float = 200.0, 
     dV_tot = U_tot - eq_tot
 
     # Combined LJ+Coulomb deviation: prefer an explicit combined column, else
-    # sum the separate LJ and Coulomb columns (Coulomb is zero for these runs).
+    # sum the separate LJ and Coulomb columns.
     if "lj_coul_ha" in pe_cols:
         U_ljc = interp_nans(pe_cols["lj_coul_ha"])
         dV_ljc = U_ljc - np.mean(U_ljc[pre])
@@ -175,6 +255,18 @@ def load_figure3_data(base_dir: Path, coupling: float, t_switch: float = 200.0, 
         U_lj = interp_nans(pe_cols["lj_ha"])
         U_coul = interp_nans(pe_cols.get("coul_ha", np.zeros_like(U_lj)))
         dV_ljc = (U_lj - np.mean(U_lj[pre])) + (U_coul - np.mean(U_coul[pre]))
+
+    dV_lj = None
+    dV_coul = None
+    if "lj_ha" in pe_cols and "coul_ha" in pe_cols:
+        U_lj_only = interp_nans(pe_cols["lj_ha"])
+        U_coul_only = interp_nans(pe_cols["coul_ha"])
+        # When Coulomb is omitted (LJ-only structural proxy), keep a single
+        # LJ+Coulomb curve rather than plotting a flat zero Coulomb channel.
+        if float(np.nanmax(np.abs(pe_cols["coul_ha"]))) > 1e-12:
+            dV_lj = U_lj_only - np.mean(U_lj_only[pre])
+            dV_coul = U_coul_only - np.mean(U_coul_only[pre])
+            dV_ljc = dV_lj + dV_coul
 
     T_v = fict_a[:, 2]
     T_s = fts_a[:, 1]
@@ -189,15 +281,26 @@ def load_figure3_data(base_dir: Path, coupling: float, t_switch: float = 200.0, 
     else:
         T_k = np.full(len(t), 100.0)
 
-    return {
+    result = {
         "t": t,
         "dV_harm": dV_harm,
         "dV_ljc": dV_ljc,
+        "dV_lj": dV_lj,
+        "dV_coul": dV_coul,
         "dV_tot": dV_tot,
         "T_v": T_v,
         "T_s": T_s,
         "T_k": T_k,
     }
+    if analysis_energy_csv is not None and analysis_energy_csv.is_file():
+        unc = _load_analysis_energy_uncertainty(
+            analysis_energy_csv,
+            t,
+            t_switch=t_switch,
+        )
+        if unc is not None:
+            result.update(unc)
+    return result
 
 
 # Reference paper panels are individual near-square figures (~1024x844 px,
@@ -207,10 +310,82 @@ def load_figure3_data(base_dir: Path, coupling: float, t_switch: float = 200.0, 
 # saving them as two separate bbox_inches="tight" files let each panel's
 # content (e.g. the inset in (c)) crop differently and drift out of sync.
 PANEL_FIGSIZE = (4.1, 3.38)  # inches; 4.1 / 3.38 = 1.213 (standalone single-panel use)
-LABEL_FONTSIZE = 18
-TICK_FONTSIZE = 13
-LEGEND_FONTSIZE = 11.5
+COMBINED_FIGSIZE = (9.6, 3.55)
+XLABEL_FONTSIZE = 16
+YLABEL_FONTSIZE = 18
+LABEL_FONTSIZE = YLABEL_FONTSIZE  # legacy alias
+TICK_FONTSIZE = 12
+YTICK_FONTSIZE = 13.5
+LEGEND_FONTSIZE = 11
 PANEL_LETTER_FONTSIZE = 22
+LINEWIDTH = 1.8
+
+
+def _register_matplotlib_cm_fonts() -> str:
+    """Register matplotlib-bundled Computer Modern TTFs; return family name."""
+    from matplotlib import font_manager
+
+    ttf_dir = Path(matplotlib.__file__).resolve().parent / "mpl-data" / "fonts" / "ttf"
+    roman = ttf_dir / "cmr10.ttf"
+    if not roman.is_file():
+        raise FileNotFoundError(f"matplotlib cmr10.ttf not found at {roman}")
+    for fname in ("cmr10.ttf", "cmmi10.ttf", "cmsy10.ttf", "cmtt10.ttf"):
+        path = ttf_dir / fname
+        if path.is_file():
+            font_manager.fontManager.addfont(str(path))
+    return "cmr10"
+
+
+def setup_figure3_fonts(*, prefer_illustrator: bool = True) -> bool:
+    """Configure Computer Modern fonts for Figure 3.
+
+    Tries Illustrator-safe CMU OpenType first, then matplotlib's bundled
+    ``cmr10`` + mathtext CM (needed when ``latex.fmt`` / CMU fonts are missing).
+    Always keeps mathtext ``$...$`` labels.
+    """
+    plt.style.use("classic")
+    if prefer_illustrator and setup_illustrator_safe_fonts():
+        return True
+    try:
+        cm_family = _register_matplotlib_cm_fonts()
+    except OSError:
+        cm_family = "DejaVu Serif"
+    plt.rcParams.update(
+        {
+            "text.usetex": False,
+            "font.family": cm_family,
+            "font.serif": [cm_family, "Computer Modern Roman", "DejaVu Serif"],
+            "mathtext.fontset": "cm",
+            "axes.formatter.use_mathtext": True,
+            "font.size": 14,
+            "axes.labelsize": YLABEL_FONTSIZE,
+            "xtick.labelsize": TICK_FONTSIZE,
+            "ytick.labelsize": YTICK_FONTSIZE,
+            "legend.fontsize": LEGEND_FONTSIZE,
+            "axes.linewidth": 1.2,
+            "axes.unicode_minus": False,
+            "figure.dpi": 300,
+            "savefig.dpi": 300,
+            "pdf.fonttype": 42,
+            "ps.fonttype": 42,
+            "legend.framealpha": 0.95,
+            "axes.axisbelow": True,
+        }
+    )
+    return True
+
+
+def _style_figure3_axes(ax) -> None:
+    """Inward ticks and grid matching the paper screenshot."""
+    ax.grid(True, alpha=0.3, linestyle="-")
+    ax.tick_params(
+        axis="x", which="major", direction="in", top=True, labelsize=TICK_FONTSIZE,
+    )
+    ax.tick_params(
+        axis="y", which="major", direction="in", right=True, labelsize=YTICK_FONTSIZE,
+    )
+    for spine in ax.spines.values():
+        spine.set_linewidth(1.2)
 
 
 def _with_ext(output_path: Path, ext: str) -> Path:
@@ -277,9 +452,16 @@ def draw_stacked_figure3(
     t = data["t"]
     mask = t <= t_max
 
-    dV_harm = moving_average(data["dV_harm"], smooth_window)
-    dV_ljc = moving_average(data["dV_ljc"], smooth_window)
-    dV_tot = moving_average(data["dV_tot"], smooth_window_total)
+    display = apply_display_smoothing(
+        data,
+        smooth_window=smooth_window,
+        smooth_window_total=smooth_window_total,
+    )
+    dV_harm = display["dV_harm"]
+    dV_ljc = display["dV_ljc"]
+    dV_tot = display["dV_tot"]
+    dV_lj = display.get("dV_lj")
+    dV_coul = display.get("dV_coul")
     t_v = data["T_v"]
     t_s = data["T_s"]
 
@@ -297,6 +479,14 @@ def draw_stacked_figure3(
             "color": "red",
             "ref": 0.0,
             "ref_style": {"color": "0.5", "ls": ":", "lw": 1, "alpha": 0.8},
+            "overlay": (
+                [
+                    (dV_lj[mask], "darkred", latex_safe(r"$\Delta V_{\mathrm{LJ}}$", "ΔV LJ", use_latex)),
+                    (dV_coul[mask], "orange", latex_safe(r"$\Delta V_{\mathrm{Coul}}$", "ΔV Coul", use_latex)),
+                ]
+                if dV_lj is not None and dV_coul is not None
+                else None
+            ),
         },
         {
             "ylabel": latex_safe(r"$\Delta V_{\mathrm{tot}}$ (Ha)", "ΔV total (Ha)", use_latex),
@@ -331,6 +521,11 @@ def draw_stacked_figure3(
     t_plot = t[mask]
     for ax, panel in zip(axes, panels):
         ax.plot(t_plot, panel["values"], color=panel["color"], lw=1.8)
+        overlay = panel.get("overlay")
+        if overlay:
+            for values, color, label in overlay:
+                ax.plot(t_plot, values, color=color, lw=1.4, ls="--", alpha=0.9, label=label)
+            ax.legend(loc="best", fontsize=8, frameon=True)
         ax.axhline(panel["ref"], **panel["ref_style"])
         ax.axvline(t_switch, color="k", ls="--", lw=1, alpha=0.5)
         ax.set_ylabel(panel["ylabel"], fontsize=STACKED_LABEL_FONTSIZE)
@@ -355,17 +550,59 @@ def draw_energy_panel(ax, data: dict, t_switch: float, t_max: float, use_latex: 
     t = data["t"]
     mask = t <= t_max
 
-    dV_harm = moving_average(data["dV_harm"], smooth_window)
-    dV_ljc = moving_average(data["dV_ljc"], smooth_window)
-    dV_tot = moving_average(data["dV_tot"], smooth_window_total)
+    display = apply_display_smoothing(
+        data,
+        smooth_window=smooth_window,
+        smooth_window_total=smooth_window_total,
+    )
+    dV_harm = display["dV_harm"]
+    dV_ljc = display["dV_ljc"]
+    dV_tot = display["dV_tot"]
+    dV_lj = display.get("dV_lj")
+    dV_coul = display.get("dV_coul")
 
-    ax.plot(t[mask], dV_harm[mask], color="blue", lw=1.8, label="Harmonic")
-    ax.plot(t[mask], dV_ljc[mask], color="red", lw=1.8, label="LJ+Coulomb")
-    ax.plot(t[mask], dV_tot[mask], color="green", lw=3.0, label="Total")
+    ax.plot(t[mask], dV_harm[mask], color="blue", lw=LINEWIDTH, label="Harmonic")
+    ax.plot(t[mask], dV_ljc[mask], color="red", lw=LINEWIDTH, label="LJ+Coulomb")
+    if data.get("dV_ljc_sem") is not None:
+        sem = data["dV_ljc_sem"]
+        ax.fill_between(
+            t[mask],
+            dV_ljc[mask] - sem[mask],
+            dV_ljc[mask] + sem[mask],
+            color="red",
+            alpha=0.15,
+            linewidth=0,
+            label="LJ+Coulomb ± SEM",
+        )
+    if dV_lj is not None and dV_coul is not None:
+        ax.plot(t[mask], dV_lj[mask], color="darkred", lw=LINEWIDTH, ls="--", label="LJ")
+        ax.plot(t[mask], dV_coul[mask], color="orange", lw=LINEWIDTH, ls="--", label="Coulomb")
+        if data.get("dV_coul_sem") is not None:
+            sem_coul = data["dV_coul_sem"]
+            ax.fill_between(
+                t[mask],
+                dV_coul[mask] - sem_coul[mask],
+                dV_coul[mask] + sem_coul[mask],
+                color="orange",
+                alpha=0.12,
+                linewidth=0,
+            )
+    ax.plot(t[mask], dV_tot[mask], color="green", lw=LINEWIDTH, label="Total")
+    if data.get("dV_tot_sem") is not None:
+        sem_tot = data["dV_tot_sem"]
+        ax.fill_between(
+            t[mask],
+            dV_tot[mask] - sem_tot[mask],
+            dV_tot[mask] + sem_tot[mask],
+            color="green",
+            alpha=0.12,
+            linewidth=0,
+        )
     ax.axhline(0, color="0.4", ls="--", lw=1, label="Equilibrium")
     ax.axvline(t_switch, color="red", ls=":", lw=1.5, alpha=0.8)
-    ax.set_xlabel(latex_safe(r"$t$ (ps)", "t (ps)", use_latex), fontsize=LABEL_FONTSIZE)
-    ax.set_ylabel(latex_safe(r"$\Delta V$ (Ha)", "ΔV (Ha)", use_latex), fontsize=LABEL_FONTSIZE)
+    ax.set_xlabel(latex_safe(r"$t$ (ps)", "t (ps)", use_latex), fontsize=XLABEL_FONTSIZE)
+    # Paper uses arbitrary units for ΔV; values are still Hartree internally.
+    ax.set_ylabel(latex_safe(r"$\Delta V$ (a.u.)", "ΔV (a.u.)", use_latex), fontsize=YLABEL_FONTSIZE)
     ax.set_xlim(0, t_max)
 
     # Legend sits upper-right (empty region at large t), so the peak -- which
@@ -381,10 +618,21 @@ def draw_energy_panel(ax, data: dict, t_switch: float, t_max: float, use_latex: 
     span = v_max - v_min
     ax.set_ylim(v_min - 0.10 * span, v_max + 0.18 * span)
 
-    ax.tick_params(labelsize=TICK_FONTSIZE)
-    ax.grid(True, alpha=0.3)
+    _style_figure3_axes(ax)
     ax.legend(fontsize=LEGEND_FONTSIZE, loc="upper right", framealpha=0.95,
               handlelength=1.3, labelspacing=0.3, borderpad=0.35)
+    if smooth_window > 1 or smooth_window_total > 1:
+        ax.text(
+            0.02,
+            0.02,
+            f"display smooth: {smooth_window} ps"
+            + (f" (total {smooth_window_total} ps)" if smooth_window_total != smooth_window else ""),
+            transform=ax.transAxes,
+            fontsize=8,
+            color="0.35",
+            ha="left",
+            va="bottom",
+        )
 
 
 def draw_temperature_panel(ax, data: dict, t_switch: float, t_max: float, use_latex: bool,
@@ -392,43 +640,46 @@ def draw_temperature_panel(ax, data: dict, t_switch: float, t_max: float, use_la
     t = data["t"]
     mask = t <= t_max
 
-    ax.plot(t[mask], data["T_v"][mask], color="blue", lw=1.8,
+    ax.plot(t[mask], data["T_v"][mask], color="blue", lw=LINEWIDTH,
             label=latex_safe(r"$T_v$ Harmonic", "T_v Harmonic", use_latex))
-    ax.plot(t[mask], data["T_s"][mask], color="red", lw=1.8,
+    ax.plot(t[mask], data["T_s"][mask], color="red", lw=LINEWIDTH,
             label=latex_safe(r"$T_s$ LJ+Coulomb", "T_s LJ+Coulomb", use_latex))
-    ax.plot(t[mask], data["T_k"][mask], color="orange", lw=1.8,
+    ax.plot(t[mask], data["T_k"][mask], color="orange", lw=LINEWIDTH,
             label=latex_safe(r"$T_k$ Kinetic", "T_k Kinetic", use_latex))
     ax.axhline(100, color="0.4", ls="--", lw=1,
                label=latex_safe(r"$100$ K", "100 K", use_latex))
     ax.axvline(t_switch, color="red", ls=":", lw=1.5, alpha=0.8)
-    ax.set_xlabel(latex_safe(r"$t$ (ps)", "t (ps)", use_latex), fontsize=LABEL_FONTSIZE)
-    ax.set_ylabel(latex_safe(r"$T$ (K)", "T (K)", use_latex), fontsize=LABEL_FONTSIZE)
+    ax.set_xlabel(latex_safe(r"$t$ (ps)", "t (ps)", use_latex), fontsize=XLABEL_FONTSIZE)
+    ax.set_ylabel(latex_safe(r"$T$ (K)", "T (K)", use_latex), fontsize=YLABEL_FONTSIZE)
     ax.set_xlim(0, t_max)
     if auto_ylim:
         vals = np.concatenate([data["T_v"][mask], data["T_s"][mask], data["T_k"][mask]])
         vals = vals[np.isfinite(vals)]
-        v_min = min(float(np.min(vals)), 100.0)
         v_max = max(float(np.max(vals)), 100.0)
-        span = max(v_max - v_min, 10.0)
-        ax.set_ylim(v_min - 0.15 * span, v_max + 0.15 * span)
+        span = max(v_max - 100.0, 10.0)
+        # Paper framing: baseline at bottom of the range (ymin = 0).
+        ax.set_ylim(0.0, v_max + 0.15 * span)
     else:
-        ax.set_ylim(0, 600.0)
-    ax.tick_params(labelsize=TICK_FONTSIZE)
-    ax.grid(True, alpha=0.3)
+        ax.set_ylim(0, 800.0)
+    _style_figure3_axes(ax)
     ax.legend(fontsize=LEGEND_FONTSIZE, loc="upper left", framealpha=0.95,
               handlelength=1.3, labelspacing=0.3, borderpad=0.35)
 
-    # Inset zoom on structural/kinetic recovery
+    # Inset zoom on structural/kinetic recovery (paper: 250-750 ps, 70-100 K)
     inset = inset_axes(ax, width="36%", height="36%", loc="upper right",
                         bbox_to_anchor=(0.02, -0.04, 0.98, 1.0), bbox_transform=ax.transAxes)
     inset.plot(t[mask], data["T_s"][mask], color="red", lw=1.5)
     inset.plot(t[mask], data["T_k"][mask], color="orange", lw=1.5)
     inset.axhline(100, color="0.4", ls="--", lw=1)
     inset.axvline(t_switch, color="red", ls=":", lw=1, alpha=0.8)
-    inset.set_xlim(200, 750)
-    inset.set_ylim(80, 100)
+    inset.set_xlim(250, 750)
+    inset.set_ylim(70, 100)
+    inset.set_xticks([250, 500, 750])
+    inset.set_yticks([70, 80, 90, 100])
     inset.grid(True, alpha=0.3)
-    inset.tick_params(labelsize=9)
+    inset.tick_params(labelsize=9, direction="in")
+    for spine in inset.spines.values():
+        spine.set_linewidth(1.0)
     mark_inset(ax, inset, loc1=2, loc2=4, fc="none", ec="0.5", ls="--", alpha=0.7)
 
 
@@ -455,7 +706,9 @@ def plot_combined_figure3(data: dict, output_path: Path, t_switch: float,
                            t_max_b: float, t_max_c: float, use_latex: bool,
                            smooth_window: int = 1, smooth_window_total: int = 1,
                            auto_ylim: bool = False, auto_ylim_energy: bool = False):
-    fig, (ax_b, ax_c) = plt.subplots(1, 2, figsize=(9.6, 3.6), gridspec_kw={"wspace": 0.30})
+    fig, (ax_b, ax_c) = plt.subplots(
+        1, 2, figsize=COMBINED_FIGSIZE, gridspec_kw={"wspace": 0.28},
+    )
 
     draw_energy_panel(ax_b, data, t_switch, t_max_b, use_latex, smooth_window, smooth_window_total,
                       auto_ylim=auto_ylim_energy)
@@ -464,7 +717,8 @@ def plot_combined_figure3(data: dict, output_path: Path, t_switch: float,
     _panel_label(ax_b, "(b)")
     _panel_label(ax_c, "(c)")
 
-    fig.tight_layout(rect=(0.03, 0, 1, 1), w_pad=2.2)
+    # Avoid tight_layout: inset_axes is incompatible and can shift panel boxes.
+    fig.subplots_adjust(left=0.08, right=0.99, bottom=0.16, top=0.90, wspace=0.28)
     _save_fig(fig, output_path)
 
 
@@ -473,21 +727,11 @@ def plot_figure3(data: dict, output_path: Path, t_switch: float = 200.0,
                  smooth_window: int = 1, smooth_window_total: int = 1, combined: bool = True,
                  auto_ylim: bool = False, auto_ylim_energy: bool = False,
                  layout: str = "paper", coupling_label: str | None = None):
-    if use_latex:
-        # Uses the real CMU-Unicode Computer Modern OpenType fonts directly
-        # (no external LaTeX/dvi subprocess), embedded as fully-subset
-        # CID/CFF OpenType with a complete ToUnicode map -- this is what
-        # actually makes the text live/selectable/editable in Adobe
-        # Illustrator, unlike text.usetex=True's Type 1 "Builtin" encoding.
-        use_latex = setup_illustrator_safe_fonts()
-        if not use_latex:
-            raise RuntimeError(
-                "Illustrator-safe Computer Modern fonts unavailable. "
-                "Fix the CMU-Unicode font install rather than falling back to mathtext."
-            )
-    else:
-        from latex_config_adobe import _apply_fallback_fonts
-        _apply_fallback_fonts()
+    # Prefer Illustrator-safe CMU OpenType; otherwise matplotlib cmr10 + mathtext CM.
+    # Always keep math-mode label strings (``latex_safe`` with use_latex=True).
+    prefer_illustrator = bool(use_latex)
+    setup_figure3_fonts(prefer_illustrator=prefer_illustrator)
+    use_latex = True
 
     if layout == "stacked":
         draw_stacked_figure3(
@@ -526,9 +770,15 @@ def main():
                         help="x-axis upper limit (ps) for panel (b)")
     parser.add_argument("--t-switch", type=float, default=200.0)
     parser.add_argument("--smooth-window", type=int, default=1,
-                        help="Moving-average window (in samples) for Harmonic/LJ+Coulomb curves (1 = no smoothing)")
+                        help="Display-only moving-average window (samples) for LJ+Coulomb (1 = none)")
     parser.add_argument("--smooth-window-total", type=int, default=1,
-                        help="Moving-average window (in samples) for the Total energy curve (1 = no smoothing)")
+                        help="Display-only moving-average window (samples) for Total (1 = none)")
+    parser.add_argument(
+        "--analysis-energy-csv",
+        type=Path,
+        default=None,
+        help="Optional avg_energies CSV for replica SEM bands (default: profile analysis_dir)",
+    )
     parser.add_argument("--no-latex", action="store_true")
     parser.add_argument("--layout", choices=("paper", "stacked"), default="paper",
                         help="Figure layout: paper (2-panel b/c) or stacked (5-panel aging style)")
@@ -561,7 +811,22 @@ def main():
             out_dir = ARCHIVE / "final_production_run/figures/2026-01-29"
             args.output = out_dir / f"figure3_coupling_{lam_str}"
 
-    data = load_figure3_data(base_dir, coupling, args.t_switch, profile=profile)
+    analysis_csv = args.analysis_energy_csv
+    if analysis_csv is None and profile.analysis_dir is not None:
+        entry = profile.entry_for_axis_value(coupling)
+        tag = getattr(entry, "analysis_tag", None)
+        if tag:
+            candidate = Path(profile.analysis_dir) / f"avg_energies_{tag}.csv"
+            if candidate.is_file():
+                analysis_csv = candidate
+
+    data = load_figure3_data(
+        base_dir,
+        coupling,
+        args.t_switch,
+        profile=profile,
+        analysis_energy_csv=analysis_csv,
+    )
 
     t_max = args.t_max
     if args.layout == "stacked" and t_max == 2000.0:

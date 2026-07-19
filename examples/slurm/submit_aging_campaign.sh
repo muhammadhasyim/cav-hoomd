@@ -6,10 +6,10 @@ set -euo pipefail
 LAMBDAS=(0.0 0.01 0.016667 0.023333 0.03)
 TARGET_VALID=500
 MAX_REPLICA_ID=999
-REPLICAS_PER_TASK=2
+REPLICAS_PER_TASK=1
 # Match Torch gpu48 MaxTRESPU (show_slurm_qos: gres/gpu=24).
 CONCURRENT_TASKS=24
-WALLTIME="06:00:00"
+WALLTIME="02:00:00"
 CPUS=8
 MEMORY="32G"
 # Comma-separated GPU partitions valid for torch_pr_283_chemistry with gpu:1.
@@ -31,7 +31,7 @@ GENERATED_DIR="${SCRIPT_DIR}/generated"
 LOG_DIR="${SCRIPT_DIR}/logs"
 MINIFORGE="/scratch/mh7373/miniforge3"
 CONDA_ENV="hoomd"
-INPUT_GSD="${EXAMPLES_DIR}/init-0.gsd"
+INPUT_GSD="${CAV_HOOMD_DIR}/aging_weak_lambda_ic_library/init-500-from-ic-library.gsd"
 PACKED_RUNNER="${SCRIPT_DIR}/run_packed_aging_task.py"
 
 usage() {

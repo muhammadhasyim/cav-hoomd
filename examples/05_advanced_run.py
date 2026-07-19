@@ -125,13 +125,19 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
                          switch_time_ps=None, decay_time_constant_ps=None, damping_ratio=0.0,
                          coupling_variant_type=None,
                          enable_dipole_autocorr=False, dipole_ref_interval=1.0, dipole_max_refs=10, 
-                         dipole_output_period_ps=1.0, error_tolerance=5.0, initial_fraction=1e-5, 
+                         dipole_output_period_ps=1.0,
+                         enable_dipole_fdr=False, dipole_fdr_output_period_ps=0.1,
+                         dipole_fdr_max_correlation_time_ps=100.0,
+                         error_tolerance=5.0, initial_fraction=1e-5, 
                          time_constant_ps=50.0, zero_momentum_enabled=False, zero_momentum_period_ps=1.0,
                          input_gsd='init-0.gsd',
                          enable_temp_tracker=True, enable_hdf5_output=True,
                          hdf5_output_period_ps=0.01,
                          electrostatics_method='pppm', pppm_order=6, pppm_grid=32,
-                         eps_rf=0.0, coulomb_rcut=15.0):
+                         eps_rf=0.0, coulomb_rcut=15.0,
+                         time_offset_ps=0.0, resume_hdf5_append=False,
+                         write_checkpoint_gsd=False, checkpoint_gsd_file=None,
+                         resume_fkt_state_file=None):
     """
     Run a single experiment using the CavityMDSimulation class from the plugin.
     """
@@ -255,6 +261,9 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
             dipole_reference_interval_ps=dipole_ref_interval,
             dipole_max_references=dipole_max_refs,
             dipole_output_period_ps=dipole_output_period_ps,
+            enable_dipole_fdr=enable_dipole_fdr,
+            dipole_fdr_output_period_ps=dipole_fdr_output_period_ps,
+            dipole_fdr_max_correlation_time_ps=dipole_fdr_max_correlation_time_ps,
             initial_fraction=initial_fraction,
             time_constant_ps=time_constant_ps,
             zero_momentum_enabled=zero_momentum_enabled,
@@ -267,6 +276,11 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
             pppm_grid=pppm_grid,
             eps_rf=eps_rf,
             coulomb_rcut=coulomb_rcut,
+            time_offset_ps=time_offset_ps,
+            resume_hdf5_append=resume_hdf5_append,
+            write_checkpoint_gsd=write_checkpoint_gsd,
+            checkpoint_gsd_file=checkpoint_gsd_file,
+            resume_fkt_state_file=resume_fkt_state_file,
         )
         
         # Run the simulation
@@ -389,6 +403,14 @@ def main():
                        help='Dipole autocorrelation maximum references (default: 10)')
     parser.add_argument('--dipole-output-period-ps', type=float, default=1.0, 
                        help='Dipole autocorrelation output period in ps (default: 1.0)')
+
+    # Dipole FDR / IR trajectory logging
+    parser.add_argument('--enable-dipole-fdr', action='store_true',
+                       help='Enable dipole moment FDR tracker (HDF5 dipole trajectory)')
+    parser.add_argument('--dipole-fdr-output-period-ps', type=float, default=0.1,
+                       help='Dipole FDR sampling period in ps (default: 0.1)')
+    parser.add_argument('--dipole-fdr-max-correlation-time-ps', type=float, default=100.0,
+                       help='Maximum dipole autocorrelation window in ps (default: 100.0)')
     
     parser.add_argument('--max-energy-output-time', type=float, 
                        help='Maximum energy output time in ps (default: no limit)')
@@ -408,6 +430,16 @@ def main():
                        help='Disable HDF5 observable writer output')
     parser.add_argument('--hdf5-output-period-ps', type=float, default=0.01,
                        help='HDF5 observable writer output period in ps (default: 0.01)')
+    parser.add_argument('--time-offset-ps', type=float, default=0.0,
+                       help='Laboratory-time offset added to elapsed segment time (default: 0.0)')
+    parser.add_argument('--resume-hdf5-append', action='store_true',
+                       help='Append observables to an existing HDF5 file instead of truncating')
+    parser.add_argument('--write-checkpoint-gsd', action='store_true',
+                       help='Write a single-frame checkpoint GSD at the end of the run')
+    parser.add_argument('--checkpoint-gsd-file', type=str,
+                       help='Destination path for the checkpoint GSD (default: checkpoint_replica_<N>.gsd)')
+    parser.add_argument('--resume-fkt-state-file', type=str,
+                       help='Load serialized F(k,t) reference state before continuing production')
 
     # Electrostatics backend
     parser.add_argument(
@@ -580,6 +612,9 @@ def main():
             dipole_ref_interval=args.dipole_ref_interval,
             dipole_max_refs=args.dipole_max_refs,
             dipole_output_period_ps=args.dipole_output_period_ps,
+            enable_dipole_fdr=args.enable_dipole_fdr,
+            dipole_fdr_output_period_ps=args.dipole_fdr_output_period_ps,
+            dipole_fdr_max_correlation_time_ps=args.dipole_fdr_max_correlation_time_ps,
             error_tolerance=args.error_tolerance,
             initial_fraction=args.initial_fraction,
             time_constant_ps=args.time_constant_ps,
@@ -595,6 +630,11 @@ def main():
             pppm_grid=args.pppm_grid,
             eps_rf=args.eps_rf,
             coulomb_rcut=args.coulomb_rcut,
+            time_offset_ps=args.time_offset_ps,
+            resume_hdf5_append=args.resume_hdf5_append,
+            write_checkpoint_gsd=args.write_checkpoint_gsd,
+            checkpoint_gsd_file=args.checkpoint_gsd_file,
+            resume_fkt_state_file=args.resume_fkt_state_file,
         )
         
         if success:

@@ -17,6 +17,7 @@ import glob
 import shutil
 import numpy as np
 import matplotlib
+import matplotlib as mpl
 matplotlib.use('Agg')  # Use non-interactive backend for remote servers
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -25,6 +26,7 @@ import re
 from scipy.interpolate import interp1d
 import matplotlib.cm as cm
 from matplotlib.colors import Normalize
+from matplotlib.ticker import MultipleLocator
 import subprocess
 from datetime import datetime
 
@@ -422,11 +424,12 @@ def compute_kww_relaxation_map(data_dict, coupling_names=None, target=KWW_TARGET
 
     return results
 
-def find_relaxation_time(time, fkt, target_value=1.0 / np.e, normalization_value=None):
-    """Find the relaxation time where F(k,t) = target_value.
+def find_relaxation_time(time, fkt, target_value=0.1, normalization_value=None):
+    """Find the relaxation time where F(k,t)/F(k,0) = target_value.
 
-    The default ``target_value`` is the 1/e criterion (F(k,t) = 1/e ~ 0.368),
-    matching the labels used throughout this module.
+    The default ``target_value`` is 0.1 (paper structural criterion), matching
+    ``direct_material_time`` and the TN calibration table
+    ``relaxation_times_vs_temperature_f01.txt``.
     """
     try:
         # Remove NaN values and zero values (zero values are not meaningful for relaxation analysis)
@@ -558,115 +561,211 @@ def collect_data(base_dir):
     
     return data_dict, coupling_info
 
-def plot_fkt_by_coupling(data_dict, coupling_info, output_dir='.'):
-    """Create multi-panel plot: F(k,t) vs time for different ref's."""
-    print("\nCreating F(k,t) by coupling strength plot...")
-    
-    # Filter to specific coupling strengths
+def waiting_time_ps_from_ref(ref_num: int, *, interval_ps: float = 200.0) -> float:
+    r"""Map F(k,t) reference index to laboratory waiting time \(t_w\) in ps.
+
+    Parameters
+    ----------
+    ref_num
+        Reference index (0, 1, 2, ...).
+    interval_ps
+        Spacing between successive references in picoseconds.
+
+    Returns
+    -------
+    float
+        Waiting time \(t_w = \mathrm{ref\_num} \times \mathrm{interval\_ps}\).
+    """
+    return float(ref_num) * float(interval_ps)
+
+
+def colorbar_ticks_every(
+    vmin: float, vmax: float, *, step: float = 400.0
+) -> list[float]:
+    """Return colorbar major ticks at multiples of ``step`` within ``[vmin, vmax]``.
+
+    Parameters
+    ----------
+    vmin, vmax
+        Inclusive color scale limits (ps).
+    step
+        Tick spacing in the same units as ``vmin``/``vmax``.
+
+    Returns
+    -------
+    list[float]
+        Tick positions suitable for ``Colorbar.set_ticks``.
+    """
+    if step <= 0:
+        raise ValueError(f"step must be positive, got {step}")
+    lo = float(min(vmin, vmax))
+    hi = float(max(vmin, vmax))
+    # Start at the first multiple of step that is >= lo.
+    first = np.ceil(lo / step - 1e-12) * step
+    ticks: list[float] = []
+    tick_val = float(first)
+    while tick_val <= hi + 1e-9:
+        if tick_val >= lo - 1e-9:
+            ticks.append(float(tick_val))
+        tick_val += step
+    return ticks
+
+
+def plot_fkt_by_coupling(
+    data_dict,
+    coupling_info,
+    output_dir='.',
+    *,
+    max_lag_ps: float = 1600.0,
+    ref_interval_ps: float = 200.0,
+):
+    r"""Create a paper-style 1×N strip of \(\phi_k(t; t_w)\) vs lag time.
+
+    One panel per coupling strength, curves colored by waiting time \(t_w\)
+    with a shared viridis colorbar. Typography uses Computer Modern (true
+    LaTeX ``usetex`` when available, else matplotlib CM mathtext/TTF).
+
+    Parameters
+    ----------
+    data_dict
+        ``coupling_name -> {ref_num: (time, fkt[, counts])}``.
+    coupling_info
+        ``coupling_name -> (axis_value, label)``.
+    output_dir
+        Directory for ``fkt_by_coupling_filtered.{png,pdf}``.
+    max_lag_ps
+        Shared x-axis upper limit in picoseconds.
+    ref_interval_ps
+        Lab-time spacing between F(k,t) reference indices.
+    """
+    print("\nCreating F(k,t) by coupling strength plot (paper-style strip)...")
+
     filtered_coupling_info = filter_coupling_strengths(coupling_info)
-    
-    sorted_couplings = sorted(filtered_coupling_info.keys(), 
-                            key=lambda x: filtered_coupling_info[x][0])
-    
+    sorted_couplings = sorted(
+        filtered_coupling_info.keys(),
+        key=lambda x: filtered_coupling_info[x][0],
+    )
     n_couplings = len(sorted_couplings)
     if n_couplings == 0:
         print("No target coupling data to plot")
         return
-    
-    if n_couplings <= 2:
-        rows, cols = 1, n_couplings
-    elif n_couplings <= 4:
-        rows, cols = 2, 2
-    else:
-        rows = int(np.ceil(n_couplings / 3))
-        cols = 3
-    
-    fig, axes = plt.subplots(rows, cols, figsize=(5*cols, 4*rows))
+
+    use_latex = _latex_usable()
+    _apply_measured_relaxation_rcparams(use_latex)
+    print(f"  LaTeX usetex={'on' if use_latex else 'off (Computer Modern mathtext/TTF)'}")
+
+    all_tw: list[float] = []
+    for coupling_name in sorted_couplings:
+        if coupling_name not in data_dict:
+            continue
+        for ref_num in data_dict[coupling_name]:
+            all_tw.append(waiting_time_ps_from_ref(ref_num, interval_ps=ref_interval_ps))
+    tw_vmin = 0.0
+    tw_vmax = max(all_tw) if all_tw else 2400.0
+    waiting_norm = Normalize(vmin=tw_vmin, vmax=tw_vmax)
+    cmap = plt.colormaps.get_cmap("viridis")
+
+    fig_w = max(2.6 * n_couplings + 0.9, 8.0)
+    fig, axes = plt.subplots(
+        1,
+        n_couplings,
+        figsize=(fig_w, 3.2),
+        sharey=True,
+        constrained_layout=False,
+    )
     if n_couplings == 1:
         axes = [axes]
-    elif rows == 1 or cols == 1:
-        axes = axes.flatten()
     else:
-        axes = axes.flatten()
-    
-    # Track maximum time across all data for consistent x-axis
-    global_max_time = 0
-    
+        axes = list(np.atleast_1d(axes))
+
+    x_ticks = [0.0, 400.0, 800.0, 1200.0, 1600.0]
+    x_ticks = [t for t in x_ticks if t <= max_lag_ps + 1e-9]
+    if max_lag_ps not in x_ticks and abs(max_lag_ps - 1600.0) > 1e-9:
+        x_ticks.append(float(max_lag_ps))
+
     for i, coupling_name in enumerate(sorted_couplings):
-        if i >= len(axes):
-            break
-            
         ax = axes[i]
-        
-        # Check if this coupling has data
-        if coupling_name not in data_dict:
-            coupling_value, coupling_label = filtered_coupling_info[coupling_name]
-            ax.text(0.5, 0.5, 'No data files found', ha='center', va='center', transform=ax.transAxes)
-            ax.set_title(f'Coupling: {coupling_label}')
-            continue
-            
-        folder_data = data_dict[coupling_name]
         coupling_value, coupling_label = filtered_coupling_info[coupling_name]
-        
-        ref_numbers = sorted(folder_data.keys())
-        
-        if not ref_numbers:
-            ax.text(0.5, 0.5, 'No data', ha='center', va='center', transform=ax.transAxes)
-            ax.set_title(f'Coupling: {coupling_label}')
-            continue
-        
-        # Get normalization value from ref0
-        normalization_value = None
-        if 0 in folder_data:
-            time_ref0, fkt_ref0, _ = unpack_fkt_entry(folder_data[0])
-            # Find first non-zero value from ref0 for normalization
-            nonzero_mask = fkt_ref0 != 0
-            if np.any(nonzero_mask):
-                first_nonzero_idx = np.where(nonzero_mask)[0][0]
-                normalization_value = fkt_ref0[first_nonzero_idx]
-        
-        norm = Normalize(vmin=0, vmax=max(ref_numbers))
-        cmap = plt.colormaps.get_cmap('coolwarm')
-        
-        panel_max_time = 0
-        
-        for ref_num in ref_numbers:
-            time, fkt, _ = unpack_fkt_entry(folder_data[ref_num])
-            color = cmap(norm(ref_num))
-            
-            # Process F(k,t) data with filtering and normalization
-            time_processed, fkt_processed, max_time = process_fkt_data(time, fkt, normalization_value)
-            
-            if time_processed is not None and fkt_processed is not None:
-                ax.plot(time_processed, fkt_processed, color=color, linewidth=2, alpha=0.8, 
-                       label=f'ref{ref_num}')
-                
-                if max_time is not None:
-                    panel_max_time = max(panel_max_time, max_time)
-                    global_max_time = max(global_max_time, max_time)
-        
-        ax.set_xlabel('Time (ps)')
-        ax.set_ylabel('F(k,t) (normalized, ≥0.001)')
-        ax.set_title(f'Coupling: {coupling_label}')
-        ax.grid(True, alpha=0.3)
-        ax.legend(fontsize=8, ncol=2)
-        ax.set_ylim(bottom=0.001)  # Start y-axis at threshold
-        
-        # Set x-axis limit based on data for this panel
-        if panel_max_time > 0:
-            ax.set_xlim(0, panel_max_time * 1.05)  # Add 5% padding
-    
-    for i in range(n_couplings, len(axes)):
-        fig.delaxes(axes[i])
-    
-    plt.suptitle(f'F(k,t) vs Time: Different References by Coupling Strength\n({COUPLING_SET_LABEL})', 
-                 fontsize=16, fontweight='bold')
-    plt.tight_layout()
-    
-    output_file = Path(output_dir) / 'fkt_by_coupling_filtered.png'
-    plt.savefig(output_file, dpi=300, bbox_inches='tight')
-    print(f"Saved: {output_file}")
-    plt.close()
+
+        if coupling_name not in data_dict:
+            ax.text(
+                0.5, 0.5, "No data", ha="center", va="center", transform=ax.transAxes
+            )
+        else:
+            folder_data = data_dict[coupling_name]
+            normalization_value = None
+            if 0 in folder_data:
+                normalization_value = _normalization_value_from_entry(folder_data[0])
+
+            for ref_num in sorted(folder_data.keys()):
+                time, fkt, _ = unpack_fkt_entry(folder_data[ref_num])
+                tw = waiting_time_ps_from_ref(ref_num, interval_ps=ref_interval_ps)
+                color = cmap(waiting_norm(tw))
+                time_processed, fkt_processed, _max_time = process_fkt_data(
+                    time, fkt, normalization_value
+                )
+                if time_processed is None or fkt_processed is None:
+                    continue
+                mask = time_processed <= max_lag_ps
+                if not np.any(mask):
+                    continue
+                ax.plot(
+                    time_processed[mask],
+                    fkt_processed[mask],
+                    color=color,
+                    linewidth=1.5,
+                    alpha=0.85,
+                )
+
+        ax.set_xlim(0.0, max_lag_ps)
+        ax.set_ylim(0.0, 1.0)
+        ax.set_xticks(x_ticks)
+        ax.set_yticks([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
+        ax.set_xlabel(r"$t - t_{\mathrm{w}}$ (ps)")
+        ax.set_title(rf"$\lambda = {_lambda_title_body(coupling_value, coupling_label)}$")
+        ax.grid(True, linestyle="--", color="0.85", linewidth=0.6)
+        ax.tick_params(
+            axis="both",
+            which="both",
+            direction="in",
+            top=True,
+            right=True,
+            labelsize=11,
+        )
+        if i == 0:
+            ax.set_ylabel(r"$\phi_k(t; t_{\mathrm{w}})$")
+        else:
+            ax.tick_params(axis="y", labelleft=False)
+
+    sm = cm.ScalarMappable(norm=waiting_norm, cmap=cmap)
+    sm.set_array([])
+    cbar = fig.colorbar(sm, ax=axes, fraction=0.025, pad=0.02)
+    cbar.set_label(r"$t_{\mathrm{w}}$ (ps)")
+    cbar.set_ticks(colorbar_ticks_every(tw_vmin, tw_vmax, step=400.0))
+    cbar.ax.tick_params(labelsize=10)
+
+    fig.subplots_adjust(wspace=0.08, left=0.06, right=0.92, bottom=0.18, top=0.88)
+
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    png_path = out_dir / "fkt_by_coupling_filtered.png"
+    pdf_path = out_dir / "fkt_by_coupling_filtered.pdf"
+    fig.savefig(png_path, dpi=300, bbox_inches="tight")
+    fig.savefig(pdf_path, bbox_inches="tight")
+    print(f"Saved: {png_path}")
+    print(f"Saved: {pdf_path}")
+    plt.close(fig)
+
+
+def _lambda_title_body(coupling_value: float, coupling_label: str) -> str:
+    """Return the math-mode body for a ``$\\lambda = ...$`` panel title."""
+    if abs(float(coupling_value)) < 1e-12:
+        return "0"
+    try:
+        parsed = float(coupling_label)
+    except (TypeError, ValueError):
+        parsed = float(coupling_value)
+    return f"{parsed:.3g}"
 
 def plot_fkt_by_ref(data_dict, coupling_info, output_dir='.'):
     """Create multi-panel plot: F(k,t) vs time for different coupling strengths."""
@@ -918,32 +1017,28 @@ def save_relaxation_analysis_data(data_dict, filtered_coupling_info, output_dir=
             data_dict, coupling_names=valid_couplings, target=KWW_TARGET
         )
 
-    # Zero-coupling averaged baseline tau (matches the styled measured plot).
+    # Zero-coupling per-reference baseline tau (matches the styled measured plot).
     ref_coupling_name = None
     for coupling_name in valid_couplings:
         if abs(filtered_coupling_info[coupling_name][0]) < 1e-10:
             ref_coupling_name = coupling_name
             break
 
-    baseline_tau = None
+    ref_tau_by_ref: dict[int, float] = {}
     if ref_coupling_name is not None:
-        baseline_vals = [
-            kww_map[(ref_coupling_name, ref)]["tau_s"]
-            for ref in all_refs
-            if (ref_coupling_name, ref) in kww_map
-            and np.isfinite(kww_map[(ref_coupling_name, ref)]["tau_s"])
-            and kww_map[(ref_coupling_name, ref)]["tau_s"] > 0
-        ]
-        if baseline_vals:
-            baseline_tau = float(np.mean(baseline_vals))
+        for ref in all_refs:
+            key = (ref_coupling_name, ref)
+            if key not in kww_map:
+                continue
+            tau0 = kww_map[key]["tau_s"]
+            if np.isfinite(tau0) and tau0 > 0:
+                ref_tau_by_ref[int(ref)] = float(tau0)
 
-    if baseline_tau is None:
-        print("  Warning: no valid zero-coupling baseline; tilde_tau_s will be NaN in exports")
+    if not ref_tau_by_ref:
+        print("  Warning: no valid zero-coupling per-ref baseline; tilde_tau_s will be NaN in exports")
 
-    def _tilde(rel_time):
-        if baseline_tau and not np.isnan(rel_time):
-            return rel_time / baseline_tau
-        return np.nan
+    def _tilde(rel_time, ref_num):
+        return normalize_tau_by_lambda0_per_ref(rel_time, ref_num, ref_tau_by_ref)
 
     def _row_from_kww(coupling_name, ref_num):
         key = (coupling_name, ref_num)
@@ -966,7 +1061,7 @@ def save_relaxation_analysis_data(data_dict, filtered_coupling_info, output_dir=
             'coupling_value': coupling_value,
             'coupling_label': coupling_label,
             'relaxation_time_ps': rel_time,
-            'tilde_tau_s': _tilde(rel_time),
+            'tilde_tau_s': _tilde(rel_time, ref_num),
             'A': fit.get("A", float("nan")),
             'tau_K': fit.get("tau_K", float("nan")),
             'beta': fit.get("beta", float("nan")),
@@ -1014,9 +1109,8 @@ def save_relaxation_analysis_data(data_dict, filtered_coupling_info, output_dir=
     with open(panel1_file, 'w') as f:
         f.write("# Relaxation Time vs Coupling Strength Data\n")
         f.write("# Generated from F(k,t) analysis: F=0.1 crossing of shared-beta KWW fit\n")
-        f.write(f"# tilde_tau_s = relaxation_time_ps / baseline_tau; "
-                f"baseline_tau = {baseline_tau if baseline_tau is not None else float('nan'):.6f} ps "
-                f"(waiting-time-averaged zero-coupling tau)\n")
+        f.write("# tilde_tau_s = relaxation_time_ps / tau(lambda=0, same ref); "
+                "per-reference zero-coupling baseline\n")
         f.write("# t_w_ps = ref_time_ps - 200 (waiting time referenced to cavity turn-on)\n")
         f.write("# Columns: ref_num, ref_time_ps, t_w_ps, coupling_name, coupling_value, "
                 "coupling_label, relaxation_time_ps, tilde_tau_s, A, tau_K, beta, r_squared, "
@@ -1034,9 +1128,8 @@ def save_relaxation_analysis_data(data_dict, filtered_coupling_info, output_dir=
     with open(panel2_file, 'w') as f:
         f.write("# Relaxation Time vs Reference Time Data\n")
         f.write("# Generated from F(k,t) analysis: F=0.1 crossing of shared-beta KWW fit\n")
-        f.write(f"# tilde_tau_s = relaxation_time_ps / baseline_tau; "
-                f"baseline_tau = {baseline_tau if baseline_tau is not None else float('nan'):.6f} ps "
-                f"(waiting-time-averaged zero-coupling tau)\n")
+        f.write("# tilde_tau_s = relaxation_time_ps / tau(lambda=0, same ref); "
+                "per-reference zero-coupling baseline\n")
         f.write("# t_w_ps = ref_time_ps - 200 (waiting time referenced to cavity turn-on)\n")
         f.write("# Columns: ref_num, ref_time_ps, t_w_ps, coupling_name, coupling_value, "
                 "coupling_label, relaxation_time_ps, tilde_tau_s, A, tau_K, beta, r_squared, "
@@ -1054,8 +1147,8 @@ def save_relaxation_analysis_data(data_dict, filtered_coupling_info, output_dir=
         f.write("# Relaxation Analysis Summary\n")
         f.write("# Generated from F(k,t) analysis: F=0.1 crossing of shared-beta KWW fit\n")
         f.write(f"# Analysis date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write(f"# tilde_tau_s baseline (waiting-time-averaged zero-coupling tau): "
-                f"{baseline_tau if baseline_tau is not None else float('nan'):.6f} ps\n")
+        f.write(f"# tilde_tau_s baseline: per-reference tau(lambda=0, ref); "
+                f"{len(ref_tau_by_ref)} refs with valid baselines\n")
         f.write("#\n")
         f.write("# PANEL 1: Relaxation Time vs Coupling Strength\n")
         f.write(f"# Total data points: {len(panel1_data)}\n")
@@ -1074,6 +1167,205 @@ def save_relaxation_analysis_data(data_dict, filtered_coupling_info, output_dir=
         f.write(f"# - relaxation_analysis_filtered.png: Plot visualization\n")
     
     print(f"  Saved summary: {summary_file}")
+
+
+# Discrete coupling palette matching the paper Fig. 2b/c screenshot.
+MEASURED_RELAXATION_LAMBDA_COLORS: list[str] = [
+    "#1B4F72",  # dark blue (lambda=0)
+    "#5DADE2",  # light blue
+    "#F0B27A",  # peach
+    "#E08E79",  # salmon
+    "#C0392B",  # dark red
+]
+
+
+def _coupling_color_for_index(index: int) -> str:
+    """Return the paper-style discrete color for coupling series *index*."""
+    return MEASURED_RELAXATION_LAMBDA_COLORS[
+        index % len(MEASURED_RELAXATION_LAMBDA_COLORS)
+    ]
+
+
+def build_lambda0_tau_baseline_by_ref(
+    raw_taus: dict[tuple[str, int], float],
+    ref_coupling_name: str,
+    refs,
+) -> dict[int, float]:
+    """Map reference index to zero-coupling tau at that reference.
+
+    Parameters
+    ----------
+    raw_taus : dict
+        ``(coupling_name, ref_num) -> tau_s`` in picoseconds.
+    ref_coupling_name : str
+        Folder name for the lambda=0 coupling.
+    refs : iterable of int
+        Reference indices to consider.
+
+    Returns
+    -------
+    dict[int, float]
+        ``ref_num -> tau(lambda=0, ref_num)`` for valid positive entries.
+    """
+    baseline: dict[int, float] = {}
+    for ref in refs:
+        key = (ref_coupling_name, ref)
+        if key not in raw_taus:
+            continue
+        tau0 = raw_taus[key]
+        if np.isfinite(tau0) and tau0 > 0:
+            baseline[int(ref)] = float(tau0)
+    return baseline
+
+
+def normalize_tau_by_lambda0_per_ref(
+    tau: float,
+    ref_num: int,
+    ref_tau_by_ref: dict[int, float],
+) -> float:
+    """Normalize tau by the zero-coupling value at the same reference.
+
+    Returns NaN when the baseline is missing or tau is non-finite.
+    """
+    baseline = ref_tau_by_ref.get(ref_num)
+    if baseline is None or baseline <= 0 or not np.isfinite(tau):
+        return float("nan")
+    return float(tau) / baseline
+
+
+def merge_taus_with_kww_fallback(
+    raw_taus: dict[tuple[str, int], float],
+    kww_map: dict[tuple[str, int], dict],
+) -> dict[tuple[str, int], float]:
+    """Prefer direct phi=0.1 crossings; fill holes from shared-beta KWW.
+
+    Truncated master F(k,t) curves often never reach ``phi=0.1``, so the direct
+    crossing is undefined.  The KWW analytic crossing recovers those refs while
+    leaving successful direct crossings unchanged.
+    """
+    merged = dict(raw_taus)
+    for key, fit in kww_map.items():
+        if key in merged:
+            continue
+        tau = fit.get("tau_s")
+        if tau is not None and np.isfinite(tau) and tau > 0:
+            merged[key] = float(tau)
+    return merged
+
+
+def _register_matplotlib_cm_fonts() -> str:
+    """Register bundled Computer Modern TTFs; return the roman family name."""
+    from matplotlib import font_manager
+
+    ttf_dir = Path(mpl.__file__).resolve().parent / "mpl-data" / "fonts" / "ttf"
+    roman = ttf_dir / "cmr10.ttf"
+    if not roman.is_file():
+        raise FileNotFoundError(f"matplotlib cmr10.ttf not found at {roman}")
+    for fname in ("cmr10.ttf", "cmmi10.ttf", "cmsy10.ttf", "cmtt10.ttf"):
+        path = ttf_dir / fname
+        if path.is_file():
+            font_manager.fontManager.addfont(str(path))
+    return "cmr10"
+
+
+def _apply_measured_relaxation_rcparams(use_latex: bool) -> None:
+    """Configure matplotlib for paper-style measured relaxation panels.
+
+    Prefer true ``usetex`` Computer Modern when a working LaTeX install exists.
+    On this cluster the pixi ``latex`` binary is broken (missing ``latex.fmt``),
+    so fall back to matplotlib's bundled Computer Modern mathtext/TTF fonts.
+    """
+    plt.style.use("classic")
+    params: dict[str, object] = {
+        "font.size": 14,
+        "axes.labelsize": 16,
+        "xtick.labelsize": 12,
+        "ytick.labelsize": 12,
+        "legend.fontsize": 10,
+        "axes.linewidth": 1.2,
+        "axes.unicode_minus": False,
+        "figure.dpi": 300,
+        "savefig.dpi": 300,
+        "pdf.fonttype": 42,
+        "ps.fonttype": 42,
+    }
+    if use_latex:
+        params.update(
+            {
+                "text.usetex": True,
+                "font.family": "serif",
+                "font.serif": ["Computer Modern Roman", "CMU Serif", "DejaVu Serif"],
+                "text.latex.preamble": r"\usepackage{amsmath}\usepackage{amsfonts}\usepackage{amssymb}",
+            }
+        )
+    else:
+        try:
+            cm_family = _register_matplotlib_cm_fonts()
+        except OSError:
+            cm_family = "DejaVu Serif"
+        params.update(
+            {
+                "text.usetex": False,
+                "font.family": cm_family,
+                "font.serif": [cm_family, "Computer Modern Roman", "DejaVu Serif"],
+                "mathtext.fontset": "cm",
+                "axes.formatter.use_mathtext": True,
+            }
+        )
+    plt.rcParams.update(params)
+
+
+def _style_measured_relaxation_axes(ax) -> None:
+    """Shared axis styling for measured structural relaxation panels.
+
+    X/Y tick sizes differ on purpose: y ticks/labels read smaller optically
+    (rotation + stacked mathtext), so they are bumped relative to x.
+    """
+    ax.grid(True, alpha=0.3, linestyle="--")
+    ax.axhline(y=1, color="gray", linestyle="--", alpha=0.7, linewidth=1.5)
+    ax.tick_params(axis="x", which="major", direction="in", top=True, labelsize=12)
+    ax.tick_params(axis="y", which="major", direction="in", right=True, labelsize=13.5)
+    ax.yaxis.set_major_locator(MultipleLocator(0.5))
+    for spine in ax.spines.values():
+        spine.set_linewidth(1.2)
+
+
+def _data_padded_ylim(values, *, floor: float = 0.95, pad_frac: float = 0.08):
+    """Return y-limits padded around finite plotted values, snapped to 0.5."""
+    finite = [float(v) for v in values if np.isfinite(v)]
+    if not finite:
+        return floor, 1.5
+    ymin = min(finite)
+    ymax = max(finite)
+    span = max(ymax - ymin, 0.05)
+    pad = span * pad_frac
+    y_lo = np.floor((ymin - pad) * 2.0) / 2.0
+    y_hi = np.ceil((ymax + pad) * 2.0) / 2.0
+    return max(floor, y_lo), max(y_hi, 1.5)
+
+
+def _plot_series_style_kwargs(color: str) -> dict[str, object]:
+    """Line/marker styling shared by both measured-relaxation panels."""
+    return {
+        "color": color,
+        "linewidth": 3.0,
+        "markersize": 11,
+        "markerfacecolor": "white",
+        "markeredgecolor": color,
+        "markeredgewidth": 2.2,
+    }
+
+
+def _format_lambda_tick_label(value: float, label: str) -> str:
+    """Format lambda for axes/legend with three significant figures."""
+    if abs(float(value)) < 1e-12:
+        return r"$0$"
+    try:
+        parsed = float(label)
+    except (TypeError, ValueError):
+        parsed = float(value)
+    text = f"{parsed:.3g}"
+    return rf"${text}$"
 
 
 def _latex_usable():
@@ -1121,12 +1413,9 @@ def plot_measured_structural_relaxation_styled(
     :math:`\\phi = F / F(t\\to 0)` and the direct :math:`\\phi = 0.1` crossing
     (arXiv:2603.15693).  A shared-beta KWW estimator is optional diagnostics only.
 
-    Normalization: each :math:`\\tau` is divided by the waiting-time-averaged
-    zero-coupling relaxation time.  Because the zero-coupling run has no cavity and
-    stays at equilibrium, its :math:`\\tau` is (statistically) independent of
-    :math:`t_\\mathrm{w}`; averaging over all references collapses it to a single
-    constant baseline instead of a per-reference value, which avoids injecting the
-    baseline's uncorrelated statistical noise into :math:`\\tilde{\\tau}_\\mathrm{s}`.
+    Normalization: :math:`\\tilde{\\tau}_\\mathrm{s}(\\lambda, t_\\mathrm{w}) =
+    \\tau(\\lambda, t_\\mathrm{w}) / \\tau(\\lambda=0, t_\\mathrm{w})`, using the
+    zero-coupling relaxation time at the same reference for each waiting time.
     """
     print("\nCreating measured structural relaxation analysis (paper-style panels)...")
 
@@ -1142,100 +1431,153 @@ def plot_measured_structural_relaxation_styled(
         print("  Warning: missing zero-coupling reference; skipping styled measured plot")
         return
 
-    plt.style.use('classic')
     use_latex = _latex_usable()
-    if use_latex:
-        plt.rcParams['text.usetex'] = True
-        plt.rcParams['font.family'] = 'serif'
-    else:
-        plt.rcParams['text.usetex'] = False
-        plt.rcParams['font.family'] = 'DejaVu Sans'
-
+    _apply_measured_relaxation_rcparams(use_latex)
+    # Always keep mathtext/$...$ strings so Computer Modern glyphs are used even
+    # when the external LaTeX install is broken (usetex=False + mathtext.fontset=cm).
     def fmt(tex, fallback):
-        return tex if use_latex else fallback
+        return tex
 
     raw_taus = compute_paper_raw_relaxation_map(
         data_dict, coupling_names=list(filtered_coupling_info.keys()), target=KWW_TARGET
     )
-    print(f"  Paper-style direct phi=0.1 crossings: {len(raw_taus)}")
+    kww_map = compute_kww_relaxation_map(
+        data_dict, coupling_names=list(filtered_coupling_info.keys()), target=KWW_TARGET
+    )
+    n_direct = len(raw_taus)
+    raw_taus = merge_taus_with_kww_fallback(raw_taus, kww_map)
+    n_kww_fill = len(raw_taus) - n_direct
+    print(
+        f"  Paper-style direct phi=0.1 crossings: {n_direct}; "
+        f"KWW fallback filled {n_kww_fill} truncated refs "
+        f"(total {len(raw_taus)})"
+    )
     if include_kww_diagnostic:
-        kww_map = compute_kww_relaxation_map(
-            data_dict, coupling_names=list(filtered_coupling_info.keys()), target=KWW_TARGET
-        )
         n_kww = sum(1 for v in kww_map.values() if v.get("method") == "kww_shared_beta")
-        print(f"  KWW diagnostic fits (not plotted): {n_kww}")
+        print(f"  KWW diagnostic fits: {n_kww}")
 
     all_refs = sorted({ref for _name, ref in raw_taus})
     waiting_times_lab = [ref * switch_ps for ref in all_refs if ref * switch_ps > 0]
 
-    # Zero-coupling baseline: average tau over all waiting times. The reference run
-    # has no cavity and remains at equilibrium, so its tau should be independent of
-    # t_w; collapsing it to a single constant avoids injecting the baseline's
-    # uncorrelated statistical scatter into the normalized tilde{tau}_s.
-    ref_baseline_taus = [
-        raw_taus[(ref_coupling_name, ref)]
-        for ref in all_refs
-        if (ref_coupling_name, ref) in raw_taus and raw_taus[(ref_coupling_name, ref)] > 0
-    ]
-    if not ref_baseline_taus:
+    ref_tau_by_ref = build_lambda0_tau_baseline_by_ref(
+        raw_taus, ref_coupling_name, all_refs
+    )
+    if not ref_tau_by_ref:
         print("  Warning: no valid zero-coupling relaxation times; skipping styled measured plot")
         return
-    ref_tau_baseline = float(np.mean(ref_baseline_taus))
-    print(f"  Zero-coupling baseline tau_s (averaged): {ref_tau_baseline:.3f} ps")
+    print(
+        f"  Zero-coupling per-ref baseline tau_s: "
+        f"{len(ref_tau_by_ref)} refs, "
+        f"mean={float(np.mean(list(ref_tau_by_ref.values()))):.3f} ps"
+    )
+    print(f"  LaTeX usetex={'on' if use_latex else 'off (Computer Modern mathtext/TTF)'}")
     if fkt_kmag is not None:
         print(
             f"  Note: F(k,t) masters were collected at |k|={fkt_kmag:g} "
             f"(paper Fig. 2 uses |k|=6.02)."
         )
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4))
+    # Wide landscape strip: dedicated top row for the left colorbar so the
+    # $t_w$ label never collides with the panel below.
+    import matplotlib.gridspec as gridspec
 
-    waiting_time_norm = Normalize(vmin=0, vmax=max((tw - switch_ps for tw in waiting_times_lab), default=1))
-    waiting_time_cmap = plt.colormaps.get_cmap('viridis')
+    fig = plt.figure(figsize=(9.5, 2.90))
+    gs = gridspec.GridSpec(
+        2,
+        2,
+        figure=fig,
+        height_ratios=[0.07, 1.0],
+        hspace=0.12,
+        wspace=0.20,
+        left=0.10,
+        right=0.995,
+        bottom=0.20,
+        top=0.92,
+    )
+    cax = fig.add_subplot(gs[0, 0])
+    ax1 = fig.add_subplot(gs[1, 0])
+    # Right panel spans colorbar row + left panel so its outer height matches
+    # the full left stack (colorbar + axes).
+    ax2 = fig.add_subplot(gs[:, 1])
+
+    lambda_entries = sorted(
+        (
+            filtered_coupling_info[name][0],
+            filtered_coupling_info[name][1],
+            name,
+        )
+        for name in filtered_coupling_info
+        if name in data_dict
+    )
+    # Categorical equal spacing of lambda ticks (paper Fig. 2b pacing).
+    lambda_x_index = {
+        value: index for index, (value, _label, _name) in enumerate(lambda_entries)
+    }
+
+    tw_shifted_all = [tw - switch_ps for tw in waiting_times_lab if tw > switch_ps]
+    tw_plot_max = max(tw_shifted_all) + 50.0 if tw_shifted_all else 1600.0
+    tw_color_max = max(tw_shifted_all) if tw_shifted_all else tw_plot_max
+    waiting_time_norm = Normalize(vmin=0, vmax=tw_color_max)
+    waiting_time_cmap = plt.colormaps.get_cmap("viridis")
+    plotted_ys: list[float] = []
 
     for tw_lab in waiting_times_lab:
         ref_num = int(round(tw_lab / switch_ps))
         tw_shifted = tw_lab - switch_ps
+        if tw_shifted > tw_plot_max + 1e-9:
+            continue
         xs, ys = [], []
-        for coupling_name, (coupling_value, _label) in sorted(
-            filtered_coupling_info.items(), key=lambda item: item[1][0]
-        ):
+        for coupling_value, _label, coupling_name in lambda_entries:
             key = (coupling_name, ref_num)
             if key not in raw_taus:
                 continue
-            xs.append(coupling_value)
-            ys.append(raw_taus[key] / ref_tau_baseline)
+            xs.append(lambda_x_index[coupling_value])
+            y_val = normalize_tau_by_lambda0_per_ref(
+                raw_taus[key], ref_num, ref_tau_by_ref
+            )
+            ys.append(y_val)
         if not xs:
             continue
+        plotted_ys.extend(ys)
         color = waiting_time_cmap(waiting_time_norm(tw_shifted))
-        ax1.plot(xs, ys, '-D', color=color, linewidth=3, markersize=8,
-                 markerfacecolor='white', markeredgecolor=color, markeredgewidth=2.0)
+        ax1.plot(xs, ys, "-o", **_plot_series_style_kwargs(color))
 
-    ax1.set_xlabel(fmt(r'$\lambda$ (a.u.)' if COUPLING_SYMBOL_TEX == r'\lambda'
-                       else rf'${COUPLING_SYMBOL_TEX}$ (a.u.)',
-                       'λ (a.u.)' if COUPLING_SYMBOL_PLAIN == 'λ' else f'{COUPLING_SYMBOL_PLAIN} (a.u.)'),
-               fontsize=16)
-    ax1.set_ylabel(fmt(r'$\tilde{\tau}_{\mathrm{s}}$', 'τ̃_s'), fontsize=16)
-    ax1.grid(True, alpha=0.3, linestyle='--')
-    ax1.axhline(y=1, color='gray', linestyle='--', alpha=0.7, linewidth=1.5)
-    ax1.set_xlim(left=0)
-    ax1.set_ylim(bottom=0.7)
+    lambda_axis_label = fmt(
+        r"$\lambda$ (a.u.)"
+        if COUPLING_SYMBOL_TEX == r"\lambda"
+        else rf"${COUPLING_SYMBOL_TEX}$ (a.u.)",
+        "λ (a.u.)"
+        if COUPLING_SYMBOL_PLAIN == "λ"
+        else f"{COUPLING_SYMBOL_PLAIN} (a.u.)",
+    )
+    tau_axis_label = fmt(r"$\tilde{\tau}_{\mathrm{s}}$", "τ̃_s")
+
+    ax1.set_xlabel(lambda_axis_label, fontsize=16)
+    ax1.set_ylabel(tau_axis_label, fontsize=18)
+    _style_measured_relaxation_axes(ax1)
+    if lambda_entries:
+        ax1.set_xticks(list(range(len(lambda_entries))))
+        ax1.set_xticklabels(
+            [
+                _format_lambda_tick_label(value, label)
+                for value, label, _name in lambda_entries
+            ],
+            fontsize=12,
+        )
+        ax1.set_xlim(-0.35, len(lambda_entries) - 1 + 0.35)
+
     sm1 = cm.ScalarMappable(norm=waiting_time_norm, cmap=waiting_time_cmap)
     sm1.set_array([])
-    cbar1 = plt.colorbar(sm1, ax=ax1, location='top', shrink=0.8, pad=0.1)
-    cbar1.set_label(fmt(r'$t_{\mathrm{w}}$ (ps)', 't_w (ps)'), fontsize=12, labelpad=10)
+    cbar1 = fig.colorbar(sm1, cax=cax, orientation="horizontal")
+    # Label and tick numbers both sit above the strip so nothing bleeds into ax1.
+    cbar1.ax.xaxis.set_ticks_position("top")
+    cbar1.ax.xaxis.set_label_position("top")
+    cbar1.set_label(fmt(r"$t_{\mathrm{w}}$ (ps)", "t_w (ps)"), fontsize=13, labelpad=6)
+    cbar1.ax.tick_params(labelsize=11, direction="in", pad=2)
 
-    coupling_values_sorted = sorted(
-        filtered_coupling_info[name][0] for name in filtered_coupling_info if name in data_dict
-    )
-    coupling_norm = Normalize(vmin=0, vmax=max(coupling_values_sorted, default=1))
-    coupling_cmap = plt.colormaps.get_cmap('coolwarm')
-
-    for coupling_name, (coupling_value, coupling_label) in sorted(
-        filtered_coupling_info.items(), key=lambda item: item[1][0]
+    for color_index, (coupling_value, coupling_label, coupling_name) in enumerate(
+        lambda_entries
     ):
-        if coupling_name not in data_dict:
-            continue
         xs, ys = [], []
         for ref_num in sorted(data_dict[coupling_name]):
             tw_lab = ref_num * switch_ps
@@ -1244,39 +1586,69 @@ def plot_measured_structural_relaxation_styled(
             key = (coupling_name, ref_num)
             if key not in raw_taus:
                 continue
-            xs.append(tw_lab - switch_ps)
-            ys.append(raw_taus[key] / ref_tau_baseline)
+            tw_shifted = tw_lab - switch_ps
+            if tw_shifted > tw_plot_max + 1e-9:
+                continue
+            xs.append(tw_shifted)
+            y_val = normalize_tau_by_lambda0_per_ref(
+                raw_taus[key], ref_num, ref_tau_by_ref
+            )
+            ys.append(y_val)
         if not xs:
             continue
-        color = coupling_cmap(coupling_norm(coupling_value))
-        label = fmt(rf'$\lambda = {coupling_label}$', f'λ = {coupling_label}')
-        ax2.plot(xs, ys, '-D', color=color, linewidth=3, markersize=8,
-                 markerfacecolor='white', markeredgecolor=color, markeredgewidth=2.0,
-                 label=label)
+        plotted_ys.extend(ys)
+        color = _coupling_color_for_index(color_index)
+        tick_label = _format_lambda_tick_label(coupling_value, coupling_label)
+        # Strip surrounding $...$ for embedding in a larger math expression.
+        tick_inner = tick_label[1:-1] if tick_label.startswith("$") else tick_label
+        label = fmt(rf"$\lambda = {tick_inner}$", f"λ = {tick_inner}")
+        ax2.plot(xs, ys, "-o", label=label, **_plot_series_style_kwargs(color))
 
-    ax2.set_xlabel(fmt(r'$t_{\mathrm{w}}$ (ps)', 't_w (ps)'), fontsize=16)
-    ax2.set_ylabel(fmt(r'$\tilde{\tau}_{\mathrm{s}}$', 'τ̃_s'), fontsize=16)
-    ax2.grid(True, alpha=0.3, linestyle='--')
-    ax2.axhline(y=1, color='gray', linestyle='--', alpha=0.7, linewidth=1.5)
-    ax2.legend(fontsize=10, loc='best')
-    ax2.set_xlim(left=0)
-    ax2.set_ylim(bottom=0.7)
+    ax2.set_xlabel(fmt(r"$t_{\mathrm{w}}$ (ps)", "t_w (ps)"), fontsize=16)
+    ax2.set_ylabel(tau_axis_label, fontsize=18)
+    _style_measured_relaxation_axes(ax2)
+    ax2.legend(
+        loc="upper right",
+        frameon=True,
+        fancybox=False,
+        edgecolor="black",
+        framealpha=0.9,
+        ncol=1,
+        numpoints=2,
+        handlelength=2.2,
+        borderaxespad=0.6,
+        fontsize=10,
+    )
+    ax2.set_xlim(0.0, tw_plot_max)
+    ax2.xaxis.set_major_locator(MultipleLocator(500))
 
-    if fkt_kmag is not None:
-        fig.suptitle(
-            fmt(
-                rf'Direct $\phi=0.1$ crossing; data $|k|={fkt_kmag:g}$ '
-                r'(paper $|k|=6.02$)',
-                f'Direct φ=0.1 crossing; data |k|={fkt_kmag:g} (paper |k|=6.02)',
-            ),
-            fontsize=11,
-            y=1.02,
-        )
+    _y_lo, y_hi = _data_padded_ylim(plotted_ys)
+    # Leave enough room below 1.0 for the large open-circle markers (half a
+    # marker is ~0.15 in data units); keep major ticks starting at 1.0 only.
+    y_lo = 0.78
+    y_ticks = np.arange(1.0, y_hi + 1e-9, 0.5)
+    # Mathtext y ticks match the x-axis tick rendering path.
+    y_tick_labels = [rf"${v:.1f}$" for v in y_ticks]
+    for ax in (ax1, ax2):
+        ax.set_ylim(y_lo, y_hi)
+        ax.set_yticks(y_ticks)
+        ax.set_yticklabels(y_tick_labels, fontsize=13.5)
 
-    plt.tight_layout(pad=2.0)
-    out_base = Path(output_dir) / 'measured_structural_relaxation_analysis'
-    plt.savefig(out_base.with_suffix('.png'), dpi=300, bbox_inches='tight')
-    plt.savefig(out_base.with_suffix('.pdf'), dpi=300, bbox_inches='tight')
+    out_base = Path(output_dir) / "measured_structural_relaxation_analysis"
+    plt.savefig(
+        out_base.with_suffix(".png"),
+        dpi=300,
+        bbox_inches="tight",
+        facecolor="white",
+        pad_inches=0.05,
+    )
+    plt.savefig(
+        out_base.with_suffix(".pdf"),
+        dpi=300,
+        bbox_inches="tight",
+        facecolor="white",
+        pad_inches=0.05,
+    )
     print(f"Saved: {out_base.with_suffix('.png')}")
     print(f"Saved: {out_base.with_suffix('.pdf')}")
     plt.close()
@@ -1568,7 +1940,16 @@ def main():
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     
     # Generate all plots
-    plot_fkt_by_coupling(data_dict, coupling_info, args.output_dir)
+    max_lag_ps = 2000.0 if args.profile in {
+        "aging_weak_lambda",
+        "aging_weak_lambda_preliminary",
+    } else 1600.0
+    plot_fkt_by_coupling(
+        data_dict,
+        coupling_info,
+        args.output_dir,
+        max_lag_ps=max_lag_ps,
+    )
     plot_fkt_by_ref(data_dict, coupling_info, args.output_dir)
     plot_fkt_diagnostic(data_dict, coupling_info, args.output_dir)
     plot_relaxation_analysis(data_dict, coupling_info, args.output_dir)
@@ -1585,7 +1966,10 @@ def main():
     
     print("\n" + "=" * 50)
     print("Analysis complete! Generated plots:")
-    print(f"  1. fkt_by_coupling_filtered.png - F(k,t) for different refs (by coupling)")
+    print(
+        "  1. fkt_by_coupling_filtered.{png,pdf} - "
+        "paper-style phi_k(t; t_w) strip by coupling"
+    )
     print(f"  2. fkt_by_ref_filtered.png - F(k,t) for different couplings (by ref)")
     print(f"  3. fkt_diagnostic_filtered.png - F(k,t) diagnostic with KWW fit + F=0.1 crossing")
     print(f"  4. relaxation_analysis_filtered.png - Relaxation time analysis (KWW F=0.1)")

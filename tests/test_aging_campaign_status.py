@@ -13,10 +13,14 @@ from examples.slurm.aging_campaign_status import (
     cleanup_stray_run_dirs,
     coupling_dir_name,
     fkt_file_path,
+    is_complete_at_runtime,
     is_complete_h5,
     is_complete_replica,
     lambda_to_tag,
+    needs_extension_replica,
     protocol_marker_path,
+    replica_checkpoint_path,
+    replica_needs_fresh_run,
     run_dir,
     run_preflight_cleanup,
     scan_lambda_run,
@@ -24,6 +28,12 @@ from examples.slurm.aging_campaign_status import (
     validate_fkt_file,
     validate_protocol_marker,
     write_protocol_marker,
+)
+from examples.slurm.aging_campaign_config import (
+    CAMPAIGN_FKT_MAX_REFS_PRIMARY,
+    CAMPAIGN_FKT_MAX_REFS_TARGET,
+    CAMPAIGN_PRIMARY_RUNTIME_PS,
+    CAMPAIGN_TARGET_RUNTIME_PS,
 )
 
 TEST_PROVENANCE = {
@@ -37,11 +47,14 @@ TEST_PROVENANCE = {
 
 def _write_fkt_file(path: Path, reference_time_ps: float, max_lag_ps: float) -> None:
     """Write a minimal, valid two-column F(k,t) file."""
+    rows = "0.000000\t1.000000\n"
+    if max_lag_ps > 0.0:
+        rows += f"{max_lag_ps:.6f}\t0.100000\n"
     path.write_text(
         "# F(k,t) correlation function\n"
         f"# Reference time: {reference_time_ps:.3f} ps\n"
         "# lag_time_ps\tF(k,t)\n"
-        f"0.000000\t1.000000\n{max_lag_ps:.6f}\t0.100000\n",
+        f"{rows}",
         encoding="utf-8",
     )
 
@@ -74,14 +87,16 @@ def test_lambda_to_tag() -> None:
 
 
 def test_coupling_dir_name_matches_runner() -> None:
-    assert coupling_dir_name(0.0, 200.0) == "cavity_coupling_0epos00_switch_200.0ps"
-    assert coupling_dir_name(0.01, 200.0) == "cavity_coupling_1eneg02_switch_200.0ps"
-    assert coupling_dir_name(0.03, 200.0) == "cavity_coupling_3eneg02_switch_200.0ps"
+    assert coupling_dir_name(0.0, 200.0) == "coupling_000000e+00_switch_200.0ps"
+    assert coupling_dir_name(0.01, 200.0) == "coupling_100000e-07_switch_200.0ps"
+    assert coupling_dir_name(0.016667, 200.0) == "coupling_166670e-07_switch_200.0ps"
+    assert coupling_dir_name(0.023333, 200.0) == "coupling_233330e-07_switch_200.0ps"
+    assert coupling_dir_name(0.03, 200.0) == "coupling_300000e-07_switch_200.0ps"
 
 
 def test_run_dir() -> None:
     base = Path("/tmp/aging")
-    assert run_dir(base, 0.01) == base / "lambda0p01" / "cavity_coupling_1eneg02_switch_200.0ps"
+    assert run_dir(base, 0.01) == base / "lambda0p01" / "coupling_100000e-07_switch_200.0ps"
 
 
 def test_is_complete_h5(tmp_path: Path) -> None:
@@ -588,3 +603,183 @@ def test_run_preflight_cleanup_dry_run(tmp_path: Path) -> None:
     assert str(lock) in summaries[0]["locks_removed"]
     assert gsd.exists()
     assert lock.exists()
+
+
+def test_validate_fkt_file_accepts_1600ps_campaign_reference(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "prod-0_fkt_ref_000.txt"
+    _write_fkt_file(path, reference_time_ps=0.0, max_lag_ps=1600.0)
+
+    assert validate_fkt_file(
+        path,
+        runtime_ps=1600.0,
+        expected_reference_time_ps=0.0,
+    )
+
+
+def test_validate_fkt_file_rejects_legacy_2500ps_final_lag(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "prod-0_fkt_ref_000.txt"
+    _write_fkt_file(path, reference_time_ps=0.0, max_lag_ps=2500.0)
+
+    assert not validate_fkt_file(
+        path,
+        runtime_ps=1600.0,
+        expected_reference_time_ps=0.0,
+    )
+
+
+def test_is_complete_replica_requires_eight_fkt_references_at_1600ps(
+    tmp_path: Path,
+) -> None:
+    min_bytes = 5_000_000
+    _write_complete_replica(
+        tmp_path,
+        3,
+        min_bytes=min_bytes,
+        runtime_ps=1600.0,
+        reference_interval_ps=200.0,
+        max_references=8,
+    )
+
+    assert is_complete_replica(tmp_path, 3, min_bytes=min_bytes, runtime_ps=1600.0, max_references=8)
+
+    fkt_file_path(tmp_path, 3, 7).unlink()
+    assert not is_complete_replica(tmp_path, 3, min_bytes=min_bytes, runtime_ps=1600.0, max_references=8)
+
+
+def test_is_complete_replica_accepts_simulator_fkt_reference_times(
+    tmp_path: Path,
+) -> None:
+    """FieldAutocorrelationTracker uses a 1 ps first reference and 200 ps spacing."""
+    min_bytes = 5_000_000
+    runtime_ps = 1600.0
+    (tmp_path / "observables_replica_4.h5").write_bytes(b"x" * min_bytes)
+    reference_times_ps = (1.0, 201.0, 402.0, 603.0, 804.0, 1004.0, 1204.0, 1404.0)
+    for ref_index, reference_time_ps in enumerate(reference_times_ps):
+        _write_fkt_file(
+            fkt_file_path(tmp_path, 4, ref_index),
+            reference_time_ps,
+            runtime_ps - reference_time_ps,
+        )
+
+    assert is_complete_replica(
+        tmp_path,
+        4,
+        min_bytes=min_bytes,
+        runtime_ps=runtime_ps,
+        max_references=8,
+    )
+
+
+def test_needs_extension_replica_when_checkpoint_present(tmp_path: Path) -> None:
+    min_bytes = 5_000_000
+    _write_complete_replica(
+        tmp_path,
+        5,
+        min_bytes=min_bytes,
+        runtime_ps=CAMPAIGN_PRIMARY_RUNTIME_PS,
+        reference_interval_ps=200.0,
+        max_references=CAMPAIGN_FKT_MAX_REFS_PRIMARY,
+    )
+    replica_checkpoint_path(tmp_path, 5).write_bytes(b"gsd")
+
+    assert needs_extension_replica(
+        tmp_path,
+        5,
+        target_runtime_ps=CAMPAIGN_TARGET_RUNTIME_PS,
+        min_bytes=min_bytes,
+    )
+    assert not replica_needs_fresh_run(
+        tmp_path,
+        5,
+        target_runtime_ps=CAMPAIGN_TARGET_RUNTIME_PS,
+        min_bytes=min_bytes,
+    )
+
+
+def test_primary_complete_without_checkpoint_is_preserved_not_fresh(
+    tmp_path: Path,
+) -> None:
+    min_bytes = 5_000_000
+    _write_complete_replica(
+        tmp_path,
+        6,
+        min_bytes=min_bytes,
+        runtime_ps=CAMPAIGN_PRIMARY_RUNTIME_PS,
+        reference_interval_ps=200.0,
+        max_references=CAMPAIGN_FKT_MAX_REFS_PRIMARY,
+    )
+
+    assert not needs_extension_replica(
+        tmp_path,
+        6,
+        target_runtime_ps=CAMPAIGN_TARGET_RUNTIME_PS,
+        min_bytes=min_bytes,
+    )
+    assert not replica_needs_fresh_run(
+        tmp_path,
+        6,
+        target_runtime_ps=CAMPAIGN_TARGET_RUNTIME_PS,
+        min_bytes=min_bytes,
+    )
+    assert not is_complete_at_runtime(
+        tmp_path,
+        6,
+        CAMPAIGN_TARGET_RUNTIME_PS,
+        min_bytes=min_bytes,
+    )
+
+
+def test_replica_needs_fresh_run_ignores_duplicate_runtime_ps_kwarg(
+    tmp_path: Path,
+) -> None:
+    """Legacy callers may pass both target_runtime_ps and runtime_ps."""
+    assert replica_needs_fresh_run(
+        tmp_path,
+        0,
+        target_runtime_ps=CAMPAIGN_TARGET_RUNTIME_PS,
+        runtime_ps=CAMPAIGN_TARGET_RUNTIME_PS,
+        min_bytes=5_000_000,
+    )
+
+
+def test_replica_needs_fresh_run_ignores_duplicate_max_references_kwarg(
+    tmp_path: Path,
+) -> None:
+    """Packed runner passes target max_references; primary check overrides it."""
+    assert replica_needs_fresh_run(
+        tmp_path,
+        0,
+        target_runtime_ps=CAMPAIGN_TARGET_RUNTIME_PS,
+        runtime_ps=CAMPAIGN_TARGET_RUNTIME_PS,
+        max_references=CAMPAIGN_FKT_MAX_REFS_TARGET,
+        min_bytes=5_000_000,
+    )
+
+
+def test_needs_extension_replica_ignores_duplicate_max_references_kwarg(
+    tmp_path: Path,
+) -> None:
+    """Extension checks must not collide on primary vs target max_references."""
+    min_bytes = 5_000_000
+    _write_complete_replica(
+        tmp_path,
+        7,
+        min_bytes=min_bytes,
+        runtime_ps=CAMPAIGN_PRIMARY_RUNTIME_PS,
+        reference_interval_ps=200.0,
+        max_references=CAMPAIGN_FKT_MAX_REFS_PRIMARY,
+    )
+    replica_checkpoint_path(tmp_path, 7).write_bytes(b"gsd")
+
+    assert needs_extension_replica(
+        tmp_path,
+        7,
+        target_runtime_ps=CAMPAIGN_TARGET_RUNTIME_PS,
+        runtime_ps=CAMPAIGN_TARGET_RUNTIME_PS,
+        max_references=CAMPAIGN_FKT_MAX_REFS_TARGET,
+        min_bytes=min_bytes,
+    )

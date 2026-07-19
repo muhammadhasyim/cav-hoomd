@@ -338,6 +338,58 @@ def test_child_environment_removes_array_task_identity() -> None:
     assert "SLURM_ARRAY_JOB_ID" not in environment
 
 
+def test_build_simulation_command_uses_fixed_timestep_by_default(
+    tmp_path: Path,
+) -> None:
+    command = build_simulation_command(
+        python_executable=Path(sys.executable),
+        simulation_script=tmp_path / "05_advanced_run.py",
+        replica=17,
+        lam=0.03,
+        input_gsd=tmp_path / "init-500-from-ic-library.gsd",
+    )
+
+    assert command[command.index("--fixed-timestep") + 0] == "--fixed-timestep"
+    assert command[command.index("--timestep") + 1] == "1.0"
+    assert "--error-tolerance" not in command
+
+
+def test_build_simulation_command_adaptive_timestep_omits_fixed_dt(
+    tmp_path: Path,
+) -> None:
+    command = build_simulation_command(
+        python_executable=Path(sys.executable),
+        simulation_script=tmp_path / "05_advanced_run.py",
+        replica=17,
+        lam=0.12,
+        input_gsd=tmp_path / "init-500-from-ic-library.gsd",
+        adaptive_timestep=True,
+        error_tolerance=5.0,
+        initial_fraction=1e-5,
+        time_constant_ps=50.0,
+    )
+
+    assert "--fixed-timestep" not in command
+    assert "--timestep" not in command
+    assert command[command.index("--error-tolerance") + 1] == "5"
+    assert command[command.index("--initial-fraction") + 1] == "1e-05"
+    assert command[command.index("--time-constant-ps") + 1] == "50"
+
+
+def test_read_manifest_task_accepts_strong_coupling_when_allowed(
+    tmp_path: Path,
+) -> None:
+    previous = packed_runner.get_allowed_lambdas()
+    try:
+        packed_runner.set_allowed_lambdas((0.03, 0.06, 0.09, 0.12))
+        manifest = tmp_path / "manifest.tsv"
+        manifest.write_text("0p12\t0.12\t4\t\n", encoding="utf-8")
+
+        assert read_manifest_task(manifest, 0).lam == 0.12
+    finally:
+        packed_runner.set_allowed_lambdas(previous)
+
+
 def test_build_simulation_command_sets_stable_seed_and_replica(
     tmp_path: Path,
 ) -> None:
@@ -346,17 +398,26 @@ def test_build_simulation_command_sets_stable_seed_and_replica(
         simulation_script=tmp_path / "05_advanced_run.py",
         replica=17,
         lam=0.03,
-        input_gsd=tmp_path / "init-0.gsd",
+        input_gsd=tmp_path / "init-500-from-ic-library.gsd",
     )
 
     assert command[command.index("--replicas") + 1] == "17"
     assert command[command.index("--seed") + 1] == "18"
+    assert command[command.index("--frame") + 1] == "17"
     assert command[command.index("--gpu-id") + 1] == "0"
     assert command[command.index("--coupling-type") + 1] == "step"
-    assert command[command.index("--fkt-kmag") + 1] == "6.02"
+    assert command[command.index("--runtime") + 1] == "2000"
+    assert command[command.index("--fkt-kmag") + 1] == "1"
+    assert command[command.index("--fkt-max-refs") + 1] == "10"
+    assert command[command.index("--hdf5-output-period-ps") + 1] == "1"
+    assert command[command.index("--electrostatics") + 1] == "reaction_field"
+    assert command[command.index("--eps-rf") + 1] == "80"
+    assert command[command.index("--coulomb-rcut") + 1] == "16"
     assert command[command.index("--lambda-coupling") + 1] == "0.03"
     assert "--coupling" not in command
     assert "--disable-gsd" in command
+    assert "--write-checkpoint-gsd" in command
+    assert "--disable-temp-tracker" not in command
     assert "999999" not in command
     assert "1.0085" not in command
 
@@ -420,6 +481,11 @@ def test_main_skips_complete_replicas_without_cleanup(
     )
     monkeypatch.setattr(
         packed_runner,
+        "replica_needs_fresh_run",
+        lambda *_args, **_kwargs: False,
+    )
+    monkeypatch.setattr(
+        packed_runner,
         "is_complete_replica",
         lambda _directory, _replica, **_kwargs: True,
     )
@@ -469,9 +535,10 @@ def test_main_postvalidates_both_children_after_process_failure(
     ) -> bool:
         validation_calls[replica] += 1
         validation_protocol_flags.append(
-            bool(kwargs.get("require_step_protocol"))
+            bool(kwargs.get("require_step_protocol", True))
         )
-        return validation_calls[replica] > 1 and replica == 4
+        # Replica 4 is scientifically complete after the child "run"; 5 is not.
+        return replica == 4
 
     cleaned: list[int] = []
     marked: list[tuple[int, float, float, int, dict[str, str]]] = []
@@ -483,6 +550,11 @@ def test_main_postvalidates_both_children_after_process_failure(
         yield
         events.append("unlock")
 
+    monkeypatch.setattr(
+        packed_runner,
+        "replica_needs_fresh_run",
+        lambda *_args, **_kwargs: True,
+    )
     monkeypatch.setattr(
         packed_runner,
         "is_complete_replica",
@@ -533,10 +605,8 @@ def test_main_postvalidates_both_children_after_process_failure(
     assert packed_runner.main() == 1
     assert cleaned == [4, 5]
     assert marked == [(4, 0.03, 200.0, 5, provenance)]
-    assert validation_calls == {4: 3, 5: 3}
+    assert validation_calls == {4: 2, 5: 2}
     assert validation_protocol_flags == [
-        True,
-        True,
         False,
         False,
         True,

@@ -120,11 +120,12 @@ class TimestepFormatter:
 class ElapsedTimeTracker(hoomd.custom.Action):
     """Tracks the total elapsed time in a simulation with variable timesteps."""
     
-    def __init__(self, simulation, runtime):
+    def __init__(self, simulation, runtime, time_offset_ps: float = 0.0):
         super().__init__()
         self.simulation = simulation
         self.total_time = 0.0
         self.runtime = runtime
+        self.time_offset_ps = float(time_offset_ps)
         self.last_timestep = 0  # Start from 0, not simulation.timestep
         self.initial_timestep = None  # Track the starting timestep to handle inheritance
 
@@ -142,6 +143,11 @@ class ElapsedTimeTracker(hoomd.custom.Action):
             if timestep > 0:
                 print(f"NOTICE: Starting from inherited timestep {timestep}")
                 print(f"  Elapsed time will start from 0, not from inherited simulation time")
+            if self.time_offset_ps > 0.0:
+                print(
+                    f"NOTICE: Laboratory time offset {self.time_offset_ps:.3f} ps "
+                    "will be added to segment elapsed time"
+                )
             return
 
         # Calculate time increment since last update
@@ -163,6 +169,7 @@ class ElapsedTimeTracker(hoomd.custom.Action):
     @hoomd.logging.log(category="scalar")
     def elapsed_time(self):
         """Return elapsed time in picoseconds."""
-        return PhysicalConstants.atomic_units_to_ps(self.total_time)
+        segment_time_ps = PhysicalConstants.atomic_units_to_ps(self.total_time)
+        return self.time_offset_ps + segment_time_ps
 
 

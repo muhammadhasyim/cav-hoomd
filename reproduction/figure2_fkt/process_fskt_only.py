@@ -35,6 +35,24 @@ from typing import Dict, List, Tuple, Optional
 from tqdm import tqdm
 import sys
 
+try:
+    from examples.slurm.aging_resume_io import (
+        normalize_fkt_series,
+        parse_fkt_reference_index,
+        parse_fkt_reference_time,
+    )
+except ImportError:
+    from pathlib import Path as _Path
+
+    _repo_root = _Path(__file__).resolve().parents[2]
+    if str(_repo_root) not in sys.path:
+        sys.path.insert(0, str(_repo_root))
+    from examples.slurm.aging_resume_io import (
+        normalize_fkt_series,
+        parse_fkt_reference_index,
+        parse_fkt_reference_time,
+    )
+
 # Set up logging
 logging.basicConfig(
     level=logging.INFO,
@@ -71,7 +89,35 @@ def remove_duplicate_times(times, values, tolerance=1e-12):
     
     return df_unique['time'].values, df_unique['value'].values
 
-def process_fskt_files(exp_dir, job_name="prod", max_time=None, dt=1.0):
+def choose_detected_max_lag(all_max_times, mode: str = "min") -> Optional[float]:
+    """Choose the F(k,t) lag-grid upper bound from per-file maxima.
+
+    Parameters
+    ----------
+    all_max_times
+        Per-replica (or per-file) maximum usable lag times in ps.
+    mode
+        ``min`` keeps the conservative intersection (old default).
+        ``max`` keeps the union so longer replicas extend late-time coverage;
+        shorter replicas simply leave those lags with lower sample counts.
+    """
+    if not all_max_times:
+        return None
+    if mode == "max":
+        return float(max(all_max_times))
+    if mode == "min":
+        return float(min(all_max_times))
+    raise ValueError(f"unknown lag extent mode: {mode!r}")
+
+
+def process_fskt_files(
+    exp_dir,
+    job_name="prod",
+    max_time=None,
+    dt=1.0,
+    runtime_ps=None,
+    lag_extent_mode: str = "max",
+):
     """
     Process F(k,t) files using configurable timestep and proper cumulative averaging.
     
@@ -80,6 +126,9 @@ def process_fskt_files(exp_dir, job_name="prod", max_time=None, dt=1.0):
         job_name: Job name ('prod' or 'finq')
         max_time: Maximum time in ps for F(k,t) data (None = auto-detect from data)
         dt: Timestep in ps for interpolation
+        lag_extent_mode: ``max`` (default) uses the union of per-replica lag
+            coverage so a few short/incomplete files do not truncate the master;
+            ``min`` keeps the conservative intersection.
     
     Returns:
         Dictionary with processing results
@@ -90,29 +139,26 @@ def process_fskt_files(exp_dir, job_name="prod", max_time=None, dt=1.0):
         logger.error(f"Experiment directory does not exist: {exp_dir}")
         return {'success': False, 'error': 'Directory does not exist'}
     
-    # Find all F(k,t) files for this experiment - updated pattern for new naming convention
-    fskt_pattern = f"{job_name}*_ref*.txt"
+    # Find all F(k,t) files for this experiment.
+    fskt_pattern = f"{job_name}-*_fkt_ref_*.txt"
     fskt_files = list(exp_path.glob(fskt_pattern))
     
     if not fskt_files:
         logger.warning(f"No F(k,t) ref files found in {exp_dir} with pattern {fskt_pattern}")
         return {'success': False, 'error': f'No files found with pattern {fskt_pattern}'}
     
-    # Group files by reference number (extracting ref* part from filename)
-    fskt_groups = {}
+    # Group files by reference index.
+    fskt_groups: dict[str, list[str]] = {}
+    reference_times: dict[str, float] = {}
     for fskt_file in fskt_files:
-        filename = fskt_file.name
-        # Extract the reference part from filename like prod-0_ref1.txt -> ref1
-        if '_ref' in filename:
-            ref_part = filename.split('_ref')[1].replace('.txt', '')
-            group_key = f"ref{ref_part}"
-        else:
-            # Fallback: use the whole filename without extension as group key
-            group_key = filename.replace('.txt', '')
-        
-        if group_key not in fskt_groups:
-            fskt_groups[group_key] = []
-        fskt_groups[group_key].append(str(fskt_file))
+        ref_index = parse_fkt_reference_index(fskt_file)
+        if ref_index is None:
+            continue
+        group_key = f"ref_{ref_index:03d}"
+        fskt_groups.setdefault(group_key, []).append(str(fskt_file))
+        reference_time = parse_fkt_reference_time(fskt_file)
+        if reference_time is not None:
+            reference_times[group_key] = reference_time
     
     logger.info(f"Processing {len(fskt_groups)} F(k,t) reference groups in {exp_dir}")
     logger.info(f"Found reference groups: {list(fskt_groups.keys())}")
@@ -124,6 +170,10 @@ def process_fskt_files(exp_dir, job_name="prod", max_time=None, dt=1.0):
     for group_key, file_list in tqdm(fskt_groups.items(), desc="Processing F(k,t) groups"):
         # Sort files naturally
         file_list = natsort.natsorted(file_list)
+        reference_time_ps = reference_times.get(group_key, 0.0)
+        # Laboratory runtime for lag clipping. Never fall back to the reference
+        # time itself (that would zero the lag window for early refs).
+        group_runtime_ps = runtime_ps
         
         # Auto-detect maximum time range from all files if not specified
         detected_max_time = max_time
@@ -139,23 +189,42 @@ def process_fskt_files(exp_dir, job_name="prod", max_time=None, dt=1.0):
                         temp_data = temp_data.iloc[1:]
                     
                     temp_data = temp_data.apply(pd.to_numeric, errors='coerce').dropna()
-                    if not temp_data.empty and len(temp_data) >= 10:  # Require at least 10 data points
+                    if not temp_data.empty and len(temp_data) >= 2:
                         times = temp_data.iloc[:, 0].values
                         valid_times = times[times >= 0]
-                        if len(valid_times) >= 10:  # Require at least 10 valid time points
-                            all_max_times.append(valid_times.max())
-                            logger.debug(f"File {Path(fskt_file).name}: {len(valid_times)} time points, max time: {valid_times.max():.3f} ps")
+                        if len(valid_times) >= 2:
+                            file_ref_time = parse_fkt_reference_time(Path(fskt_file))
+                            file_ref_time = (
+                                file_ref_time
+                                if file_ref_time is not None
+                                else reference_time_ps
+                            )
+                            if group_runtime_ps is not None:
+                                valid_max = min(
+                                    valid_times.max(),
+                                    max(0.0, group_runtime_ps - file_ref_time),
+                                )
+                            else:
+                                valid_max = valid_times.max()
+                            all_max_times.append(valid_max)
+                            logger.debug(
+                                f"File {Path(fskt_file).name}: max lag {valid_max:.3f} ps"
+                            )
             
             if all_max_times:
-                # Use a conservative approach: use the minimum time found to ensure all files have data
-                # This prevents trying to interpolate beyond available data for running simulations
-                detected_max_time = min(all_max_times)
-                logger.info(f"Auto-detected max time for {group_key}: {detected_max_time:.3f} ps from {len(all_max_times)} valid files")
-                logger.info(f"  Using conservative estimate (minimum across files) to handle incomplete data")
-                logger.info(f"  Time range across files: {min(all_max_times):.3f} to {max(all_max_times):.3f} ps")
+                detected_max_time = choose_detected_max_lag(
+                    all_max_times, mode=lag_extent_mode
+                )
+                logger.info(
+                    f"Auto-detected max lag for {group_key}: {detected_max_time:.3f} ps "
+                    f"from {len(all_max_times)} valid files"
+                )
+                logger.info(
+                    f"  Using {lag_extent_mode} lag coverage across replicas"
+                )
             else:
-                detected_max_time = 10.0  # Very conservative fallback for running simulations
-                logger.warning(f"Could not detect time range for {group_key} (files may be empty/incomplete), using conservative fallback: {detected_max_time} ps")
+                detected_max_time = 10.0
+                logger.warning(f"Could not detect time range for {group_key}, using fallback: {detected_max_time} ps")
         
         # Set fixed linspace with configurable timestep
         if detected_max_time is not None:
@@ -206,9 +275,22 @@ def process_fskt_files(exp_dir, job_name="prod", max_time=None, dt=1.0):
             
             times = times[valid_mask]
             fskt_vals = fskt_vals[valid_mask]
-            
-            # Log the actual time range used for this file
-            file_min_time, file_max_time = times.min(), times.max()
+
+            file_ref_time = parse_fkt_reference_time(Path(fskt_file))
+            file_ref_time = (
+                file_ref_time if file_ref_time is not None else reference_time_ps
+            )
+            effective_runtime = group_runtime_ps
+            if effective_runtime is None:
+                effective_runtime = file_ref_time + times.max()
+            times, fskt_vals = normalize_fkt_series(
+                times,
+                fskt_vals,
+                reference_time_ps=file_ref_time,
+                runtime_ps=effective_runtime,
+            )
+            if len(times) < 2:
+                continue
             
             # Remove duplicate time values before interpolation
             unique_times, unique_fskt = remove_duplicate_times(times, fskt_vals)
@@ -280,7 +362,8 @@ def process_fskt_files(exp_dir, job_name="prod", max_time=None, dt=1.0):
                 f.write(f"# Time grid: 0 to {detected_max_time:.3f} ps with {len(uniform_times)} points (dt = {dt} ps)\n")
                 f.write(f"# Valid data points: {len(clean_times)} ({coverage_percent:.1f}% coverage)\n")
                 f.write(f"# Sample count range: {clean_sample_counts.min()} to {clean_sample_counts.max()}\n")
-                f.write(f"# Note: Simulation may be incomplete - sample counts indicate data availability\n")
+                f.write(f"# Reference laboratory time: {reference_time_ps:.3f} ps\n")
+                f.write(f"# Lag grid capped by runtime/reference coverage\n")
                 f.write(f"# Generated by process_fskt_only.py\n")
                 f.write(f"# Columns: lag_time fskt\n")
             
@@ -593,10 +676,29 @@ def main():
                        help='Maximum time for F(k,t) data (ps) - if not specified, auto-detect from data. Use smaller values for running simulations.')
     parser.add_argument('--fskt_dt', type=float, default=1.0,
                        help='Timestep for F(k,t) data interpolation (ps)')
+    parser.add_argument(
+        '--runtime-ps',
+        type=float,
+        default=None,
+        help=(
+            'Laboratory production runtime (ps) used to clip late-reference lag '
+            'windows. If omitted, each file uses reference_time + max lag in that file.'
+        ),
+    )
     parser.add_argument('--skip_processing', action='store_true',
                        help='Skip master file processing (use existing files)')
     parser.add_argument('--running_sim', action='store_true',
                        help='Optimized settings for running simulations (conservative time detection, better error handling)')
+    parser.add_argument(
+        '--lag-extent-mode',
+        choices=('min', 'max'),
+        default='max',
+        help=(
+            'How to set the master lag grid from per-replica maxima: '
+            'max=union (default; keep late lags from longer runs), '
+            'min=intersection (truncate to shortest replica)'
+        ),
+    )
     
     args = parser.parse_args()
     
@@ -668,7 +770,9 @@ def _run_single_directory(exp_dir: Path, args, start_time: float) -> int:
             exp_dir=exp_dir,
             job_name=args.job_name,
             max_time=args.max_time,
-            dt=args.fskt_dt
+            dt=args.fskt_dt,
+            runtime_ps=args.runtime_ps,
+            lag_extent_mode=args.lag_extent_mode,
         )
         
         if not processing_results['success']:

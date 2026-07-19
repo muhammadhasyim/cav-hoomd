@@ -14,13 +14,28 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
 
-COMPLETE_MIN_BYTES = 1_380_000_000
-DEFAULT_SWITCH_TIME_PS = 200.0
+from examples.slurm.aging_campaign_config import (
+    CAMPAIGN_EXTENSION_RUNTIME_PS,
+    CAMPAIGN_FKT_MAX_REFS_PRIMARY,
+    CAMPAIGN_FKT_MAX_REFS_TARGET,
+    CAMPAIGN_FKT_REFERENCE_INTERVAL_PS,
+    CAMPAIGN_PRIMARY_RUNTIME_PS,
+    CAMPAIGN_SWITCH_TIME_PS,
+    CAMPAIGN_TARGET_RUNTIME_PS,
+    CHECKPOINT_GSD_TEMPLATE,
+    FKT_STATE_TEMPLATE,
+)
+
+# Target runtime at 1 ps HDF5 sampling; guard against truncated files.
+COMPLETE_MIN_BYTES = 5_000_000
+DEFAULT_SWITCH_TIME_PS = CAMPAIGN_SWITCH_TIME_PS
 DEFAULT_N_REPLICAS = 1000
-DEFAULT_RUNTIME_PS = 2500.0
-DEFAULT_FKT_REFERENCE_INTERVAL_PS = 200.0
-DEFAULT_FKT_MAX_REFERENCES = 13
-DEFAULT_FKT_MAX_LAG_TOLERANCE_PS = 2.0
+DEFAULT_RUNTIME_PS = CAMPAIGN_TARGET_RUNTIME_PS
+DEFAULT_FKT_REFERENCE_INTERVAL_PS = CAMPAIGN_FKT_REFERENCE_INTERVAL_PS
+DEFAULT_FKT_MAX_REFERENCES = CAMPAIGN_FKT_MAX_REFS_TARGET
+DEFAULT_FKT_MAX_LAG_TOLERANCE_PS = 4.0
+DEFAULT_PRIMARY_RUNTIME_PS = CAMPAIGN_PRIMARY_RUNTIME_PS
+DEFAULT_EXTENSION_RUNTIME_PS = CAMPAIGN_EXTENSION_RUNTIME_PS
 REPLICA_H5_PATTERN = re.compile(r"observables_replica_(\d+)\.h5$")
 REFERENCE_TIME_PATTERN = re.compile(
     r"Reference time:\s*([0-9.eE+-]+)\s*ps"
@@ -45,6 +60,8 @@ class LambdaScanResult:
     complete_replicas: tuple[int, ...]
     partial_replicas: tuple[int, ...]
     missing_replicas: tuple[int, ...]
+    extension_replicas: tuple[int, ...] = ()
+    preserved_primary_replicas: tuple[int, ...] = ()
 
     @property
     def n_complete(self) -> int:
@@ -58,6 +75,16 @@ class LambdaScanResult:
     def n_missing(self) -> int:
         return len(self.missing_replicas)
 
+    @property
+    def fresh_run_replicas(self) -> tuple[int, ...]:
+        """Replicas that still need a full target-runtime production run."""
+        return tuple(
+            replica
+            for replica in (*self.partial_replicas, *self.missing_replicas)
+            if replica not in self.extension_replicas
+            and replica not in self.preserved_primary_replicas
+        )
+
 
 def lambda_to_tag(lam: float) -> str:
     """Convert a lambda value to the directory tag used by the campaign."""
@@ -66,10 +93,37 @@ def lambda_to_tag(lam: float) -> str:
     return str(lam).replace(".", "p")
 
 
+def _format_coupling_strength_for_runner(
+    coupling: float,
+    num_digits: int = 6,
+) -> str:
+    """Mirror ``cavitymd.utils.format_coupling_strength`` for directory names."""
+    if coupling == 0.0:
+        mantissa_str = "0" * num_digits
+        return f"coupling_{mantissa_str}e+00"
+
+    sign_prefix = ""
+    abs_coupling = abs(coupling)
+    if coupling < 0:
+        sign_prefix = "neg"
+
+    scientific_str = f"{abs_coupling:.{num_digits - 1}e}"
+    mantissa_part, exp_part = scientific_str.split("e")
+    mantissa = float(mantissa_part)
+    exponent = int(exp_part)
+    mantissa_scaled = int(mantissa * (10 ** (num_digits - 1)))
+    mantissa_str = f"{mantissa_scaled:0{num_digits}d}"
+    adjusted_exponent = exponent - (num_digits - 1)
+    exp_str = f"{adjusted_exponent:+03d}"
+    return f"coupling_{sign_prefix}{mantissa_str}e{exp_str}"
+
+
 def coupling_dir_name(coupling: float, switch_time_ps: float) -> str:
     """Match the directory naming logic in examples/05_advanced_run.py."""
-    coupling_str = f"{coupling:.0e}".replace("-", "neg").replace("+", "pos")
-    return f"cavity_coupling_{coupling_str}_switch_{switch_time_ps}ps"
+    return (
+        f"{_format_coupling_strength_for_runner(coupling)}"
+        f"_switch_{switch_time_ps}ps"
+    )
 
 
 def run_dir(
@@ -94,6 +148,21 @@ def replica_h5_path(run_directory: Path, replica: int) -> Path:
 def replica_gsd_path(run_directory: Path, replica: int) -> Path:
     """Return the production GSD path for one replica."""
     return run_directory / f"prod-{replica}.gsd"
+
+
+def replica_checkpoint_path(run_directory: Path, replica: int) -> Path:
+    """Return the single-frame checkpoint GSD used for runtime extension."""
+    return run_directory / CHECKPOINT_GSD_TEMPLATE.format(replica=replica)
+
+
+def replica_fkt_state_path(
+    run_directory: Path,
+    replica: int,
+    *,
+    job_name: str = "prod",
+) -> Path:
+    """Return the serialized F(k,t) reference state for resume."""
+    return run_directory / FKT_STATE_TEMPLATE.format(job_name=job_name, replica=replica)
 
 
 def fkt_file_path(
@@ -274,7 +343,7 @@ def validate_fkt_file(
 
     The check rejects malformed, non-finite, duplicate, and out-of-order rows.
     It also requires a reference-time header and final lag coverage consistent
-    with the 2500 ps aging protocol.
+    with the campaign aging protocol runtime.
 
     Parameters
     ----------
@@ -354,15 +423,22 @@ def validate_fkt_file(
     except (OSError, UnicodeError, ValueError):
         return False
 
-    if reference_time_ps is None or row_count < 2 or previous_lag is None:
+    if reference_time_ps is None:
+        return False
+    expected_max_lag_ps = runtime_ps - reference_time_ps
+    if expected_max_lag_ps < 0.0:
+        return False
+    min_rows = (
+        1
+        if (runtime_ps - expected_reference_time_ps) <= max_lag_tolerance_ps
+        else 2
+    )
+    if row_count < min_rows or previous_lag is None:
         return False
     if (
         abs(reference_time_ps - expected_reference_time_ps)
         > max_lag_tolerance_ps
     ):
-        return False
-    expected_max_lag_ps = runtime_ps - reference_time_ps
-    if expected_max_lag_ps < 0.0:
         return False
     return abs(previous_lag - expected_max_lag_ps) <= max_lag_tolerance_ps
 
@@ -452,6 +528,124 @@ def is_complete_replica(
     return True
 
 
+def is_complete_at_runtime(
+    run_directory: Path,
+    replica: int,
+    runtime_ps: float,
+    *,
+    min_bytes: int = COMPLETE_MIN_BYTES,
+    reference_interval_ps: float = DEFAULT_FKT_REFERENCE_INTERVAL_PS,
+    max_references: int | None = None,
+    max_lag_tolerance_ps: float = DEFAULT_FKT_MAX_LAG_TOLERANCE_PS,
+    require_step_protocol: bool = False,
+    expected_lam: float | None = None,
+    expected_switch_time_ps: float | None = None,
+) -> bool:
+    """Return whether a replica satisfies completion at an explicit runtime."""
+    if max_references is None:
+        max_references = int(math.floor(runtime_ps / reference_interval_ps)) + 1
+    return is_complete_replica(
+        run_directory,
+        replica,
+        min_bytes=min_bytes,
+        runtime_ps=runtime_ps,
+        reference_interval_ps=reference_interval_ps,
+        max_references=max_references,
+        max_lag_tolerance_ps=max_lag_tolerance_ps,
+        require_step_protocol=require_step_protocol,
+        expected_lam=expected_lam,
+        expected_switch_time_ps=expected_switch_time_ps,
+    )
+
+
+def _runtime_completion_kwargs(
+    **completion_kwargs: object,
+) -> dict[str, object]:
+    """Drop runtime aliases so explicit runtime positional args are not duplicated."""
+    return {
+        key: value
+        for key, value in completion_kwargs.items()
+        if key not in {"runtime_ps", "target_runtime_ps"}
+    }
+
+
+def _primary_completion_kwargs(
+    **completion_kwargs: object,
+) -> dict[str, object]:
+    """Kwargs for primary-runtime checks with an explicit ``max_references``."""
+    return {
+        key: value
+        for key, value in _runtime_completion_kwargs(**completion_kwargs).items()
+        if key != "max_references"
+    }
+
+
+def needs_extension_replica(
+    run_directory: Path,
+    replica: int,
+    *,
+    primary_runtime_ps: float = DEFAULT_PRIMARY_RUNTIME_PS,
+    target_runtime_ps: float = DEFAULT_RUNTIME_PS,
+    **completion_kwargs: object,
+) -> bool:
+    """Return True when a replica finished the primary run and can extend."""
+    target_kwargs = _runtime_completion_kwargs(**completion_kwargs)
+    primary_kwargs = _primary_completion_kwargs(**completion_kwargs)
+    checkpoint = replica_checkpoint_path(run_directory, replica)
+    if not checkpoint.is_file():
+        return False
+    if is_complete_at_runtime(
+        run_directory,
+        replica,
+        target_runtime_ps,
+        **target_kwargs,  # type: ignore[arg-type]
+    ):
+        return False
+    return is_complete_at_runtime(
+        run_directory,
+        replica,
+        primary_runtime_ps,
+        max_references=CAMPAIGN_FKT_MAX_REFS_PRIMARY,
+        **primary_kwargs,  # type: ignore[arg-type]
+    )
+
+
+def replica_needs_fresh_run(
+    run_directory: Path,
+    replica: int,
+    *,
+    target_runtime_ps: float = DEFAULT_RUNTIME_PS,
+    **completion_kwargs: object,
+) -> bool:
+    """Return True when a replica still needs a full target-runtime production run."""
+    target_kwargs = _runtime_completion_kwargs(**completion_kwargs)
+    primary_kwargs = _primary_completion_kwargs(**completion_kwargs)
+    if is_complete_at_runtime(
+        run_directory,
+        replica,
+        target_runtime_ps,
+        **target_kwargs,  # type: ignore[arg-type]
+    ):
+        return False
+    if needs_extension_replica(
+        run_directory,
+        replica,
+        target_runtime_ps=target_runtime_ps,
+        **completion_kwargs,  # type: ignore[arg-type]
+    ):
+        return False
+    if is_complete_at_runtime(
+        run_directory,
+        replica,
+        DEFAULT_PRIMARY_RUNTIME_PS,
+        max_references=CAMPAIGN_FKT_MAX_REFS_PRIMARY,
+        **primary_kwargs,  # type: ignore[arg-type]
+    ):
+        # Primary complete but no checkpoint: cannot extend safely.
+        return False
+    return True
+
+
 def cleanup_replica_artifacts(
     run_directory: Path,
     replica: int,
@@ -482,6 +676,8 @@ def cleanup_replica_artifacts(
     paths = [
         replica_h5_path(run_directory, replica),
         replica_gsd_path(run_directory, replica),
+        replica_checkpoint_path(run_directory, replica),
+        replica_fkt_state_path(run_directory, replica),
         protocol_marker_path(run_directory, replica),
         *sorted(run_directory.glob(f"prod-{replica}_fkt_ref_*.txt")),
     ]
@@ -561,6 +757,37 @@ def scan_lambda_run(
     complete.sort()
     partial.sort()
     missing = [replica for replica in range(n_replicas) if replica not in complete]
+    extension: list[int] = []
+    preserved_primary: list[int] = []
+    completion_kwargs = {
+        "min_bytes": min_bytes,
+        "runtime_ps": runtime_ps,
+        "reference_interval_ps": reference_interval_ps,
+        "max_references": max_references,
+        "max_lag_tolerance_ps": max_lag_tolerance_ps,
+        "require_step_protocol": require_step_protocol,
+        "expected_lam": expected_lam,
+        "expected_switch_time_ps": expected_switch_time_ps,
+    }
+    status_kwargs = {
+        "min_bytes": min_bytes,
+        "reference_interval_ps": reference_interval_ps,
+        "max_lag_tolerance_ps": max_lag_tolerance_ps,
+        "require_step_protocol": require_step_protocol,
+        "expected_lam": expected_lam,
+        "expected_switch_time_ps": expected_switch_time_ps,
+    }
+    for replica in range(n_replicas):
+        if needs_extension_replica(directory, replica, **completion_kwargs):
+            extension.append(replica)
+        elif is_complete_at_runtime(
+            directory,
+            replica,
+            DEFAULT_PRIMARY_RUNTIME_PS,
+            max_references=CAMPAIGN_FKT_MAX_REFS_PRIMARY,
+            **status_kwargs,
+        ):
+            preserved_primary.append(replica)
 
     return LambdaScanResult(
         lam=lam,
@@ -568,6 +795,8 @@ def scan_lambda_run(
         complete_replicas=tuple(complete),
         partial_replicas=tuple(partial),
         missing_replicas=tuple(missing),
+        extension_replicas=tuple(sorted(extension)),
+        preserved_primary_replicas=tuple(sorted(preserved_primary)),
     )
 
 
@@ -579,6 +808,10 @@ def cleanup_partial_replicas(
     deleted: list[Path] = []
 
     for replica in scan.partial_replicas:
+        if replica in scan.extension_replicas:
+            continue
+        if replica in scan.preserved_primary_replicas:
+            continue
         deleted.extend(
             cleanup_replica_artifacts(
                 scan.run_dir,

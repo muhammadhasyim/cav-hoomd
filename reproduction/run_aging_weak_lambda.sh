@@ -17,6 +17,8 @@ echo "=== [1/7] Build staged paper-format layout ==="
 "$PY" adapters/build_aging_repro_layout.py --profile "$PROFILE"
 
 echo "=== [2/7] Fig 2b F(k,t) plots (existing masters) ==="
+# Masters should be built with --lag-extent-mode max (now the process_fskt_only
+# default). To rebuild truncated masters, drop --skip_processing.
 "$PY" figure2_fkt/process_fskt_only.py \
   --profile "$PROFILE" \
   --skip_processing \
@@ -35,8 +37,8 @@ echo "=== [3b/7] Fig 2b/c fictive (predicted) relaxation panels ==="
   --material-time-output "$FIGURES/fictive_material_time_evolution.pdf"
 
 echo "=== [4/7] Fig 3 energy/temperature panels (all lambda) ==="
-# CMU-Unicode OpenType fonts are not installed in this environment, so use the
-# matplotlib Computer Modern mathtext renderer (--no-latex) for the in-repo run.
+# Prefer --no-latex: plot_figure3 falls back to matplotlib cmr10 + mathtext CM
+# (CMU OpenType / latex.fmt are unavailable on this cluster).
 for lam in 0 0.01 0.016667 0.023333 0.03; do
   tag=$(echo "$lam" | tr '.' 'p')
   "$PY" figure3_energy/plot_figure3.py \
@@ -51,6 +53,11 @@ echo "=== [5/7] Fig 4 material time + collapse ==="
 "$PY" figure4_material_time/plot_material_time_and_collapse.py \
   --profile "$PROFILE" \
   --output "$FIGURES/material_time_and_collapse.pdf"
+
+echo "=== [5b/7] Fig 4 four-panel composite ==="
+"$PY" figure4_material_time/plot_figure4.py \
+  --profile "$PROFILE" \
+  --output "$FIGURES/figure4.pdf"
 
 echo "=== [6/7] CSV exports ==="
 "$PY" csv_export/export_figure3_csv.py \

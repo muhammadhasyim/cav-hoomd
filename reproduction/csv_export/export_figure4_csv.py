@@ -149,31 +149,48 @@ def load_tn_mt(data_root, switch_time_ps: float = 200.0):
     return result
 
 
-def load_relaxation_table(data_root):
+def load_relaxation_table(data_root, alt_root=None):
     """
     Load relaxation_vs_reference_time_data.txt.
-    Returns dict: (coupling_value, ref_num) -> (ref_time_ps, relaxation_time_ps).
-    Also returns a sorted list of (coupling_value, ref_num, ref_time_ps, tau_ps).
+    Returns a sorted list of (coupling_value, ref_num, ref_time_ps, relaxation_time_ps).
     """
     fpath = data_root / 'relaxation_vs_reference_time_data.txt'
-    rows  = []
-    with open(fpath) as fh:
+    if not fpath.is_file() and alt_root is not None:
+        candidate = Path(alt_root) / 'relaxation_vs_reference_time_data.txt'
+        if candidate.is_file():
+            fpath = candidate
+    if not fpath.is_file():
+        raise FileNotFoundError(
+            f"relaxation_vs_reference_time_data.txt not found under {data_root}"
+            + (f" or {alt_root}" if alt_root else "")
+        )
+
+    rows = []
+    with open(fpath, encoding="utf-8") as fh:
         for line in fh:
             line = line.strip()
             if not line or line.startswith('#'):
                 continue
-            # header line?
-            if 'coupling_name' in line:
+            if 'coupling_name' in line or 'ref_num' in line:
                 continue
             parts = line.split()
-            if len(parts) < 7:
+            if len(parts) < 6:
                 continue
-            coupling_value  = float(parts[1])
-            ref_num         = int(parts[3])
-            ref_time_ps     = float(parts[4])
-            relaxation_time = float(parts[5])
+            try:
+                if parts[0].startswith('cavity_coupling_'):
+                    coupling_value = float(parts[1])
+                    ref_num = int(parts[3])
+                    ref_time_ps = float(parts[4])
+                    relaxation_time = float(parts[5])
+                else:
+                    ref_num = int(parts[0])
+                    ref_time_ps = float(parts[1])
+                    coupling_value = float(parts[4])
+                    relaxation_time = float(parts[6])
+            except ValueError:
+                continue
             rows.append((coupling_value, ref_num, ref_time_ps, relaxation_time))
-    print(f"  Loaded relaxation table: {len(rows)} entries")
+    print(f"  Loaded relaxation table: {len(rows)} entries from {fpath}")
     return rows
 
 
@@ -196,7 +213,23 @@ def load_fskt(data_root, eps, ref_num, coupling_names=None):
         fpath = candidates[0]
     if fpath is None or not fpath.exists():
         return None, None
-    data = np.loadtxt(fpath, skiprows=9)
+    # Header comment count drifts (RF masters add a lag-grid note). Skip '#'
+    # comments and an optional non-numeric column header instead of fixed skiprows.
+    rows: list[list[float]] = []
+    with open(fpath, encoding="utf-8") as handle:
+        for line in handle:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if stripped.lower().startswith("lag_time"):
+                continue
+            parts = stripped.split()
+            if len(parts) < 2:
+                continue
+            rows.append([float(parts[0]), float(parts[1])])
+    if not rows:
+        return None, None
+    data = np.asarray(rows, dtype=float)
     return data[:, 0], data[:, 1]
 
 
@@ -394,7 +427,14 @@ def build_panels_cd(relaxation_rows):
 
 # ── verification ──────────────────────────────────────────────────────────────
 
-def verify_csv(output_path, fit_params, meas_mt, relaxation_rows):
+def verify_csv(
+    output_path,
+    fit_params,
+    meas_mt,
+    relaxation_rows,
+    *,
+    expected_lam_max: float | None = None,
+):
     """
     Run automated sanity checks on the written CSV.
     Pure Python/NumPy implementation (no pandas) for compatibility.
@@ -418,7 +458,8 @@ def verify_csv(output_path, fit_params, meas_mt, relaxation_rows):
     # 1. Lambda max
     lam_vals = [to_float(r['lambda_au']) for r in rows if r['lambda_au'] != '']
     lam_max  = max(lam_vals)
-    expected_lam_max = lam(1e-3)
+    if expected_lam_max is None:
+        expected_lam_max = lam(1e-3)
     status = 'PASS' if abs(lam_max - expected_lam_max) < 0.002 else 'FAIL'
     if status == 'FAIL':
         errors.append(f"lambda_max={lam_max:.4f} expected ~{expected_lam_max:.4f}")
@@ -575,7 +616,10 @@ def main():
     tn_mt = load_tn_mt(data_root, switch_time_ps=profile.switch_time_ps)
 
     print("\n[3/5] Loading relaxation table...")
-    relax_rows = load_relaxation_table(data_root)
+    relax_rows = load_relaxation_table(
+        data_root,
+        alt_root=profile.figures_dir if args.profile != "paper" else None,
+    )
 
     print("\n[4/5] Loading fit parameters...")
     fit_params = load_fit_params(data_root, alt_root=profile.figures_dir if args.profile != "paper" else None)
@@ -754,7 +798,13 @@ def main():
 
     # ── Verify combined file ───────────────────────────────────────────────
     print("\n── Verification ─────────────────────────────────────────────────────")
-    ok = verify_csv(output, fit_params, meas_mt, relax_rows)
+    ok = verify_csv(
+        output,
+        fit_params,
+        meas_mt,
+        relax_rows,
+        expected_lam_max=max(entry.axis_value for entry in profile.couplings),
+    )
     sys.exit(0 if ok else 1)
 
 
