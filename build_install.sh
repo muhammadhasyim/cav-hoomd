@@ -15,11 +15,11 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-if [ "$HOOMD_VERSION" != "5.2.0" ] && [ "$HOOMD_VERSION" != "5.4.0" ]; then
+if [ "$HOOMD_VERSION" != "5.2.0" ] && [ "$HOOMD_VERSION" != "5.4.0" ] && [ "$HOOMD_VERSION" != "7.1.0" ]; then
     echo "ERROR: HOOMD-blue version mismatch."
-    echo "Required: 5.2.0 or 5.4.0"
+    echo "Required: 5.2.0, 5.4.0, or 7.1.0"
     echo "Found: $HOOMD_VERSION"
-    echo "Please install HOOMD-blue 5.2.0 or 5.4.0 following the documentation."
+    echo "Please install a supported HOOMD-blue version following the documentation."
     exit 1
 fi
 

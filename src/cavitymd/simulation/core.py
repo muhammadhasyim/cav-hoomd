@@ -854,6 +854,12 @@ class CavityMDSimulation:
                  enable_dipole_response: bool = False,
                  dipole_response_field_strength: float = 1e-5,
                  dipole_response_sign: float = 1.0,
+                 # Electrostatics backend (PPPM default; reaction_field for speed)
+                 electrostatics_method: str = 'pppm',
+                 pppm_order: int = 6,
+                 pppm_grid: int = 32,
+                 eps_rf: float = 0.0,
+                 coulomb_rcut: float = 15.0,
                  # Mechanical cavity modulation parameters
                  mech_periodic: bool = False,
                  mech_frequency_cm1: float = 100.0,
@@ -1470,6 +1476,18 @@ class CavityMDSimulation:
         # Device configuration
         self.device = device.upper()
         self.gpu_id = gpu_id
+
+        # Electrostatics backend
+        electrostatics_method = electrostatics_method.lower()
+        if electrostatics_method not in {'pppm', 'reaction_field'}:
+            raise ValueError(
+                "electrostatics_method must be 'pppm' or 'reaction_field'"
+            )
+        self.electrostatics_method = electrostatics_method
+        self.pppm_order = pppm_order
+        self.pppm_grid = pppm_grid
+        self.eps_rf = eps_rf
+        self.coulomb_rcut = coulomb_rcut
         
         # Seed configuration
         self.seed = seed
@@ -2174,6 +2192,58 @@ class CavityMDSimulation:
         
         return laser_force
 
+    def _setup_electrostatics(self, nlist, lj_rcut):
+        """Configure Coulomb electrostatics (PPPM or reaction field)."""
+        method = getattr(self, 'electrostatics_method', 'pppm')
+        coulomb_rcut = getattr(self, 'coulomb_rcut', lj_rcut)
+
+        if method == 'pppm':
+            grid = getattr(self, 'pppm_grid', 32)
+            order = getattr(self, 'pppm_order', 6)
+            self.log_info(
+                f"Electrostatics: PPPM (grid={grid}^3, order={order}, r_cut={coulomb_rcut})"
+            )
+            short, long = hoomd.md.long_range.pppm.make_pppm_coulomb_forces(
+                nlist=nlist,
+                resolution=[grid, grid, grid],
+                order=order,
+                r_cut=coulomb_rcut,
+                alpha=0.0,
+            )
+            self.reaction_field_force = None
+            return [short, long]
+
+        if method == 'reaction_field':
+            rf = hoomd.md.pair.ReactionField(
+                nlist=nlist,
+                default_r_cut=coulomb_rcut,
+            )
+            mol_types = ['O', 'N', 'L']
+            for type_i in mol_types:
+                for type_j in mol_types:
+                    if type_i == 'L' or type_j == 'L':
+                        rf.params[(type_i, type_j)] = dict(
+                            epsilon=1.0,
+                            eps_rf=self.eps_rf,
+                            use_charge=True,
+                        )
+                        rf.r_cut[(type_i, type_j)] = 0.0
+                    else:
+                        rf.params[(type_i, type_j)] = dict(
+                            epsilon=1.0,
+                            eps_rf=self.eps_rf,
+                            use_charge=True,
+                        )
+                        rf.r_cut[(type_i, type_j)] = coulomb_rcut
+            eps_label = 'infinity (conducting)' if self.eps_rf == 0.0 else self.eps_rf
+            self.log_info(
+                f"Electrostatics: reaction field (eps_rf={eps_label}, r_cut={coulomb_rcut})"
+            )
+            self.reaction_field_force = rf
+            return [rf]
+
+        raise ValueError(f"Unknown electrostatics_method: {method}")
+
     def setup_force_parameters(self, dt, rcut=15):
         """Set up force parameters for the simulation."""
         forces = []
@@ -2236,15 +2306,8 @@ class CavityMDSimulation:
         lj.r_cut[('L', 'L')] = 0.0
         forces.append(lj)
 
-        # Setup long-range Coulomb interactions using PPPM method
-        numpoints = 32
-        order = 6
-        short, long = hoomd.md.long_range.pppm.make_pppm_coulomb_forces(
-            nlist=cell, resolution=[numpoints, numpoints, numpoints], 
-            order=order, r_cut=rcut, alpha=0.0
-        )
-        forces.append(short)
-        forces.append(long)
+        electrostatic_forces = self._setup_electrostatics(cell, rcut)
+        forces.extend(electrostatic_forces)
         
         # Setup enhanced laser driving if enabled
         if self.laser_enabled:
@@ -2542,6 +2605,16 @@ class CavityMDSimulation:
         self.log_info(f"  Target temperature: {self.temperature:.1f} K")
         self.log_info(f"  kT: {kT:.6e} a.u.")
 
+    def _observable_trigger_period(self, output_period_ps: float) -> int:
+        """Return HOOMD trigger period in steps for a time-based output interval."""
+        if getattr(self, 'error_tolerance', 0) > 0:
+            return 1
+        dt_fs = getattr(self, 'dt_fs', None)
+        if dt_fs is None or dt_fs <= 0:
+            return 1
+        dt_ps = dt_fs / 1000.0
+        return max(1, round(output_period_ps / dt_ps))
+
     def setup_trackers_and_loggers(self):
         """Set up comprehensive tracking and logging objects for the simulation."""
         
@@ -2706,109 +2779,119 @@ class CavityMDSimulation:
             self.log_info(f"Energy tracking setup completed: {method_count} methods, {force_count} forces")
             
             # Set up energy tracker from plugin for proper reservoir energy tracking
-            try:
-                name = getattr(self, 'name', 'sim')
-                replica = getattr(self, 'replica', 0)
-                energy_output_period_ps = getattr(self, 'energy_output_period_ps', 0.1)
-                max_energy_output_time_ps = getattr(self, 'max_energy_output_time_ps', None)
-                
-                # Fix duplicate "energy" in filename - EnergyTracker adds "_energy_tracker.txt" automatically
-                output_prefix = f'{name}-{replica}'
-                actual_energy_filename = f'{output_prefix}_energy_tracker.txt'
-                self.log_info(f"Setting up energy tracker with output file: {actual_energy_filename}")
-                
-                self.log_info(f"Energy tracker configuration:")
-                self.log_info(f"  Using time-based output: {energy_output_period_ps:.3f} ps")
-                if max_energy_output_time_ps:
-                    self.log_info(f"  Max output time: {max_energy_output_time_ps:.3f} ps")
-                else:
-                    self.log_info(f"  No max time limit")
-                
-                # Prepare individual force objects for EnergyTracker
-                force_objects = {}
-                thermostat_objects = {}
-                
-                for force in self.sim.operations.integrator.forces:
-                    force_name = type(force).__name__.lower()
-                    if 'cavity' in force_name:
-                        force_objects['cavity'] = force
-                    elif 'lj' in force_name or 'lennard' in force_name:
-                        force_objects['lj'] = force
-                    elif 'harmonic' in force_name or 'bond' in force_name:
-                        force_objects['harmonic'] = force
-                    elif 'ewald' in force_name:
-                        force_objects['ewald_short'] = force  # Ewald is the short-range PPPM force
-                    elif 'coulomb' in force_name:
-                        force_objects['ewald_long'] = force   # Coulomb is the long-range PPPM force
-                
-                # Extract thermostat objects for EnergyTracker
-                for i, method in enumerate(self.sim.operations.integrator.methods):
-                    method_name = type(method).__name__.lower()
-                    
-                    # Check for Langevin methods (have reservoir_energy)
-                    if 'langevin' in method_name and hasattr(method, 'reservoir_energy'):
-                        # Determine if this is molecular or cavity based on filter
-                        if hasattr(method, 'filter'):
-                            filter_types = getattr(method.filter, '_types', [])
-                            if 'L' in filter_types:
-                                thermostat_objects['langevin_cavity'] = method
-                            else:
-                                thermostat_objects['langevin_molecular'] = method
-                    
-                    # Check for Bussi thermostats
-                    if hasattr(method, 'thermostat') and method.thermostat is not None:
-                        thermostat_type = type(method.thermostat).__name__.lower()
-                        if 'bussi' in thermostat_type:
+            if self.enable_energy_tracking:
+                try:
+                    name = getattr(self, 'name', 'sim')
+                    replica = getattr(self, 'replica', 0)
+                    energy_output_period_ps = getattr(self, 'energy_output_period_ps', 0.1)
+                    max_energy_output_time_ps = getattr(self, 'max_energy_output_time_ps', None)
+                    # When HDF5 is the primary sink, refresh at HDF5 cadence so rows stay fresh.
+                    if getattr(self, 'enable_hdf5_output', False):
+                        energy_refresh_period_ps = self.hdf5_output_period_ps
+                    else:
+                        energy_refresh_period_ps = energy_output_period_ps
+
+                    # Fix duplicate "energy" in filename - EnergyTracker adds "_energy_tracker.txt" automatically
+                    output_prefix = f'{name}-{replica}'
+                    actual_energy_filename = f'{output_prefix}_energy_tracker.txt'
+                    self.log_info(f"Setting up energy tracker with output file: {actual_energy_filename}")
+
+                    self.log_info(f"Energy tracker configuration:")
+                    self.log_info(f"  CSV/report period: {energy_output_period_ps:.3f} ps")
+                    self.log_info(f"  Refresh period: {energy_refresh_period_ps:.3f} ps")
+                    if max_energy_output_time_ps:
+                        self.log_info(f"  Max output time: {max_energy_output_time_ps:.3f} ps")
+                    else:
+                        self.log_info(f"  No max time limit")
+
+                    # Prepare individual force objects for EnergyTracker
+                    force_objects = {}
+                    thermostat_objects = {}
+
+                    for force in self.sim.operations.integrator.forces:
+                        force_name = type(force).__name__.lower()
+                        if 'cavity' in force_name:
+                            force_objects['cavity'] = force
+                        elif 'lj' in force_name or 'lennard' in force_name:
+                            force_objects['lj'] = force
+                        elif 'harmonic' in force_name or 'bond' in force_name:
+                            force_objects['harmonic'] = force
+                        elif 'ewald' in force_name:
+                            force_objects['ewald_short'] = force
+                        elif 'coulomb' in force_name:
+                            force_objects['ewald_long'] = force
+                        elif 'reaction' in force_name:
+                            force_objects['ewald_short'] = force
+
+                    # Extract thermostat objects for EnergyTracker
+                    for i, method in enumerate(self.sim.operations.integrator.methods):
+                        method_name = type(method).__name__.lower()
+
+                        # Check for Langevin methods (have reservoir_energy)
+                        if 'langevin' in method_name and hasattr(method, 'reservoir_energy'):
                             # Determine if this is molecular or cavity based on filter
                             if hasattr(method, 'filter'):
                                 filter_types = getattr(method.filter, '_types', [])
                                 if 'L' in filter_types:
-                                    thermostat_objects['bussi_cavity'] = method.thermostat
+                                    thermostat_objects['langevin_cavity'] = method
                                 else:
-                                    thermostat_objects['bussi_molecular'] = method.thermostat
-                
-                # Get kinetic trackers 
-                kinetic_tracker = None  # Use internal kinetic computation
-                
-                self.log_info(f"Energy tracker configuration:")
-                self.log_info(f"  Force objects: {list(force_objects.keys())}")
-                self.log_info(f"  Thermostat objects: {list(thermostat_objects.keys())}")
-                self.log_info(f"  Using internal kinetic computation (no external tracker needed)")
-                
-                # Use time-based output period for accurate timing
-                self.energy_tracker = EnergyTracker(
-                    simulation=self,  # ← Pass CavityMDSimulation object which has incavity attribute
-                    time_tracker=self.time_tracker,
-                    output_period_ps=energy_output_period_ps,
-                    output_prefix=output_prefix,
-                    force_objects=force_objects,        # CRITICAL: Pass force objects
-                    thermostat_objects=thermostat_objects,  # CRITICAL: Pass thermostat objects
-                    verbose="quiet",  # Suppress debug output by default
-                    enable_csv_output=False  # Use HDF5 output via ObservableWriter
-                )
-                
-                # Add energy tracker to simulation - trigger period doesn't matter since it uses internal timing
-                energy_updater = hoomd.update.CustomUpdater(
-                    action=self.energy_tracker,
-                    trigger=hoomd.trigger.Periodic(1)  # Check every step but tracker handles timing internally
-                )
-                self.sim.operations.updaters.append(energy_updater)
-                
-                self.log_info(f" Energy tracker setup completed with time-based output:")
-                self.log_info(f"  Output period: {energy_output_period_ps:.3f} ps (accurate timing)")
-                self.log_info(f"  Tracker handles timing internally using ElapsedTimeTracker")
-                if max_energy_output_time_ps:
-                    self.log_info(f"  Output limited to {max_energy_output_time_ps:.3f} ps")
-                
-            except Exception as e:
-                self.log_error(f"Failed to setup energy tracker: {e}")
-                import traceback
-                self.log_error("Full traceback:")
-                for line in traceback.format_exc().split('\n'):
-                    if line.strip():
-                        self.log_error(line)
+                                    thermostat_objects['langevin_molecular'] = method
+
+                        # Check for Bussi thermostats
+                        if hasattr(method, 'thermostat') and method.thermostat is not None:
+                            thermostat_type = type(method.thermostat).__name__.lower()
+                            if 'bussi' in thermostat_type:
+                                # Determine if this is molecular or cavity based on filter
+                                if hasattr(method, 'filter'):
+                                    filter_types = getattr(method.filter, '_types', [])
+                                    if 'L' in filter_types:
+                                        thermostat_objects['bussi_cavity'] = method.thermostat
+                                    else:
+                                        thermostat_objects['bussi_molecular'] = method.thermostat
+
+                    # Get kinetic trackers
+                    kinetic_tracker = None  # Use internal kinetic computation
+
+                    self.log_info(f"Energy tracker configuration:")
+                    self.log_info(f"  Force objects: {list(force_objects.keys())}")
+                    self.log_info(f"  Thermostat objects: {list(thermostat_objects.keys())}")
+                    self.log_info(f"  Using internal kinetic computation (no external tracker needed)")
+
+                    self.energy_tracker = EnergyTracker(
+                        simulation=self,  # ← Pass CavityMDSimulation object which has incavity attribute
+                        time_tracker=self.time_tracker,
+                        output_period_ps=energy_refresh_period_ps,
+                        output_prefix=output_prefix,
+                        force_objects=force_objects,        # CRITICAL: Pass force objects
+                        thermostat_objects=thermostat_objects,  # CRITICAL: Pass thermostat objects
+                        verbose="quiet",  # Suppress debug output by default
+                        enable_csv_output=False  # Use HDF5 output via ObservableWriter
+                    )
+
+                    energy_trigger = self._observable_trigger_period(energy_refresh_period_ps)
+                    energy_updater = hoomd.update.CustomUpdater(
+                        action=self.energy_tracker,
+                        trigger=hoomd.trigger.Periodic(period=energy_trigger)
+                    )
+                    self.sim.operations.updaters.append(energy_updater)
+
+                    self.log_info(f" Energy tracker setup completed with time-based output:")
+                    self.log_info(f"  Refresh period: {energy_refresh_period_ps:.3f} ps (trigger every {energy_trigger} steps)")
+                    self.log_info(f"  Tracker handles timing internally using ElapsedTimeTracker")
+                    if max_energy_output_time_ps:
+                        self.log_info(f"  Output limited to {max_energy_output_time_ps:.3f} ps")
+
+                except Exception as e:
+                    self.log_error(f"Failed to setup energy tracker: {e}")
+                    import traceback
+                    self.log_error("Full traceback:")
+                    for line in traceback.format_exc().split('\n'):
+                        if line.strip():
+                            self.log_error(line)
+                    self.energy_tracker = None
+            else:
                 self.energy_tracker = None
-            
+
         except Exception as e:
             self.log_warning(f"Could not complete energy tracking setup: {str(e)}")
             self.log_warning(f"Error details: {type(e).__name__}: {str(e)}")
@@ -2836,11 +2919,11 @@ class CavityMDSimulation:
                 self.log_info(f"  Output period: {fkt_output_period_ps:.3f} ps")
                 
                 # Use time-based intervals for adaptive timestep compatibility
-                fkt_trigger_period = 1  # Check every step for best timing
+                fkt_trigger_period = self._observable_trigger_period(fkt_output_period_ps)
                 
                 self.log_info(f"  Using time-based reference intervals for adaptive timestep compatibility")
                 self.log_info(f"  Reference interval: {fkt_reference_interval_ps:.3f} ps")
-                self.log_info(f"  Trigger period: {fkt_trigger_period} step")
+                self.log_info(f"  Trigger period: {fkt_trigger_period} step(s)")
                 
                 # Get logarithmic time spacing parameters
                 fkt_log_time_spacing = getattr(self, 'fkt_log_time_spacing', False)
@@ -2874,10 +2957,10 @@ class CavityMDSimulation:
                     log_num_points=fkt_log_num_points
                 )
                 
-                # Add F(k,t) tracker to simulation - trigger period doesn't matter since it uses internal timing
+                # Add F(k,t) tracker to simulation
                 fkt_updater = hoomd.update.CustomUpdater(
                     action=self.density_corr_tracker,
-                    trigger=hoomd.trigger.Periodic(1)  # Check every step but tracker handles timing internally
+                    trigger=hoomd.trigger.Periodic(period=fkt_trigger_period)
                 )
                 self.sim.operations.updaters.append(fkt_updater)
                 
@@ -3964,13 +4047,14 @@ class CavityMDSimulation:
                 self.log_info("  Registered dipole FDR tracker for HDF5 output")
             
             # Add HDF5 writer as custom updater
+            hdf5_trigger = self._observable_trigger_period(self.hdf5_output_period_ps)
             hdf5_updater = hoomd.update.CustomUpdater(
                 action=self.hdf5_writer,
-                trigger=hoomd.trigger.Periodic(period=1)  # Check every step, writer handles timing
+                trigger=hoomd.trigger.Periodic(period=hdf5_trigger)
             )
             self.sim.operations.updaters.append(hdf5_updater)
             
-            self.log_info("✓ HDF5 observable output enabled\n")
+            self.log_info(f"✓ HDF5 observable output enabled (trigger every {hdf5_trigger} steps)\n")
             
         except Exception as e:
             import traceback
@@ -4375,15 +4459,16 @@ class CavityMDSimulation:
             omegac=self.omegac if hasattr(self, 'omegac') else 1.0
         )
         
-        # Add console tracker to simulation (check every step but handle timing internally)
+        # Add console tracker to simulation
+        console_trigger = self._observable_trigger_period(self.console_output_period_ps)
         console_updater = hoomd.update.CustomUpdater(
             action=console_tracker,
-            trigger=hoomd.trigger.Periodic(1)  # Check every step but tracker handles timing internally
+            trigger=hoomd.trigger.Periodic(period=console_trigger)
         )
         self.sim.operations.updaters.append(console_updater)
         
         self.log_info(" Console output setup completed:")
-        self.log_info(f"  Output period: {self.console_output_period_ps:.3f} ps (accurate time-based)")
+        self.log_info(f"  Output period: {self.console_output_period_ps:.3f} ps (trigger every {console_trigger} steps)")
         if self.incavity:
             if hasattr(self, 'lambda_coupling') and self.lambda_coupling is not None:
                 self.log_info(f"  Lambda coupling column: {self.lambda_coupling:.6e} (dimensionless) (displayed in real-time)")

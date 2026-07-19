@@ -503,22 +503,12 @@ class ObservableWriter(hoomd.custom.Action):
         Called by HOOMD at each timestep according to the trigger.
         """
         current_time_ps = self.time_tracker.elapsed_time
-        
-        # DEBUG: Log first few calls
-        if self.write_count < 3 or timestep % 100000 == 0:
-            print(f"[HDF5 Writer DEBUG] timestep={timestep}, current_time_ps={current_time_ps:.3f}, last_output_time={self.last_output_time}, write_count={self.write_count}")
-        
+
         # Check if it's time to output
         if not self._should_output(current_time_ps):
-            if self.write_count < 3:
-                print(f"[HDF5 Writer DEBUG] Skipping output: not time yet (current={current_time_ps:.3f}, last={self.last_output_time}, period={self.output_period_ps})")
             return
-        
+
         with self.lock:
-            # DEBUG: Confirm we're writing
-            if self.write_count < 3:
-                print(f"[HDF5 Writer DEBUG] Writing data point {self.current_index} at time {current_time_ps:.3f} ps")
-            
             # Resize datasets only if not pre-allocated (SWMR mode uses pre-allocation)
             if self.preallocated_size is None:
                 # Dynamic resizing mode

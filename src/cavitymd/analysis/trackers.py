@@ -307,6 +307,9 @@ class EnergyTracker(hoomd.custom.Action):
             # === 5. WRITE OUTPUT DATA (only if CSV output enabled) ===
             if self.enable_csv_output:
                 self._write_energy_data(timestep, current_time_ps)
+            else:
+                # Advance gate even when HDF5 consumes cached values (no CSV write).
+                self.last_output_time = current_time_ps
 
             if self.verbose == "verbose":
                 print(f"=== END ENERGY TRACKER DEBUG - Timestep {timestep} ===\n", flush=True)

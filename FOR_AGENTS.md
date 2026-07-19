@@ -29,6 +29,7 @@ Fixed physical settings (production protocol):
 - **Cavity bath:** Langevin on the `L` particle
 - **F(k,t):** enabled in production (`|k| = 6.02` a.u. for paper Fig. 2; see `run_packed_aging_task.py`)
 - **GSD trajectories:** disabled in production (`--disable-gsd`); observables go to HDF5
+- **Electrostatics:** PPPM order 6 (default). Opt-in reaction field for ~3× speed when force fidelity is acceptable (see below).
 
 Reference profile for analysis staging: `reproduction/profiles/aging_weak_lambda.yaml`.
 
@@ -149,6 +150,31 @@ cd /scratch/mh7373/projects/cav-hoomd/examples
   --disable-gsd --console-output-period-ps 100.0 \
   --replicas 0 --seed 1
 ```
+
+### Opt-in reaction-field electrostatics (speed mode)
+
+PPPM is the production default. For physics-only throughput targets (~2500 steps/s),
+use cutoff-based reaction field (validated 2026-07-18 on 501-particle GPU stack):
+
+```bash
+python examples/05_advanced_run.py \
+  ... \
+  --electrostatics reaction_field \
+  --eps-rf 0.0 \
+  --coulomb-rcut 15.0
+```
+
+| Flag | Default | Purpose |
+|------|---------|---------|
+| `--electrostatics {pppm,reaction_field}` | `pppm` | Coulomb backend |
+| `--pppm-order` | `6` | PPPM interpolation order |
+| `--pppm-grid` | `32` | PPPM mesh resolution |
+| `--eps-rf` | `0.0` | RF dielectric (`0` = conducting/tinfoil limit in HOOMD) |
+| `--coulomb-rcut` | `15.0` | Real-space Coulomb cutoff (Å) |
+
+**Benchmarks:** `benchmarks/electrostatic_force_match.py`, `benchmarks/bench_electrostatics_tps.py`, `benchmarks/observable_validation.py`. Results in `benchmarks/results/electrostatics_validation.md`.
+
+**Validated RF performance:** ~3540 steps/s physics-only vs ~1176 for PPPM order 6; force-match cosine ~0.997 vs PPPM reference. Absolute Coulomb energies differ by ~2.4 Hartree (expected); use force matching + dynamic observables, not raw Ewald energy equality, when judging RF.
 
 ---
 

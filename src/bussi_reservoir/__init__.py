@@ -7,7 +7,7 @@
 import hoomd
 import warnings
 _REQUIRED_HOOMD_VERSION = "5.2.0"
-_ALLOWED_HOOMD_VERSIONS = ["5.2.0", "5.4.0"]
+_ALLOWED_HOOMD_VERSIONS = ["5.2.0", "5.4.0", "7.1.0"]
 
 if hoomd.version.version not in _ALLOWED_HOOMD_VERSIONS:
     raise ImportError(

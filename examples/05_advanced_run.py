@@ -128,7 +128,10 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
                          dipole_output_period_ps=1.0, error_tolerance=5.0, initial_fraction=1e-5, 
                          time_constant_ps=50.0, zero_momentum_enabled=False, zero_momentum_period_ps=1.0,
                          input_gsd='init-0.gsd',
-                         enable_temp_tracker=True, enable_hdf5_output=True):
+                         enable_temp_tracker=True, enable_hdf5_output=True,
+                         hdf5_output_period_ps=0.01,
+                         electrostatics_method='pppm', pppm_order=6, pppm_grid=32,
+                         eps_rf=0.0, coulomb_rcut=15.0):
     """
     Run a single experiment using the CavityMDSimulation class from the plugin.
     """
@@ -258,6 +261,12 @@ def run_single_experiment(molecular_thermo, cavity_thermo, finite_q,
             zero_momentum_period_ps=zero_momentum_period_ps,
             enable_temp_tracker=enable_temp_tracker,
             enable_hdf5_output=enable_hdf5_output,
+            hdf5_output_period_ps=hdf5_output_period_ps,
+            electrostatics_method=electrostatics_method,
+            pppm_order=pppm_order,
+            pppm_grid=pppm_grid,
+            eps_rf=eps_rf,
+            coulomb_rcut=coulomb_rcut,
         )
         
         # Run the simulation
@@ -397,6 +406,43 @@ def main():
                        help='Disable comprehensive temperature tracker output')
     parser.add_argument('--disable-hdf5-output', dest='enable_hdf5_output', action='store_false',
                        help='Disable HDF5 observable writer output')
+    parser.add_argument('--hdf5-output-period-ps', type=float, default=0.01,
+                       help='HDF5 observable writer output period in ps (default: 0.01)')
+
+    # Electrostatics backend
+    parser.add_argument(
+        '--electrostatics',
+        type=str,
+        default='pppm',
+        choices=['pppm', 'reaction_field'],
+        help='Coulomb electrostatics method (default: pppm)',
+    )
+    parser.add_argument(
+        '--pppm-order',
+        type=int,
+        default=6,
+        help='PPPM interpolation order when --electrostatics=pppm (default: 6)',
+    )
+    parser.add_argument(
+        '--pppm-grid',
+        type=int,
+        default=32,
+        help='PPPM mesh size per dimension when --electrostatics=pppm (default: 32)',
+    )
+    parser.add_argument(
+        '--eps-rf',
+        type=float,
+        default=0.0,
+        help='Reaction-field dielectric constant eps_RF (0 = conducting/tinfoil limit)',
+    )
+    parser.add_argument(
+        '--coulomb-rcut',
+        type=float,
+        default=15.0,
+        help='Real-space Coulomb cutoff in length units (default: 15.0)',
+    )
+    
+    # GSD output control
     parser.add_argument('--truncate-gsd', action='store_true', 
                        help='Truncate GSD output file if it exists (default: append)')
     
@@ -543,6 +589,12 @@ def main():
             input_gsd=args.input_gsd,
             enable_temp_tracker=args.enable_temp_tracker,
             enable_hdf5_output=args.enable_hdf5_output,
+            hdf5_output_period_ps=args.hdf5_output_period_ps,
+            electrostatics_method=args.electrostatics,
+            pppm_order=args.pppm_order,
+            pppm_grid=args.pppm_grid,
+            eps_rf=args.eps_rf,
+            coulomb_rcut=args.coulomb_rcut,
         )
         
         if success:

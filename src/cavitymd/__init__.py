@@ -35,7 +35,7 @@ on_rtd = (os.environ.get('READTHEDOCS') == 'True' or
           os.environ.get('RTD_ENV_NAME') is not None or
           'readthedocs' in os.environ.get('HOSTNAME', '').lower())
 
-_ALLOWED_HOOMD_VERSIONS = ["5.2.0", "5.4.0"]
+_ALLOWED_HOOMD_VERSIONS = ["5.2.0", "5.4.0", "7.1.0"]
 
 if not on_rtd:
     # Only enforce strict version checking when not building documentation

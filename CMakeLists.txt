@@ -144,31 +144,31 @@ endif()
 
 # Install the libraries
 install(TARGETS _bussi_reservoir
-        LIBRARY DESTINATION ${Python_SITEARCH}/hoomd/bussi_reservoir
+        LIBRARY DESTINATION ${PYTHON_SITE_INSTALL_DIR}/bussi_reservoir
         )
 
 install(TARGETS _cavitymd
-        LIBRARY DESTINATION ${Python_SITEARCH}/hoomd/cavitymd
+        LIBRARY DESTINATION ${PYTHON_SITE_INSTALL_DIR}/cavitymd
         )
 
 # install(TARGETS _langevin
-#         LIBRARY DESTINATION ${Python_SITEARCH}/hoomd/langevin
+#         LIBRARY DESTINATION ${PYTHON_SITE_INSTALL_DIR}/langevin
 #         )
 
 # Install the python packages
 install(DIRECTORY src/bussi_reservoir/
-        DESTINATION ${Python_SITEARCH}/hoomd/bussi_reservoir
+        DESTINATION ${PYTHON_SITE_INSTALL_DIR}/bussi_reservoir
         FILES_MATCHING PATTERN "*.py"
         )
 
 # Install the cavity module python packages
 install(DIRECTORY src/cavitymd/
-        DESTINATION ${Python_SITEARCH}/hoomd/cavitymd
+        DESTINATION ${PYTHON_SITE_INSTALL_DIR}/cavitymd
         FILES_MATCHING PATTERN "*.py"
         )
 
 # Install the langevin module python packages - DISABLED: Missing source files
 # install(DIRECTORY src/langevin/
-#         DESTINATION ${Python_SITEARCH}/hoomd/langevin
+#         DESTINATION ${PYTHON_SITE_INSTALL_DIR}/langevin
 #         FILES_MATCHING PATTERN "*.py"
 #         )

@@ -1,0 +1,15 @@
+# Performance benchmark summary (501 particles, GPU, 30 ps production stack)
+# Date: 2026-07-18
+
+## Before fixes
+A_baseline tps=616.26027 ns_per_day=52.59 sim_ps=20.00200
+B_minimal tps=748.16527 ns_per_day=63.74 sim_ps=20.00200
+C_no_energy tps=605.47217 ns_per_day=51.63 sim_ps=20.00200  # note: energy tracker was always on regardless of flag
+
+## After fixes (EnergyTracker gate, step-based triggers, HDF5 cadence sync)
+A_baseline_fixed tps=927.07607 ns_per_day=78.66 sim_ps=20.00000
+
+## Speedup (full production stack)
+# tps: 616 -> 927 (+50%)
+# ns/day: 52.6 -> 78.7 (+50%)
+# wall time (30 ps run): ~49s -> ~34s
